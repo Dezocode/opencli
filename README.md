@@ -5,6 +5,10 @@
 <h1 align="center">OpenCLI</h1>
 
 <p align="center">
+  <em>📹 Demo video coming soon - check <a href="https://github.com/Dezocode/opencli/releases">releases</a> for screen recordings</em>
+</p>
+
+<p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"/></a>
   <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.2.1-green.svg" alt="Version"/></a>
