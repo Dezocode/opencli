@@ -1,0 +1,57 @@
+# OpenCLI .gitignore
+
+# Secrets and API keys
+.secrets
+*.secret
+*.key
+
+# Generated context files (temp directory)
+agents/temp/compiled_*.txt
+agents/temp/context_*.txt
+
+# Context cache
+agents/contexts/agents_md_cache.json
+agents/contexts/project_contexts/*
+
+# Session data
+sessions/*.json
+
+# Background tasks
+bashes/*
+
+# Config (contains user-specific settings)
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Archive directory (track structure but ignore versioned installers)
+archive/install-v*.sh
+archive/version-*.json
+
+# Upgrade backups
+upgrade_backups/

@@ -1,0 +1,84 @@
+{
+  "version": "1.2.1",
+  "release_date": "2025-10-01",
+  "changelog": [
+    {
+      "version": "1.2.1",
+      "date": "2025-10-01",
+      "changes": [
+        "Added video file support (.mp4, .mov, .avi, .mkv, etc.)",
+        "Added video placeholder display [video #N] with detection",
+        "Improved prompt box spacing - consistent 1-line gap",
+        "Updated border color to softer gray (#888888)",
+        "Updated status bar blue to softer Gemini-style (#7aa2f7)",
+        "Prepared for public GitHub release with MIT license",
+        "Added comprehensive CONTRIBUTING.md",
+        "Updated install.sh to support curl one-liner installation",
+        "Added banner support to README",
+        "Changed copyright to 'dezocode' as sole author"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test pasting video file paths - should show [video #N] placeholder",
+        "Verify spacing between prompt and status bar is consistent",
+        "Check border and status bar colors are softer",
+        "Test curl install method works correctly"
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2025-10-01",
+      "changes": [
+        "Added intelligent prompt processing system",
+        "Added automatic image path detection and placeholder replacement",
+        "Added pasted text block detection and collapsing",
+        "Added /exit and /quit commands to registry (both slash and non-slash)",
+        "Added auto-merge for new commands in permission system",
+        "Fixed command registry to handle upgrades with new commands seamlessly"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test pasting image file paths - should show [image #N] placeholder",
+        "Test pasting large text blocks - should show [pasted text #N] placeholder",
+        "Test /exit and /quit commands appear in /commands setup",
+        "Verify original content is preserved and sent to API"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2025-10-01",
+      "changes": [
+        "Added comprehensive version control system with /upgrade and /rollback commands",
+        "Added command permission system with /commands for granular control",
+        "Added emergency rollback via opencli --rollback flag (standalone bash recovery)",
+        "Added orphan detection in install.sh for new/removed modules",
+        "Added extensive version control documentation (archive/VERSION_CONTROL.md)",
+        "Added automatic backup creation before upgrades",
+        "Added step-by-step verification during upgrades",
+        "Added auto-rollback on upgrade failure"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /commands to view and manage command permissions",
+        "Test /commands setup for interactive permission configuration",
+        "Verify command registry initialization on startup",
+        "Check that disabled commands show appropriate error messages"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2025-10-01",
+      "changes": [
+        "Initial release",
+        "Agent system with 7 built-in agents",
+        "Smart context caching (99% token reduction)",
+        "GitHub integration via gh CLI",
+        "AGENTS.md specification support",
+        "CLI environment awareness",
+        "5-file rolling cleanup",
+        "Dynamic tool discovery"
+      ],
+      "bump_type": "major"
+    }
+  ]
+}
