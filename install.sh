@@ -37,7 +37,7 @@ else
         }
     else
         echo -e "${BLUE}Cloning repository...${NC}"
-        git clone https://github.com/dezmondhollins/opencli.git "$REPO_DIR" || {
+        git clone https://github.com/Dezocode/opencli.git "$REPO_DIR" || {
             echo -e "${RED}Failed to clone repository${NC}"
             exit 1
         }

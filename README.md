@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"/></a>
-  <a href="https://github.com/dezmondhollins/opencli/releases"><img src="https://img.shields.io/badge/version-1.2.1-green.svg" alt="Version"/></a>
+  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.2.1-green.svg" alt="Version"/></a>
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@
 ### One-Line Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dezmondhollins/opencli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Dezocode/opencli/main/install.sh | bash
 ```
 
 This will:
@@ -54,7 +54,7 @@ This will:
 
 ```bash
 # Clone the repository
-git clone https://github.com/dezmondhollins/opencli.git ~/opencli
+git clone https://github.com/Dezocode/opencli.git ~/opencli
 cd ~/opencli
 
 # Run installer
