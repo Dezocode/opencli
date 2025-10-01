@@ -1,12 +1,21 @@
-<p align="center">
-  <img src="assets/banner.png" alt="OpenCLI Banner" width="800"/>
-</p>
+<div align="center">
 
-<h1 align="center">OpenCLI</h1>
+```
+╔═══════════════════════════════════════════════════════════╗
+║                                                           ║
+║   ██████╗ ██████╗ ███████╗███╗   ██╗     ██████╗██╗     ║
+║  ██╔═══██╗██╔══██╗██╔════╝████╗  ██║    ██╔════╝██║     ║
+║  ██║   ██║██████╔╝█████╗  ██╔██╗ ██║    ██║     ██║     ║
+║  ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║    ██║     ██║     ║
+║  ╚██████╔╝██║     ███████╗██║ ╚████║    ╚██████╗███████╗║
+║   ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚═════╝╚══════╝║
+║                                                           ║
+╚═══════════════════════════════════════════════════════════╝
+```
 
-<p align="center">
-  <em>📹 Demo video coming soon - check <a href="https://github.com/Dezocode/opencli/releases">releases</a> for screen recordings</em>
-</p>
+# OpenCLI
+
+</div>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"/></a>
