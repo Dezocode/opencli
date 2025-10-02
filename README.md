@@ -50,7 +50,7 @@
 ### One-Line Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Dezocode/opencli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Dezocode/opencli/Main/install.sh | bash
 ```
 
 This will:
