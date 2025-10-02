@@ -11,6 +11,20 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Check for required commands
+if ! command -v git &> /dev/null; then
+    echo -e "${RED}Error: git is required but not installed.${NC}"
+    echo "Please install git first:"
+    echo "  macOS:  brew install git"
+    echo "  Ubuntu: sudo apt-get install git"
+    exit 1
+fi
+
+if ! command -v python3 &> /dev/null; then
+    echo -e "${RED}Error: python3 is required but not installed.${NC}"
+    exit 1
+fi
+
 # Check if running from curl (stdin is not a terminal)
 if [ -t 0 ]; then
     # Running from a cloned repo
@@ -31,7 +45,7 @@ else
             exit 1
         fi
         cd "$REPO_DIR"
-        git pull origin main || {
+        git pull origin Main || {
             echo -e "${RED}Failed to update repository${NC}"
             exit 1
         }
@@ -141,12 +155,26 @@ check_dependency "yaml"
 if [ -n "$MISSING_DEPS" ]; then
     echo ""
     echo -e "${YELLOW}Missing dependencies detected.${NC}"
+
+    # Check if pip3 is available
+    if ! command -v pip3 &> /dev/null; then
+        echo -e "${RED}Error: pip3 is required to install dependencies${NC}"
+        echo "Install with:"
+        echo "  macOS:  python3 -m ensurepip --upgrade"
+        echo "  Ubuntu: sudo apt-get install python3-pip"
+        exit 1
+    fi
+
     echo "Install with: pip3 install$MISSING_DEPS"
     echo ""
     read -p "Install now? (y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        pip3 install$MISSING_DEPS
+        pip3 install$MISSING_DEPS || {
+            echo -e "${RED}Failed to install dependencies${NC}"
+            echo "Try manually: pip3 install openai prompt_toolkit pyyaml"
+            exit 1
+        }
         echo -e "${GREEN}✓ Dependencies installed${NC}"
     fi
 fi
