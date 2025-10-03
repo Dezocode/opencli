@@ -935,7 +935,20 @@ def interactive(config, session=None, initial=None):
             print(f"\033[33m⚠️  API server initialization failed: {e}\033[0m\n")
 
     print(ASCII_ART)
-    print(f"\033[2mOpenCLI - OpenRouter CLI\033[0m")
+
+    # Load version from metadata
+    version_file = CONFIG_DIR / "version.json"
+    version_str = "unknown"
+    if version_file.exists():
+        try:
+            import json
+            with open(version_file) as f:
+                version_data = json.load(f)
+                version_str = version_data.get('version', 'unknown')
+        except:
+            pass
+
+    print(f"\033[2mOpenCLI - version {version_str}\033[0m")
     agent_info = f" | Agent: {session.current_agent}" if AGENT_SYSTEM and agent_manager else ""
     print(f"\033[2mSession: {session.session_id[:8]} | Model: {session.model or config['model']}{agent_info}\033[0m\n")
 
