@@ -130,6 +130,65 @@ class UpgradeManager:
             return result['stdout'].strip()
         return None
 
+    def create_upgrade_worktree(self, new_version):
+        """
+        Create a git worktree for testing the upgrade
+        Returns: dict with worktree path and branch name
+        """
+        worktree_dir = self.config_dir / "upgrade-test"
+        branch_name = f"v{new_version}"
+
+        # Clean up existing worktree if it exists
+        if worktree_dir.exists():
+            self.log(f"Removing existing upgrade worktree at {worktree_dir}")
+            result = self.run_command(f"git worktree remove {worktree_dir} --force")
+            if not result['success']:
+                # Force removal via filesystem if git command fails
+                import shutil
+                shutil.rmtree(worktree_dir, ignore_errors=True)
+
+        # Create new worktree with version branch
+        self.log(f"Creating upgrade worktree: {branch_name} at {worktree_dir}")
+
+        # Check if branch already exists
+        result = self.run_command(f"git rev-parse --verify {branch_name}")
+        branch_exists = result['success']
+
+        if branch_exists:
+            # Use existing branch
+            result = self.run_command(f"git worktree add {worktree_dir} {branch_name}")
+        else:
+            # Create new branch from current HEAD
+            result = self.run_command(f"git worktree add -b {branch_name} {worktree_dir}")
+
+        if result['success']:
+            self.log(f"Worktree created successfully: {worktree_dir}")
+            return {
+                'success': True,
+                'worktree_path': str(worktree_dir),
+                'branch_name': branch_name
+            }
+        else:
+            self.log(f"Failed to create worktree: {result['stderr']}", "ERROR")
+            return {
+                'success': False,
+                'error': result['stderr']
+            }
+
+    def cleanup_upgrade_worktree(self):
+        """Remove upgrade worktree"""
+        worktree_dir = self.config_dir / "upgrade-test"
+        if worktree_dir.exists():
+            result = self.run_command(f"git worktree remove {worktree_dir} --force")
+            if result['success']:
+                self.log("Upgrade worktree cleaned up")
+                return True
+            else:
+                import shutil
+                shutil.rmtree(worktree_dir, ignore_errors=True)
+                return True
+        return True
+
     def preflight_checks(self):
         """Run pre-upgrade checks"""
         checks = []
@@ -432,15 +491,19 @@ class UpgradeManager:
             f.write(entry)
             f.write(existing_content)
 
-    def install_new_version(self):
-        """Run installation script"""
+    def install_new_version(self, worktree_path=None):
+        """Run installation script from repo or worktree"""
         self.log("Running installation script")
 
-        install_script = self.repo_dir / "install.sh"
-        if not install_script.exists():
-            return {'success': False, 'error': 'install.sh not found'}
+        # Use worktree path if provided, otherwise use main repo
+        install_dir = Path(worktree_path) if worktree_path else self.repo_dir
+        install_script = install_dir / "install.sh"
 
-        result = self.run_command(f"bash {install_script}", timeout=120)
+        if not install_script.exists():
+            return {'success': False, 'error': f'install.sh not found in {install_dir}'}
+
+        self.log(f"Installing from: {install_dir}")
+        result = self.run_command(f"bash {install_script}", cwd=install_dir, timeout=120)
 
         if result['success']:
             self.log("Installation completed successfully")
@@ -603,14 +666,20 @@ class UpgradeManager:
             'message': 'Context directories exist' if not missing else f"Missing: {', '.join(missing)}"
         }
 
-    def perform_upgrade(self, auto_rollback=True):
+    def perform_upgrade(self, auto_rollback=True, worktree_path=None):
         """
         Perform full upgrade with verification
+
+        Args:
+            auto_rollback: Auto-rollback on failure
+            worktree_path: Path to worktree for installation (optional)
+
         Returns: dict with success status and details
         """
         upgrade_log = {
             'started': datetime.now().isoformat(),
-            'steps': []
+            'steps': [],
+            'worktree_path': worktree_path
         }
 
         # Step 1: Pre-flight checks
@@ -675,7 +744,7 @@ class UpgradeManager:
 
         # Step 6: Install new version
         self.log("Step 5: Installing new version")
-        install_result = self.install_new_version()
+        install_result = self.install_new_version(worktree_path=worktree_path)
         upgrade_log['steps'].append({
             'name': 'Installation',
             'result': install_result

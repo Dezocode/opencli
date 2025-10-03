@@ -437,25 +437,28 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             return True
 
         manager = UpgradeManager()
-
-        # Check current branch - NEVER upgrade Main directly
         current_branch = manager.get_current_branch()
+        new_version = manager.get_new_version()
 
-        if current_branch == "Main":
-            print("\n❌ Cannot upgrade Main branch directly!\n")
-            print("📋 Recommended workflow:")
-            print("  1. Create a version branch for testing:")
-            new_version = manager.get_new_version()
-            print(f"     git checkout -b v{new_version}")
-            print("  2. Run /upgrade on the version branch to test changes")
-            print("  3. Test the upgraded version thoroughly")
-            print("  4. Merge to Main after verification:")
-            print("     git checkout Main")
-            print("     git merge v{} --no-ff".format(new_version))
-            print()
+        print(f"\n🔄 OpenCLI Upgrade System\n")
+        print(f"Current branch: {current_branch}")
+        print(f"New version: v{new_version}\n")
+
+        # Create upgrade worktree
+        print("📁 Creating upgrade worktree for isolated testing...")
+        worktree_result = manager.create_upgrade_worktree(new_version)
+
+        if not worktree_result['success']:
+            print(f"❌ Failed to create worktree: {worktree_result.get('error')}\n")
             return True
 
-        print(f"\n🔄 OpenCLI Upgrade System (Branch: {current_branch})\n")
+        worktree_path = worktree_result['worktree_path']
+        branch_name = worktree_result['branch_name']
+
+        print(f"✓ Worktree created at: {worktree_path}")
+        print(f"✓ Branch: {branch_name}\n")
+
+        print(f"\n🔄 OpenCLI Upgrade System (Worktree: {branch_name})\n")
 
         # Pre-flight checks
         print("Running pre-flight checks...")
@@ -599,9 +602,9 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             print("Upgrade cancelled.\n")
             return True
 
-        # Perform upgrade
-        print("\n🚀 Starting upgrade...\n")
-        result = manager.perform_upgrade(auto_rollback=True)
+        # Perform upgrade in worktree
+        print("\n🚀 Starting upgrade in worktree...\n")
+        result = manager.perform_upgrade(auto_rollback=True, worktree_path=worktree_path)
 
         if result['success']:
             print("✅ Upgrade completed successfully!\n")
@@ -619,7 +622,17 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
                     print(f"  ☐ {step}")
                 print()
 
-            print("🎯 Please restart opencli to use the new version")
+            print("🎯 Next steps to complete the upgrade:")
+            print(f"  1. Test the upgraded version (now running from {branch_name})")
+            print("  2. If satisfied, commit changes to version branch:")
+            print(f"     cd {worktree_path}")
+            print("     git add .")
+            print(f"     git commit -m 'Upgrade to v{new_version}'")
+            print("  3. Merge to Main:")
+            print("     git checkout Main")
+            print(f"     git merge {branch_name} --no-ff")
+            print("  4. Clean up worktree:")
+            print(f"     git worktree remove {worktree_path}")
             print()
 
             # Offer to exit
