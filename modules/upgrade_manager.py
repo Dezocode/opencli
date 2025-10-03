@@ -207,6 +207,60 @@ class UpgradeManager:
             'name': 'opencli'
         }
 
+    def create_secure_pr(self, branch_name, pr_title, pr_body):
+        """
+        Create PR to upstream using user's own GitHub credentials
+        SECURITY: Uses user's gh CLI auth - no access to maintainer credentials
+        """
+        repo_info = self.get_repo_info()
+
+        if not repo_info['success'] or not repo_info['is_fork']:
+            return {
+                'success': False,
+                'error': 'Repository must be a fork to submit PRs. Fork the repo first: gh repo fork'
+            }
+
+        user_owner = repo_info['owner']
+
+        # Push to user's fork (their origin remote)
+        self.log(f"Pushing branch {branch_name} to user's fork...")
+        push_result = self.run_command(f"git push origin {branch_name}", timeout=30)
+
+        if not push_result['success']:
+            return {
+                'success': False,
+                'error': f"Failed to push to your fork: {push_result['stderr']}"
+            }
+
+        # Create PR from user's fork to upstream using gh CLI
+        # This uses the USER's GitHub credentials, not the maintainer's
+        self.log(f"Creating PR from {user_owner}:{branch_name} to {self.upstream_owner}:Main")
+
+        pr_command = (
+            f'gh pr create '
+            f'--repo {self.upstream_owner}/{self.upstream_repo} '
+            f'--head {user_owner}:{branch_name} '
+            f'--base Main '
+            f'--title "{pr_title}" '
+            f'--body "{pr_body}"'
+        )
+
+        pr_result = self.run_command(pr_command, timeout=30)
+
+        if pr_result['success']:
+            # Extract PR URL from output
+            pr_url = pr_result['stdout'].strip()
+            return {
+                'success': True,
+                'pr_url': pr_url,
+                'message': f'PR created successfully: {pr_url}'
+            }
+        else:
+            return {
+                'success': False,
+                'error': pr_result['stderr']
+            }
+
     def create_upgrade_worktree(self, new_version):
         """
         Create a git worktree for testing the upgrade from upstream

@@ -977,6 +977,101 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
 
         return True
 
+    elif cmd == "/contribute":
+        if not UPGRADE_SYSTEM:
+            print("❌ Contribution system not available\n")
+            return True
+
+        manager = UpgradeManager()
+        repo_info = manager.get_repo_info()
+
+        print("\n🤝 Contribute to OpenCLI\n")
+
+        # Check if repository is a fork
+        if not repo_info['success'] or not repo_info['is_fork']:
+            print("❌ This repository is not a fork of the official repo.\n")
+            print("To contribute, you need to:")
+            print("  1. Fork the official repository:")
+            print(f"     gh repo fork {manager.upstream_owner}/{manager.upstream_repo} --clone=false")
+            print("  2. Clone your fork:")
+            print(f"     gh repo clone YOUR_USERNAME/{manager.upstream_repo}")
+            print("  3. Run opencli from your fork")
+            print()
+            return True
+
+        current_branch = manager.get_current_branch()
+        user_owner = repo_info['owner']
+
+        print(f"Repository: {user_owner}/{repo_info['name']} (fork)")
+        print(f"Current branch: {current_branch}\n")
+
+        if current_branch == "Main":
+            print("⚠️  You're on Main branch. Create a feature branch first:")
+            print("   git checkout -b feature/your-feature-name")
+            print()
+            return True
+
+        print("📝 PR Details:\n")
+
+        # Get PR title
+        try:
+            pr_title = input("PR Title: ").strip()
+            if not pr_title:
+                print("\nCancelled.\n")
+                return True
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.\n")
+            return True
+
+        # Get PR description
+        print("\nPR Description (press Ctrl+D when done):")
+        pr_body_lines = []
+        try:
+            while True:
+                line = input()
+                pr_body_lines.append(line)
+        except (KeyboardInterrupt, EOFError):
+            pass
+
+        pr_body = "\\n".join(pr_body_lines)
+
+        if not pr_body:
+            pr_body = "No description provided."
+
+        print()
+
+        # Confirm
+        print("=" * 60)
+        print(f"Title: {pr_title}")
+        print(f"From:  {user_owner}:{current_branch}")
+        print(f"To:    {manager.upstream_owner}:Main")
+        print("=" * 60)
+        print()
+
+        try:
+            response = input("Create PR? (y/n): ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.\n")
+            return True
+
+        if response != 'y':
+            print("Cancelled.\n")
+            return True
+
+        # Create PR
+        print("\n🚀 Creating PR...\n")
+        pr_result = manager.create_secure_pr(current_branch, pr_title, pr_body)
+
+        if pr_result['success']:
+            print(f"✅ PR created successfully!\n")
+            print(f"🔗 {pr_result['pr_url']}\n")
+            print("Your contribution has been submitted for review.")
+            print("Thank you for contributing to OpenCLI! 🙏\n")
+        else:
+            print(f"❌ Failed to create PR: {pr_result.get('error')}\n")
+
+        return True
+
     elif cmd == "/help":
         print("\nAvailable commands:")
         print("  /model [name]  - View or change model")
@@ -989,6 +1084,7 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
         if UPGRADE_SYSTEM:
             print("  /upgrade       - Upgrade to latest version")
             print("  /rollback      - Rollback to previous version")
+            print("  /contribute    - Submit PR to official repo (fork required)")
         if COMMAND_REGISTRY:
             print("  /commands      - Manage command permissions")
         if TOOL_PERMISSIONS:
