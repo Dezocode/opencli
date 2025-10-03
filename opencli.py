@@ -59,6 +59,14 @@ try:
 except ImportError:
     TOOL_PERMISSIONS = False
 
+# API server imports
+try:
+    from api_server import APIServer, SessionRegistry, MessageQueue
+    from api_client import OpenCLIClient
+    API_SERVER = True
+except ImportError:
+    API_SERVER = False
+
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.formatted_text import HTML, FormattedText
@@ -757,6 +765,68 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
 
         return True
 
+    elif cmd == "/api":
+        if not API_SERVER:
+            print("❌ API server not available\n")
+            return True
+
+        if not args:
+            # Show API status
+            if hasattr(session, 'api_server') and session.api_server:
+                if session.api_server.is_running():
+                    config = session.api_server.config.config
+                    print(f"\n🌐 API Server Status: RUNNING")
+                    print(f"   URL: http://{config['host']}:{config['port']}")
+                    print(f"   Active sessions: {len(SessionRegistry().list_active_sessions())}")
+                else:
+                    print("\n🌐 API Server Status: STOPPED")
+            else:
+                print("\n🌐 API Server Status: NOT INITIALIZED")
+            print()
+            return True
+
+        subcommand = args.split()[0].lower()
+
+        if subcommand == "start":
+            if not hasattr(session, 'api_server'):
+                session.api_server = APIServer(CONFIG_DIR)
+
+            if session.api_server.is_running():
+                print("✓ API server already running\n")
+            else:
+                if session.api_server.start():
+                    config = session.api_server.config.config
+                    print(f"✓ API server started at http://{config['host']}:{config['port']}\n")
+                else:
+                    print("❌ Failed to start API server\n")
+
+        elif subcommand == "stop":
+            if hasattr(session, 'api_server') and session.api_server:
+                session.api_server.stop()
+                print("✓ API server stopped\n")
+            else:
+                print("❌ API server not running\n")
+
+        elif subcommand == "sessions":
+            registry = SessionRegistry(CONFIG_DIR)
+            sessions_list = registry.list_active_sessions()
+            print(f"\n📋 Active Sessions: {len(sessions_list)}\n")
+            for s in sessions_list:
+                print(f"  {s['session_id'][:8]} | {s.get('model', 'unknown')} | {s.get('agent', 'assistant')}")
+                print(f"    PID: {s.get('pid')} | CWD: {s.get('cwd')}")
+            print()
+
+        elif subcommand == "messages":
+            queue = MessageQueue(CONFIG_DIR)
+            messages = queue.get_messages(session.session_id, delete=False)
+            print(f"\n📬 Messages for this session: {len(messages)}\n")
+            for msg in messages:
+                print(f"  From: {msg['from'][:8]} | Type: {msg['type']}")
+                print(f"  {msg['payload']}")
+                print()
+
+        return True
+
     elif cmd == "/help":
         print("\nAvailable commands:")
         print("  /model [name]  - View or change model")
@@ -773,6 +843,8 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             print("  /commands      - Manage command permissions")
         if TOOL_PERMISSIONS:
             print("  /permissions   - Manage tool permissions")
+        if API_SERVER:
+            print("  /api           - API server control (start/stop/sessions/messages)")
         print("  /help          - Show this help")
         print("  /exit or /quit - Exit\n")
         return True
@@ -841,6 +913,26 @@ def interactive(config, session=None, initial=None):
             session.permission_manager = ToolPermissionManager(CONFIG_DIR)
         except Exception as e:
             print(f"\033[33m⚠️  Tool permission system initialization failed: {e}\033[0m\n")
+
+    # Initialize API server and register session
+    if API_SERVER:
+        try:
+            session.api_server = APIServer(CONFIG_DIR)
+            # Auto-start API server if enabled in config
+            if session.api_server.config.config.get('enabled', False):
+                session.api_server.start()
+
+            # Register this session
+            registry = SessionRegistry(CONFIG_DIR)
+            registry.register_session(
+                session.session_id,
+                os.getpid(),
+                session.model or config['model'],
+                session.current_agent,
+                session.cwd
+            )
+        except Exception as e:
+            print(f"\033[33m⚠️  API server initialization failed: {e}\033[0m\n")
 
     print(ASCII_ART)
     print(f"\033[2mOpenCLI - OpenRouter CLI\033[0m")
@@ -1085,7 +1177,16 @@ def main():
         r = client.chat.completions.create(model=config["model"], messages=[{"role": "user", "content": prompt}])
         print(r.choices[0].message.content)
     else:
-        interactive(config, session, prompt)
+        try:
+            interactive(config, session, prompt)
+        finally:
+            # Cleanup: Unregister session on exit
+            if API_SERVER and session:
+                try:
+                    registry = SessionRegistry(CONFIG_DIR)
+                    registry.unregister_session(session.session_id)
+                except:
+                    pass
 
 if __name__ == "__main__":
     main()

@@ -337,6 +337,8 @@ if YOUR_MODULE:
 - `prompt_processor.py` - Prompt processing
 - `upgrade_manager.py` - Version upgrades
 - `rollback_manager.py` - Version rollback
+- `api_server.py` - HTTP API server for inter-CLI communication
+- `api_client.py` - Client library for API access
 
 **Root**: Only main entry point
 - `opencli.py` - Main CLI (keep under 1200 lines)

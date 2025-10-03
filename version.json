@@ -1,7 +1,34 @@
 {
-  "version": "1.2.3",
+  "version": "1.3.0",
   "release_date": "2025-10-02",
   "changelog": [
+    {
+      "version": "1.3.0",
+      "date": "2025-10-02",
+      "changes": [
+        "Added API server for inter-CLI communication",
+        "Added HTTP/REST API on port 7890 (127.0.0.1)",
+        "Added session registry for discovering active OpenCLI sessions",
+        "Added message queue for cross-session communication",
+        "Added /api command (start/stop/sessions/messages)",
+        "Added OpenCLIClient library for external integrations",
+        "Added IPC directory (~/.opencli/ipc) for session coordination",
+        "Added automatic session registration and cleanup",
+        "Enables external tools and CLIs to interact with OpenCLI",
+        "Supports session discovery, messaging, and tool invocation"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /api start command starts server",
+        "Test /api sessions shows active sessions",
+        "Test /api messages retrieves cross-session messages",
+        "Verify session registration on startup",
+        "Verify session cleanup on exit",
+        "Test OpenCLIClient library from Python",
+        "Verify HTTP API endpoints respond correctly",
+        "Test message queue between sessions"
+      ]
+    },
     {
       "version": "1.2.3",
       "date": "2025-10-02",
