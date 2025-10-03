@@ -955,6 +955,22 @@ def get_bottom_toolbar(session, config):
 
     return HTML(f'{line1}{line2}')
 
+def ensure_prompt_at_bottom():
+    """Ensure prompt area stays at bottom by scrolling content up if needed"""
+    # Get terminal height
+    try:
+        term_height = shutil.get_terminal_size().lines
+    except:
+        return
+
+    # Reserve 5 lines at bottom (3 for prompt box, 1 for status, 1 for buffer)
+    reserved_lines = 5
+
+    # Move cursor to ensure we have space for the prompt
+    # Print enough newlines to scroll content up
+    lines_to_add = min(reserved_lines, term_height // 3)
+    print("\n" * lines_to_add, end='', flush=True)
+
 def interactive(config, session=None, initial=None):
     client = OpenAI(base_url=config["baseURL"], api_key=config["apiKey"])
     session = session or Session(model=config["model"])
@@ -1204,6 +1220,10 @@ def interactive(config, session=None, initial=None):
             print(f"\n\033[31mError: {e}\033[0m\n")
 
         session.save()
+
+        # Ensure prompt area stays at bottom of screen
+        if RICH_PROMPT:
+            ensure_prompt_at_bottom()
 
         try:
             user_input = get_input()
