@@ -284,16 +284,16 @@ def execute_grep(pattern):
     except:
         return "No matches"
 
-def execute_tool(name, args, permission_manager=None):
+def execute_tool(name, args, permission_manager=None, current_dir=None):
     """Execute a tool, checking permissions for risky operations"""
 
     # Check if permission is required
     if permission_manager and TOOL_PERMISSIONS:
-        should_prompt, reason = permission_manager.should_prompt(name, args)
+        should_prompt, reason, path_risk = permission_manager.should_prompt(name, args, current_dir)
 
         if should_prompt:
-            # Show permission prompt
-            allowed, remember, session_mode = permission_manager.prompt_for_permission(name, args)
+            # Show permission prompt with path risk information
+            allowed, remember, session_mode = permission_manager.prompt_for_permission(name, args, current_dir)
 
             if not allowed:
                 return f"❌ Operation cancelled by user"
@@ -1006,7 +1006,7 @@ def interactive(config, session=None, initial=None):
 
                     for tc in tool_calls:
                         print(f"\033[2m⚙ {tc.function.name}\033[0m")
-                        result = execute_tool(tc.function.name, json.loads(tc.function.arguments), session.permission_manager)
+                        result = execute_tool(tc.function.name, json.loads(tc.function.arguments), session.permission_manager, session.cwd)
                         session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                     continue
 

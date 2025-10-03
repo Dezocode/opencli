@@ -1,9 +1,11 @@
 """
 OpenCLI Tool Permission System
 Manages user confirmation for risky tool operations (Edit, Write, Bash)
+Includes path-based risk detection for parent/outside directory access
 """
 
 import json
+import os
 from pathlib import Path
 from enum import Enum
 
@@ -11,6 +13,7 @@ class RiskLevel(Enum):
     SAFE = "safe"           # Read, Glob, Grep - auto-execute
     RISKY = "risky"         # Edit, Write - prompt for confirmation
     DANGEROUS = "dangerous"  # Bash - always prompt with command preview
+    CRITICAL = "critical"    # Parent/outside directories, system paths
 
 class ToolPermissionManager:
     def __init__(self, config_dir=None):
@@ -61,6 +64,62 @@ class ToolPermissionManager:
         """Check if tool is in allowed list"""
         return tool_name in self.permissions.get('allowed_tools', [])
 
+    def assess_path_risk(self, file_path, current_dir=None):
+        """
+        Assess risk level of file path
+
+        Returns: (risk_level: RiskLevel, reason: str)
+        """
+        if not file_path:
+            return RiskLevel.SAFE, "no path specified"
+
+        # Get current working directory
+        cwd = Path(current_dir or os.getcwd()).resolve()
+        target = Path(file_path).resolve()
+
+        # Critical paths (system directories)
+        critical_paths = [
+            Path('/etc').resolve(),          # Resolve symlinks (macOS: /etc -> /private/etc)
+            Path('/private/etc'),
+            Path('/bin').resolve(),
+            Path('/sbin').resolve(),
+            Path('/usr/bin'),
+            Path('/usr/sbin'),
+            Path('/System'),
+            Path('/Library'),
+            Path('/var'),
+            Path.home() / '.ssh',
+            Path.home() / '.aws',
+            Path.home() / '.config',
+        ]
+
+        # Check if target is in critical system path
+        for critical in critical_paths:
+            try:
+                if target.is_relative_to(critical):
+                    return RiskLevel.CRITICAL, f"system directory: {critical}"
+            except (ValueError, AttributeError):
+                # is_relative_to not available in older Python
+                try:
+                    target.relative_to(critical)
+                    return RiskLevel.CRITICAL, f"system directory: {critical}"
+                except ValueError:
+                    pass
+
+        # Check if target is outside current directory
+        try:
+            target.relative_to(cwd)
+            # Within current directory
+            return RiskLevel.SAFE, "within working directory"
+        except ValueError:
+            # Outside current directory
+            # Check if it's a parent directory
+            try:
+                cwd.relative_to(target)
+                return RiskLevel.DANGEROUS, f"parent directory: {target}"
+            except ValueError:
+                return RiskLevel.DANGEROUS, f"outside working directory: {target}"
+
     def add_allowed_tool(self, tool_name):
         """Add tool to allowed list (skip future prompts)"""
         if tool_name not in self.permissions.get('allowed_tools', []):
@@ -85,62 +144,123 @@ class ToolPermissionManager:
         self.auto_accept_mode = enabled
         self._save_permissions()
 
-    def should_prompt(self, tool_name, args=None):
+    def should_prompt(self, tool_name, args=None, current_dir=None):
         """
         Determine if we should prompt for permission
 
-        Returns: (should_prompt: bool, reason: str)
+        Returns: (should_prompt: bool, reason: str, path_risk: RiskLevel)
         """
+        # Assess path risk for file operations
+        path_risk = RiskLevel.SAFE
+        path_reason = ""
+
+        if args and tool_name in ['Edit', 'Write', 'Read']:
+            file_path = args.get('file_path')
+            if file_path:
+                path_risk, path_reason = self.assess_path_risk(file_path, current_dir)
+
+                # CRITICAL paths always require prompt (even for Read)
+                if path_risk == RiskLevel.CRITICAL:
+                    return True, f"CRITICAL: {path_reason}", path_risk
+
         # Check if in auto-accept mode (global or session)
         if self.auto_accept_mode or self.accept_all_session:
-            return False, "auto-accept enabled"
+            # Don't auto-accept CRITICAL or DANGEROUS path operations
+            if path_risk in [RiskLevel.CRITICAL, RiskLevel.DANGEROUS]:
+                return True, f"risky path: {path_reason}", path_risk
+            return False, "auto-accept enabled", path_risk
 
         # Check global auto-accept from config
         if self.permissions.get('auto_accept', False):
-            return False, "global auto-accept"
+            # Don't auto-accept CRITICAL or DANGEROUS path operations
+            if path_risk in [RiskLevel.CRITICAL, RiskLevel.DANGEROUS]:
+                return True, f"risky path: {path_reason}", path_risk
+            return False, "global auto-accept", path_risk
 
         # Check if tool is in allowed list
         if self.is_tool_allowed(tool_name):
-            return False, "tool allowed"
+            # Don't auto-allow CRITICAL path operations
+            if path_risk == RiskLevel.CRITICAL:
+                return True, f"CRITICAL path: {path_reason}", path_risk
+            # Warn about DANGEROUS paths even if tool is allowed
+            if path_risk == RiskLevel.DANGEROUS:
+                return True, f"risky path: {path_reason}", path_risk
+            return False, "tool allowed", path_risk
 
-        # Check risk level
-        risk = self.tool_risks.get(tool_name, RiskLevel.RISKY)
+        # Check tool risk level
+        tool_risk = self.tool_risks.get(tool_name, RiskLevel.RISKY)
 
-        if risk == RiskLevel.SAFE:
-            return False, "safe tool"
+        if tool_risk == RiskLevel.SAFE:
+            # Even safe tools need prompt for CRITICAL/DANGEROUS paths
+            if path_risk in [RiskLevel.CRITICAL, RiskLevel.DANGEROUS]:
+                return True, f"risky path: {path_reason}", path_risk
+            return False, "safe tool", path_risk
 
         # Risky and dangerous tools require prompt
-        return True, f"{risk.value} tool"
+        # Use higher of tool_risk and path_risk
+        effective_risk = max(tool_risk, path_risk, key=lambda r: ['safe', 'risky', 'dangerous', 'critical'].index(r.value))
+        return True, f"{effective_risk.value} operation", effective_risk
 
-    def format_tool_preview(self, tool_name, args):
+    def format_tool_preview(self, tool_name, args, path_risk=None, current_dir=None):
         """Format tool operation for preview"""
+        preview = ""
+
         if tool_name == 'Edit':
-            return f"Edit file: {args.get('file_path')}\n" \
-                   f"Replace: {args.get('old_string')[:50]}...\n" \
-                   f"With: {args.get('new_string')[:50]}..."
+            file_path = args.get('file_path')
+            preview = f"Edit file: {file_path}\n" \
+                     f"Replace: {args.get('old_string', '')[:50]}...\n" \
+                     f"With: {args.get('new_string', '')[:50]}..."
 
         elif tool_name == 'Write':
+            file_path = args.get('file_path')
             content_preview = args.get('content', '')[:100]
-            return f"Write file: {args.get('file_path')}\n" \
-                   f"Content ({len(args.get('content', ''))} chars): {content_preview}..."
+            preview = f"Write file: {file_path}\n" \
+                     f"Content ({len(args.get('content', ''))} chars): {content_preview}..."
+
+        elif tool_name == 'Read':
+            file_path = args.get('file_path')
+            preview = f"Read file: {file_path}"
 
         elif tool_name == 'Bash':
-            return f"Execute command: {args.get('command')}\n" \
-                   f"Description: {args.get('description', 'No description')}"
+            preview = f"Execute command: {args.get('command')}\n" \
+                     f"Description: {args.get('description', 'No description')}"
+        else:
+            preview = f"{tool_name}: {args}"
 
-        return f"{tool_name}: {args}"
+        # Add path risk warning if applicable
+        if path_risk and tool_name in ['Edit', 'Write', 'Read']:
+            file_path = args.get('file_path')
+            if file_path:
+                path_risk_level, path_reason = self.assess_path_risk(file_path, current_dir)
+                if path_risk_level in [RiskLevel.DANGEROUS, RiskLevel.CRITICAL]:
+                    cwd = Path(current_dir or os.getcwd()).resolve()
+                    preview += f"\n\n⚠️  PATH WARNING: {path_reason}"
+                    preview += f"\nCurrent directory: {cwd}"
+                    preview += f"\nTarget path: {Path(file_path).resolve()}"
 
-    def prompt_for_permission(self, tool_name, args):
+        return preview
+
+    def prompt_for_permission(self, tool_name, args, current_dir=None):
         """
         Prompt user for permission to execute tool
 
         Returns: (allowed: bool, remember: bool, session_mode: str)
         """
-        risk = self.tool_risks.get(tool_name, RiskLevel.RISKY)
+        # Determine effective risk level (tool + path)
+        tool_risk = self.tool_risks.get(tool_name, RiskLevel.RISKY)
+        path_risk = RiskLevel.SAFE
 
-        print(f"\n🔒 {risk.value.upper()} TOOL: {tool_name}")
+        if tool_name in ['Edit', 'Write', 'Read']:
+            file_path = args.get('file_path')
+            if file_path:
+                path_risk, _ = self.assess_path_risk(file_path, current_dir)
+
+        # Use higher risk level
+        effective_risk = max(tool_risk, path_risk, key=lambda r: ['safe', 'risky', 'dangerous', 'critical'].index(r.value))
+
+        print(f"\n🔒 {effective_risk.value.upper()} OPERATION: {tool_name}")
         print("─" * 60)
-        print(self.format_tool_preview(tool_name, args))
+        print(self.format_tool_preview(tool_name, args, path_risk, current_dir))
         print("─" * 60)
         print()
         print("Options:")
