@@ -52,6 +52,13 @@ try:
 except ImportError:
     PROMPT_PROCESSOR = False
 
+# Tool permission system imports
+try:
+    from tool_permissions import ToolPermissionManager
+    TOOL_PERMISSIONS = True
+except ImportError:
+    TOOL_PERMISSIONS = False
+
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.formatted_text import HTML, FormattedText
@@ -176,13 +183,14 @@ def count_tokens(messages):
     return sum(len(json.dumps(m)) // 4 for m in messages)
 
 # Tool definitions
+# Note: Tools marked [REQUIRES PERMISSION] will prompt user before execution
 TOOLS = [
-    {"type": "function", "function": {"name": "Read", "description": "Read file contents", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
-    {"type": "function", "function": {"name": "Write", "description": "Write to file", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}}},
-    {"type": "function", "function": {"name": "Edit", "description": "Edit file", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["file_path", "old_string", "new_string"]}}},
-    {"type": "function", "function": {"name": "Bash", "description": "Execute bash", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "description": {"type": "string"}}, "required": ["command"]}}},
-    {"type": "function", "function": {"name": "Glob", "description": "Find files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
-    {"type": "function", "function": {"name": "Grep", "description": "Search files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
+    {"type": "function", "function": {"name": "Read", "description": "Read file contents. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
+    {"type": "function", "function": {"name": "Write", "description": "Write to file. [REQUIRES PERMISSION] User will be prompted to approve this operation.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}}},
+    {"type": "function", "function": {"name": "Edit", "description": "Edit file by replacing text. [REQUIRES PERMISSION] User will be prompted to approve this operation.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["file_path", "old_string", "new_string"]}}},
+    {"type": "function", "function": {"name": "Bash", "description": "Execute bash command. [REQUIRES PERMISSION] User will be prompted to approve this command before execution.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "description": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {"name": "Glob", "description": "Find files by pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
+    {"type": "function", "function": {"name": "Grep", "description": "Search files for pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
 ]
 
 # Add GitHub tool if available
@@ -276,7 +284,21 @@ def execute_grep(pattern):
     except:
         return "No matches"
 
-def execute_tool(name, args):
+def execute_tool(name, args, permission_manager=None):
+    """Execute a tool, checking permissions for risky operations"""
+
+    # Check if permission is required
+    if permission_manager and TOOL_PERMISSIONS:
+        should_prompt, reason = permission_manager.should_prompt(name, args)
+
+        if should_prompt:
+            # Show permission prompt
+            allowed, remember, session_mode = permission_manager.prompt_for_permission(name, args)
+
+            if not allowed:
+                return f"❌ Operation cancelled by user"
+
+    # Execute the tool
     tools = {
         "Read": lambda: execute_read(args["file_path"]),
         "Write": lambda: execute_write(args["file_path"], args["content"]),
@@ -300,6 +322,7 @@ class Session:
         self.file = SESSIONS_DIR / f"{self.session_id}.json"
         self.cwd = os.getcwd()
         self.current_agent = 'assistant'
+        self.permission_manager = None
 
     def add(self, role, content):
         self.messages.append({"role": role, "content": content})
@@ -688,6 +711,52 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
 
         return True
 
+    elif cmd == "/permissions":
+        if not TOOL_PERMISSIONS or not session.permission_manager:
+            print("❌ Tool permission system not available\n")
+            return True
+
+        if args:
+            subcommand = args.split()[0].lower()
+
+            if subcommand == "status":
+                session.permission_manager.show_status()
+
+            elif subcommand == "allow":
+                parts = args.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Usage: /permissions allow <tool>\n")
+                else:
+                    tool = parts[1]
+                    session.permission_manager.add_allowed_tool(tool)
+                    print(f"✓ {tool} added to allowed tools\n")
+
+            elif subcommand == "deny":
+                parts = args.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Usage: /permissions deny <tool>\n")
+                else:
+                    tool = parts[1]
+                    session.permission_manager.remove_allowed_tool(tool)
+                    print(f"✓ {tool} removed from allowed tools\n")
+
+            elif subcommand == "auto":
+                enabled = len(args.split()) > 1 and args.split()[1].lower() in ['on', 'true', 'yes']
+                session.permission_manager.set_auto_accept(enabled)
+                print(f"✓ Auto-accept {'enabled' if enabled else 'disabled'}\n")
+
+            else:
+                print(f"\n❌ Unknown subcommand: {subcommand}")
+                print("\nAvailable subcommands:")
+                print("  /permissions status        - Show permission status")
+                print("  /permissions allow <tool>  - Always allow a tool")
+                print("  /permissions deny <tool>   - Remove tool from allowed list")
+                print("  /permissions auto on|off   - Enable/disable auto-accept\n")
+        else:
+            session.permission_manager.show_status()
+
+        return True
+
     elif cmd == "/help":
         print("\nAvailable commands:")
         print("  /model [name]  - View or change model")
@@ -702,6 +771,8 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             print("  /rollback      - Rollback to previous version")
         if COMMAND_REGISTRY:
             print("  /commands      - Manage command permissions")
+        if TOOL_PERMISSIONS:
+            print("  /permissions   - Manage tool permissions")
         print("  /help          - Show this help")
         print("  /exit or /quit - Exit\n")
         return True
@@ -763,6 +834,13 @@ def interactive(config, session=None, initial=None):
             prompt_processor = PromptProcessor()
         except Exception as e:
             print(f"\033[33m⚠️  Prompt processor initialization failed: {e}\033[0m\n")
+
+    # Initialize tool permission manager
+    if TOOL_PERMISSIONS:
+        try:
+            session.permission_manager = ToolPermissionManager(CONFIG_DIR)
+        except Exception as e:
+            print(f"\033[33m⚠️  Tool permission system initialization failed: {e}\033[0m\n")
 
     print(ASCII_ART)
     print(f"\033[2mOpenCLI - OpenRouter CLI\033[0m")
@@ -928,7 +1006,7 @@ def interactive(config, session=None, initial=None):
 
                     for tc in tool_calls:
                         print(f"\033[2m⚙ {tc.function.name}\033[0m")
-                        result = execute_tool(tc.function.name, json.loads(tc.function.arguments))
+                        result = execute_tool(tc.function.name, json.loads(tc.function.arguments), session.permission_manager)
                         session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                     continue
 

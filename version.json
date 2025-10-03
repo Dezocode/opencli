@@ -1,7 +1,31 @@
 {
-  "version": "1.2.1",
-  "release_date": "2025-10-01",
+  "version": "1.2.2",
+  "release_date": "2025-10-02",
   "changelog": [
+    {
+      "version": "1.2.2",
+      "date": "2025-10-02",
+      "changes": [
+        "Added tool permission system with risk-based classification",
+        "Added user confirmation prompts for Edit, Write, and Bash tools",
+        "Added /permissions command for managing tool permissions",
+        "Added auto-accept modes (global, session, per-tool)",
+        "Added [REQUIRES PERMISSION] markers in tool descriptions for AI awareness",
+        "Added comprehensive ARCHITECTURE.md with tool/module registration SOP",
+        "Integrated permission_manager with Session class",
+        "Ensured AI model is informed when tools require user confirmation"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /permissions status command",
+        "Verify Edit tool prompts for confirmation",
+        "Verify Write tool prompts for confirmation",
+        "Verify Bash tool prompts for confirmation",
+        "Test auto-accept modes (y/a/s/n options)",
+        "Check tool descriptions include [REQUIRES PERMISSION]",
+        "Verify permission persistence across sessions"
+      ]
+    },
     {
       "version": "1.2.1",
       "date": "2025-10-01",
