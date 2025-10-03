@@ -507,10 +507,69 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
         # Show changelog
         changelog = manager.get_changelog(new_version)
         if changelog:
-            print("Changelog:")
+            print("📝 Changelog:")
             for change in changelog:
                 print(f"  • {change}")
             print()
+
+        # Show architecture compliance rating
+        print("🏗️  Architecture Compliance Check:")
+        arch_details = None
+        for check in preflight['checks']:
+            if check['name'] == 'Architecture Compliance':
+                arch_details = check.get('details', [])
+                if check['passed']:
+                    print("   ✅ All architecture guidelines met")
+                else:
+                    print(f"   ❌ {check['message']}")
+
+                if arch_details:
+                    print("\n   Details:")
+                    for detail in arch_details:
+                        if "✓" in detail or "exceeds" not in detail.lower():
+                            print(f"     ✓ {detail}")
+                        else:
+                            print(f"     ❌ {detail}")
+                print()
+                break
+
+        # AI-generated summary
+        print("🤖 AI Summary of Changes:")
+        print("   This upgrade includes:")
+
+        # Summarize based on detected changes
+        if 'branch_vs_main' in changes:
+            modules_changed = len(changes['branch_vs_main'].get('modules', []))
+            core_changed = len(changes['branch_vs_main'].get('core', []))
+
+            if modules_changed > 0:
+                print(f"   • {modules_changed} module(s) added/modified")
+            if core_changed > 0:
+                print(f"   • {core_changed} core file(s) modified")
+
+            # Highlight new features based on version
+            if new_version == "1.3.0":
+                print("   • NEW: API server for inter-CLI communication")
+                print("   • NEW: Tool permission system with path risk detection")
+                print("   • IMPROVED: Upgrade system with branch validation")
+
+        print()
+
+        # Final confirmation with clear summary
+        print("=" * 60)
+        print(f"📊 UPGRADE SUMMARY")
+        print("=" * 60)
+        print(f"From:  v{current_version}")
+        print(f"To:    v{new_version}")
+        print(f"Files: {branch_change_count} files will be updated")
+
+        if 'comparison' in changes and changes['comparison'].get('commits_ahead', 0) > 0:
+            print(f"Branch: {changes['comparison']['commits_ahead']} commits ahead of Main")
+
+        arch_status = "✅ COMPLIANT" if all(check['passed'] for check in preflight['checks'] if check['name'] == 'Architecture Compliance') else "❌ VIOLATIONS"
+        print(f"Architecture: {arch_status}")
+        print("=" * 60)
+        print()
 
         # Confirm
         try:
@@ -520,7 +579,7 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             return True
 
         if response != 'y':
-            print("Cancelled.\n")
+            print("Upgrade cancelled.\n")
             return True
 
         # Perform upgrade
