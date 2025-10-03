@@ -18,6 +18,11 @@ class UpgradeManager:
         self.archive_dir = self.repo_dir / "archive"
         self.log_file = self.config_dir / "logs" / "upgrade.log"
 
+        # Official upstream repository (read-only for users)
+        self.upstream_owner = "dezocode"
+        self.upstream_repo = "opencli"
+        self.upstream_url = f"https://github.com/{self.upstream_owner}/{self.upstream_repo}.git"
+
         # Ensure log directory exists
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -130,13 +135,91 @@ class UpgradeManager:
             return result['stdout'].strip()
         return None
 
+    def setup_upstream_remote(self):
+        """
+        Ensure upstream remote is configured for pulling official updates
+        Users work on their fork, but pull from official repo
+        """
+        # Check if upstream remote exists
+        result = self.run_command("git remote get-url upstream")
+
+        if result['success']:
+            current_upstream = result['stdout'].strip()
+            if current_upstream == self.upstream_url:
+                self.log(f"Upstream already configured: {self.upstream_url}")
+                return {'success': True, 'message': 'Upstream already configured'}
+            else:
+                # Update upstream URL
+                self.log(f"Updating upstream URL from {current_upstream} to {self.upstream_url}")
+                result = self.run_command(f"git remote set-url upstream {self.upstream_url}")
+        else:
+            # Add upstream remote
+            self.log(f"Adding upstream remote: {self.upstream_url}")
+            result = self.run_command(f"git remote add upstream {self.upstream_url}")
+
+        if result['success']:
+            return {'success': True, 'message': 'Upstream remote configured'}
+        else:
+            return {'success': False, 'error': result['stderr']}
+
+    def fetch_upstream(self):
+        """Fetch latest changes from official upstream repo (read-only)"""
+        self.log("Fetching from upstream (official repo)")
+
+        # Ensure upstream is configured
+        setup_result = self.setup_upstream_remote()
+        if not setup_result['success']:
+            return setup_result
+
+        # Fetch from upstream
+        result = self.run_command("git fetch upstream", timeout=30)
+
+        if result['success']:
+            self.log("Successfully fetched from upstream")
+            return {'success': True, 'message': 'Fetched latest from official repo'}
+        else:
+            self.log(f"Failed to fetch from upstream: {result['stderr']}", "ERROR")
+            return {'success': False, 'error': result['stderr']}
+
+    def get_repo_info(self):
+        """Get repository information using gh CLI"""
+        result = self.run_command("gh repo view --json owner,name,isFork,parent", timeout=10)
+
+        if result['success']:
+            try:
+                import json
+                repo_info = json.loads(result['stdout'])
+                return {
+                    'success': True,
+                    'is_fork': repo_info.get('isFork', False),
+                    'owner': repo_info.get('owner', {}).get('login', 'unknown'),
+                    'name': repo_info.get('name', 'unknown'),
+                    'parent': repo_info.get('parent', {})
+                }
+            except:
+                pass
+
+        # Fallback if gh CLI not available
+        return {
+            'success': False,
+            'is_fork': False,
+            'owner': 'unknown',
+            'name': 'opencli'
+        }
+
     def create_upgrade_worktree(self, new_version):
         """
-        Create a git worktree for testing the upgrade
+        Create a git worktree for testing the upgrade from upstream
         Returns: dict with worktree path and branch name
         """
         worktree_dir = self.config_dir / "upgrade-test"
         branch_name = f"v{new_version}"
+
+        # Fetch from upstream first
+        self.log("Fetching latest from upstream...")
+        fetch_result = self.fetch_upstream()
+        if not fetch_result['success']:
+            self.log("Warning: Could not fetch from upstream, using local state", "WARN")
 
         # Clean up existing worktree if it exists
         if worktree_dir.exists():
@@ -147,22 +230,23 @@ class UpgradeManager:
                 import shutil
                 shutil.rmtree(worktree_dir, ignore_errors=True)
 
-        # Create new worktree with version branch
-        self.log(f"Creating upgrade worktree: {branch_name} at {worktree_dir}")
+        # Create new worktree with version branch based on upstream/Main
+        self.log(f"Creating upgrade worktree: {branch_name} from upstream/Main at {worktree_dir}")
 
-        # Check if branch already exists
+        # Check if local branch already exists
         result = self.run_command(f"git rev-parse --verify {branch_name}")
         branch_exists = result['success']
 
         if branch_exists:
-            # Use existing branch
-            result = self.run_command(f"git worktree add {worktree_dir} {branch_name}")
-        else:
-            # Create new branch from current HEAD
-            result = self.run_command(f"git worktree add -b {branch_name} {worktree_dir}")
+            # Delete existing branch and recreate from upstream
+            self.log(f"Deleting existing branch {branch_name} to recreate from upstream")
+            self.run_command(f"git branch -D {branch_name}")
+
+        # Create new branch from upstream/Main (official repo)
+        result = self.run_command(f"git worktree add -b {branch_name} {worktree_dir} upstream/Main")
 
         if result['success']:
-            self.log(f"Worktree created successfully: {worktree_dir}")
+            self.log(f"Worktree created successfully from upstream/Main: {worktree_dir}")
             return {
                 'success': True,
                 'worktree_path': str(worktree_dir),

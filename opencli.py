@@ -441,11 +441,23 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
         new_version = manager.get_new_version()
 
         print(f"\n🔄 OpenCLI Upgrade System\n")
+
+        # Show repo info using gh CLI
+        repo_info = manager.get_repo_info()
+        if repo_info['success']:
+            print(f"Repository: {repo_info['owner']}/{repo_info['name']}")
+            if repo_info['is_fork']:
+                parent = repo_info.get('parent', {})
+                print(f"Fork of: {parent.get('owner', {}).get('login', 'unknown')}/{parent.get('name', 'opencli')}")
+            print()
+
         print(f"Current branch: {current_branch}")
-        print(f"New version: v{new_version}\n")
+        print(f"Upgrading to: v{new_version}\n")
+        print(f"📥 Pulling from official repo: {manager.upstream_owner}/{manager.upstream_repo}")
+        print(f"📝 Local changes only - never pushes to upstream\n")
 
         # Create upgrade worktree
-        print("📁 Creating upgrade worktree for isolated testing...")
+        print("📁 Creating upgrade worktree from upstream...")
         worktree_result = manager.create_upgrade_worktree(new_version)
 
         if not worktree_result['success']:
