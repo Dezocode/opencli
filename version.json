@@ -1,7 +1,28 @@
 {
-  "version": "1.3.0",
-  "release_date": "2025-10-02",
+  "version": "1.3.1",
+  "release_date": "2025-10-03",
   "changelog": [
+    {
+      "version": "1.3.1",
+      "date": "2025-10-03",
+      "changes": [
+        "Fixed rich prompt staying at bottom of terminal",
+        "Added ensure_prompt_at_bottom() to prevent status bar scroll-off",
+        "Implemented worktree-based upgrade system",
+        "Added create_upgrade_worktree() for isolated testing",
+        "Upgrade now creates version branches in worktrees",
+        "Main branch protected from direct upgrades",
+        "Added cleanup_upgrade_worktree() for maintenance"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test rich prompt stays visible after tool output",
+        "Test /upgrade creates worktree at ~/.opencli/upgrade-test/",
+        "Verify version branch created in worktree",
+        "Test upgrade installs from worktree, not main repo",
+        "Verify Main branch remains untouched during upgrade"
+      ]
+    },
     {
       "version": "1.3.0",
       "date": "2025-10-02",
