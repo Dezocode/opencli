@@ -469,13 +469,32 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
         print("Detecting changes...")
         changes = manager.detect_changes()
 
-        change_count = sum(len(v) for v in changes.values())
-        if change_count == 0:
-            print("No changes detected. Already up to date.\n")
+        # Show branch comparison
+        if 'comparison' in changes:
+            comp = changes['comparison']
+            print(f"\n📊 Branch Comparison:")
+            print(f"   {comp['message']}")
+            if comp.get('commits_ahead', 0) > 0:
+                print(f"   ⚠️  {comp['commits_ahead']} commits ahead of Main")
+            if comp.get('commits_behind', 0) > 0:
+                print(f"   ℹ️  {comp['commits_behind']} commits behind Main")
+
+        # Show local uncommitted changes
+        local_change_count = sum(len(v) for v in changes.get('local', {}).values())
+        if local_change_count > 0:
+            print(f"\n⚠️  Local uncommitted changes ({local_change_count} files):")
+            for category, files in changes['local'].items():
+                if files:
+                    print(f"  {category.upper()}: {', '.join(files[:3])}")
+
+        # Show branch vs Main changes
+        branch_change_count = sum(len(v) for v in changes.get('branch_vs_main', {}).values())
+        if branch_change_count == 0:
+            print("\nNo changes between current branch and Main. Already up to date.\n")
             return True
 
-        print(f"\n{change_count} files changed:")
-        for category, files in changes.items():
+        print(f"\n✓ Changes to install from current branch ({branch_change_count} files):")
+        for category, files in changes.get('branch_vs_main', {}).items():
             if files:
                 print(f"\n  {category.upper()}:")
                 for file in files[:5]:  # Show first 5

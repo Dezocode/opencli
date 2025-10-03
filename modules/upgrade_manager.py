@@ -256,10 +256,71 @@ class UpgradeManager:
             'details': issues
         }
 
+    def compare_branches(self, current_branch):
+        """Compare current branch against Main branch"""
+        if current_branch == "Main":
+            return {
+                'comparison': 'none',
+                'message': 'Already on Main branch',
+                'divergence': None
+            }
+
+        # Check if Main branch exists
+        result = self.run_command("git show-ref --verify --quiet refs/heads/Main")
+        if not result['success']:
+            return {
+                'comparison': 'error',
+                'message': 'Main branch not found',
+                'divergence': None
+            }
+
+        # Get commits ahead of Main
+        result = self.run_command(f"git rev-list Main..{current_branch} --count")
+        commits_ahead = int(result['stdout'] or '0')
+
+        # Get commits behind Main
+        result = self.run_command(f"git rev-list {current_branch}..Main --count")
+        commits_behind = int(result['stdout'] or '0')
+
+        # Get diff summary
+        result = self.run_command(f"git diff --stat Main...{current_branch}")
+        diff_summary = result['stdout'] if result['success'] else ''
+
+        return {
+            'comparison': 'complete',
+            'current_branch': current_branch,
+            'commits_ahead': commits_ahead,
+            'commits_behind': commits_behind,
+            'diff_summary': diff_summary,
+            'message': f'{commits_ahead} commits ahead, {commits_behind} behind Main'
+        }
+
     def detect_changes(self):
         """Detect what changed between versions"""
-        result = self.run_command("git diff --stat HEAD")
+        current_branch = self.get_current_branch()
 
+        # Get local uncommitted changes
+        result = self.run_command("git diff --stat HEAD")
+        local_changes = self._categorize_changes(result['stdout'] if result['success'] else '')
+
+        # Get changes between current branch and Main
+        branch_comparison = self.compare_branches(current_branch)
+
+        # Get changes in current branch vs Main
+        if current_branch and current_branch != "Main":
+            result = self.run_command(f"git diff --stat Main...{current_branch}")
+            branch_changes = self._categorize_changes(result['stdout'] if result['success'] else '')
+        else:
+            branch_changes = {'core': [], 'modules': [], 'agents': [], 'docs': [], 'other': []}
+
+        return {
+            'local': local_changes,
+            'branch_vs_main': branch_changes,
+            'comparison': branch_comparison
+        }
+
+    def _categorize_changes(self, diff_output):
+        """Helper to categorize changes from git diff output"""
         changes = {
             'core': [],
             'modules': [],
@@ -268,10 +329,10 @@ class UpgradeManager:
             'other': []
         }
 
-        if not result['success']:
+        if not diff_output:
             return changes
 
-        for line in result['stdout'].split('\n'):
+        for line in diff_output.split('\n'):
             if not line.strip():
                 continue
 
