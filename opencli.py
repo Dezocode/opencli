@@ -52,6 +52,21 @@ try:
 except ImportError:
     PROMPT_PROCESSOR = False
 
+# Tool permission system imports
+try:
+    from tool_permissions import ToolPermissionManager
+    TOOL_PERMISSIONS = True
+except ImportError:
+    TOOL_PERMISSIONS = False
+
+# API server imports
+try:
+    from api_server import APIServer, SessionRegistry, MessageQueue
+    from api_client import OpenCLIClient
+    API_SERVER = True
+except ImportError:
+    API_SERVER = False
+
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.formatted_text import HTML, FormattedText
@@ -176,13 +191,14 @@ def count_tokens(messages):
     return sum(len(json.dumps(m)) // 4 for m in messages)
 
 # Tool definitions
+# Note: Tools marked [REQUIRES PERMISSION] will prompt user before execution
 TOOLS = [
-    {"type": "function", "function": {"name": "Read", "description": "Read file contents", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
-    {"type": "function", "function": {"name": "Write", "description": "Write to file", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}}},
-    {"type": "function", "function": {"name": "Edit", "description": "Edit file", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["file_path", "old_string", "new_string"]}}},
-    {"type": "function", "function": {"name": "Bash", "description": "Execute bash", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "description": {"type": "string"}}, "required": ["command"]}}},
-    {"type": "function", "function": {"name": "Glob", "description": "Find files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
-    {"type": "function", "function": {"name": "Grep", "description": "Search files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
+    {"type": "function", "function": {"name": "Read", "description": "Read file contents. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
+    {"type": "function", "function": {"name": "Write", "description": "Write to file. [REQUIRES PERMISSION] User will be prompted to approve this operation.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}}},
+    {"type": "function", "function": {"name": "Edit", "description": "Edit file by replacing text. [REQUIRES PERMISSION] User will be prompted to approve this operation.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["file_path", "old_string", "new_string"]}}},
+    {"type": "function", "function": {"name": "Bash", "description": "Execute bash command. [REQUIRES PERMISSION] User will be prompted to approve this command before execution.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "description": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {"name": "Glob", "description": "Find files by pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
+    {"type": "function", "function": {"name": "Grep", "description": "Search files for pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
 ]
 
 # Add GitHub tool if available
@@ -276,7 +292,21 @@ def execute_grep(pattern):
     except:
         return "No matches"
 
-def execute_tool(name, args):
+def execute_tool(name, args, permission_manager=None, current_dir=None):
+    """Execute a tool, checking permissions for risky operations"""
+
+    # Check if permission is required
+    if permission_manager and TOOL_PERMISSIONS:
+        should_prompt, reason, path_risk = permission_manager.should_prompt(name, args, current_dir)
+
+        if should_prompt:
+            # Show permission prompt with path risk information
+            allowed, remember, session_mode = permission_manager.prompt_for_permission(name, args, current_dir)
+
+            if not allowed:
+                return f"❌ Operation cancelled by user"
+
+    # Execute the tool
     tools = {
         "Read": lambda: execute_read(args["file_path"]),
         "Write": lambda: execute_write(args["file_path"], args["content"]),
@@ -300,6 +330,7 @@ class Session:
         self.file = SESSIONS_DIR / f"{self.session_id}.json"
         self.cwd = os.getcwd()
         self.current_agent = 'assistant'
+        self.permission_manager = None
 
     def add(self, role, content):
         self.messages.append({"role": role, "content": content})
@@ -438,13 +469,32 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
         print("Detecting changes...")
         changes = manager.detect_changes()
 
-        change_count = sum(len(v) for v in changes.values())
-        if change_count == 0:
-            print("No changes detected. Already up to date.\n")
+        # Show branch comparison
+        if 'comparison' in changes:
+            comp = changes['comparison']
+            print(f"\n📊 Branch Comparison:")
+            print(f"   {comp['message']}")
+            if comp.get('commits_ahead', 0) > 0:
+                print(f"   ⚠️  {comp['commits_ahead']} commits ahead of Main")
+            if comp.get('commits_behind', 0) > 0:
+                print(f"   ℹ️  {comp['commits_behind']} commits behind Main")
+
+        # Show local uncommitted changes
+        local_change_count = sum(len(v) for v in changes.get('local', {}).values())
+        if local_change_count > 0:
+            print(f"\n⚠️  Local uncommitted changes ({local_change_count} files):")
+            for category, files in changes['local'].items():
+                if files:
+                    print(f"  {category.upper()}: {', '.join(files[:3])}")
+
+        # Show branch vs Main changes
+        branch_change_count = sum(len(v) for v in changes.get('branch_vs_main', {}).values())
+        if branch_change_count == 0:
+            print("\nNo changes between current branch and Main. Already up to date.\n")
             return True
 
-        print(f"\n{change_count} files changed:")
-        for category, files in changes.items():
+        print(f"\n✓ Changes to install from current branch ({branch_change_count} files):")
+        for category, files in changes.get('branch_vs_main', {}).items():
             if files:
                 print(f"\n  {category.upper()}:")
                 for file in files[:5]:  # Show first 5
@@ -457,10 +507,69 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
         # Show changelog
         changelog = manager.get_changelog(new_version)
         if changelog:
-            print("Changelog:")
+            print("📝 Changelog:")
             for change in changelog:
                 print(f"  • {change}")
             print()
+
+        # Show architecture compliance rating
+        print("🏗️  Architecture Compliance Check:")
+        arch_details = None
+        for check in preflight['checks']:
+            if check['name'] == 'Architecture Compliance':
+                arch_details = check.get('details', [])
+                if check['passed']:
+                    print("   ✅ All architecture guidelines met")
+                else:
+                    print(f"   ❌ {check['message']}")
+
+                if arch_details:
+                    print("\n   Details:")
+                    for detail in arch_details:
+                        if "✓" in detail or "exceeds" not in detail.lower():
+                            print(f"     ✓ {detail}")
+                        else:
+                            print(f"     ❌ {detail}")
+                print()
+                break
+
+        # AI-generated summary
+        print("🤖 AI Summary of Changes:")
+        print("   This upgrade includes:")
+
+        # Summarize based on detected changes
+        if 'branch_vs_main' in changes:
+            modules_changed = len(changes['branch_vs_main'].get('modules', []))
+            core_changed = len(changes['branch_vs_main'].get('core', []))
+
+            if modules_changed > 0:
+                print(f"   • {modules_changed} module(s) added/modified")
+            if core_changed > 0:
+                print(f"   • {core_changed} core file(s) modified")
+
+            # Highlight new features based on version
+            if new_version == "1.3.0":
+                print("   • NEW: API server for inter-CLI communication")
+                print("   • NEW: Tool permission system with path risk detection")
+                print("   • IMPROVED: Upgrade system with branch validation")
+
+        print()
+
+        # Final confirmation with clear summary
+        print("=" * 60)
+        print(f"📊 UPGRADE SUMMARY")
+        print("=" * 60)
+        print(f"From:  v{current_version}")
+        print(f"To:    v{new_version}")
+        print(f"Files: {branch_change_count} files will be updated")
+
+        if 'comparison' in changes and changes['comparison'].get('commits_ahead', 0) > 0:
+            print(f"Branch: {changes['comparison']['commits_ahead']} commits ahead of Main")
+
+        arch_status = "✅ COMPLIANT" if all(check['passed'] for check in preflight['checks'] if check['name'] == 'Architecture Compliance') else "❌ VIOLATIONS"
+        print(f"Architecture: {arch_status}")
+        print("=" * 60)
+        print()
 
         # Confirm
         try:
@@ -470,7 +579,7 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             return True
 
         if response != 'y':
-            print("Cancelled.\n")
+            print("Upgrade cancelled.\n")
             return True
 
         # Perform upgrade
@@ -688,6 +797,114 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
 
         return True
 
+    elif cmd == "/permissions":
+        if not TOOL_PERMISSIONS or not session.permission_manager:
+            print("❌ Tool permission system not available\n")
+            return True
+
+        if args:
+            subcommand = args.split()[0].lower()
+
+            if subcommand == "status":
+                session.permission_manager.show_status()
+
+            elif subcommand == "allow":
+                parts = args.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Usage: /permissions allow <tool>\n")
+                else:
+                    tool = parts[1]
+                    session.permission_manager.add_allowed_tool(tool)
+                    print(f"✓ {tool} added to allowed tools\n")
+
+            elif subcommand == "deny":
+                parts = args.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("Usage: /permissions deny <tool>\n")
+                else:
+                    tool = parts[1]
+                    session.permission_manager.remove_allowed_tool(tool)
+                    print(f"✓ {tool} removed from allowed tools\n")
+
+            elif subcommand == "auto":
+                enabled = len(args.split()) > 1 and args.split()[1].lower() in ['on', 'true', 'yes']
+                session.permission_manager.set_auto_accept(enabled)
+                print(f"✓ Auto-accept {'enabled' if enabled else 'disabled'}\n")
+
+            else:
+                print(f"\n❌ Unknown subcommand: {subcommand}")
+                print("\nAvailable subcommands:")
+                print("  /permissions status        - Show permission status")
+                print("  /permissions allow <tool>  - Always allow a tool")
+                print("  /permissions deny <tool>   - Remove tool from allowed list")
+                print("  /permissions auto on|off   - Enable/disable auto-accept\n")
+        else:
+            session.permission_manager.show_status()
+
+        return True
+
+    elif cmd == "/api":
+        if not API_SERVER:
+            print("❌ API server not available\n")
+            return True
+
+        if not args:
+            # Show API status
+            if hasattr(session, 'api_server') and session.api_server:
+                if session.api_server.is_running():
+                    config = session.api_server.config.config
+                    print(f"\n🌐 API Server Status: RUNNING")
+                    print(f"   URL: http://{config['host']}:{config['port']}")
+                    print(f"   Active sessions: {len(SessionRegistry().list_active_sessions())}")
+                else:
+                    print("\n🌐 API Server Status: STOPPED")
+            else:
+                print("\n🌐 API Server Status: NOT INITIALIZED")
+            print()
+            return True
+
+        subcommand = args.split()[0].lower()
+
+        if subcommand == "start":
+            if not hasattr(session, 'api_server'):
+                session.api_server = APIServer(CONFIG_DIR)
+
+            if session.api_server.is_running():
+                print("✓ API server already running\n")
+            else:
+                if session.api_server.start():
+                    config = session.api_server.config.config
+                    print(f"✓ API server started at http://{config['host']}:{config['port']}\n")
+                else:
+                    print("❌ Failed to start API server\n")
+
+        elif subcommand == "stop":
+            if hasattr(session, 'api_server') and session.api_server:
+                session.api_server.stop()
+                print("✓ API server stopped\n")
+            else:
+                print("❌ API server not running\n")
+
+        elif subcommand == "sessions":
+            registry = SessionRegistry(CONFIG_DIR)
+            sessions_list = registry.list_active_sessions()
+            print(f"\n📋 Active Sessions: {len(sessions_list)}\n")
+            for s in sessions_list:
+                print(f"  {s['session_id'][:8]} | {s.get('model', 'unknown')} | {s.get('agent', 'assistant')}")
+                print(f"    PID: {s.get('pid')} | CWD: {s.get('cwd')}")
+            print()
+
+        elif subcommand == "messages":
+            queue = MessageQueue(CONFIG_DIR)
+            messages = queue.get_messages(session.session_id, delete=False)
+            print(f"\n📬 Messages for this session: {len(messages)}\n")
+            for msg in messages:
+                print(f"  From: {msg['from'][:8]} | Type: {msg['type']}")
+                print(f"  {msg['payload']}")
+                print()
+
+        return True
+
     elif cmd == "/help":
         print("\nAvailable commands:")
         print("  /model [name]  - View or change model")
@@ -702,6 +919,10 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             print("  /rollback      - Rollback to previous version")
         if COMMAND_REGISTRY:
             print("  /commands      - Manage command permissions")
+        if TOOL_PERMISSIONS:
+            print("  /permissions   - Manage tool permissions")
+        if API_SERVER:
+            print("  /api           - API server control (start/stop/sessions/messages)")
         print("  /help          - Show this help")
         print("  /exit or /quit - Exit\n")
         return True
@@ -764,8 +985,48 @@ def interactive(config, session=None, initial=None):
         except Exception as e:
             print(f"\033[33m⚠️  Prompt processor initialization failed: {e}\033[0m\n")
 
+    # Initialize tool permission manager
+    if TOOL_PERMISSIONS:
+        try:
+            session.permission_manager = ToolPermissionManager(CONFIG_DIR)
+        except Exception as e:
+            print(f"\033[33m⚠️  Tool permission system initialization failed: {e}\033[0m\n")
+
+    # Initialize API server and register session
+    if API_SERVER:
+        try:
+            session.api_server = APIServer(CONFIG_DIR)
+            # Auto-start API server if enabled in config
+            if session.api_server.config.config.get('enabled', False):
+                session.api_server.start()
+
+            # Register this session
+            registry = SessionRegistry(CONFIG_DIR)
+            registry.register_session(
+                session.session_id,
+                os.getpid(),
+                session.model or config['model'],
+                session.current_agent,
+                session.cwd
+            )
+        except Exception as e:
+            print(f"\033[33m⚠️  API server initialization failed: {e}\033[0m\n")
+
     print(ASCII_ART)
-    print(f"\033[2mOpenCLI - OpenRouter CLI\033[0m")
+
+    # Load version from metadata
+    version_file = CONFIG_DIR / "version.json"
+    version_str = "unknown"
+    if version_file.exists():
+        try:
+            import json
+            with open(version_file) as f:
+                version_data = json.load(f)
+                version_str = version_data.get('version', 'unknown')
+        except:
+            pass
+
+    print(f"\033[2mOpenCLI - version {version_str}\033[0m")
     agent_info = f" | Agent: {session.current_agent}" if AGENT_SYSTEM and agent_manager else ""
     print(f"\033[2mSession: {session.session_id[:8]} | Model: {session.model or config['model']}{agent_info}\033[0m\n")
 
@@ -928,7 +1189,7 @@ def interactive(config, session=None, initial=None):
 
                     for tc in tool_calls:
                         print(f"\033[2m⚙ {tc.function.name}\033[0m")
-                        result = execute_tool(tc.function.name, json.loads(tc.function.arguments))
+                        result = execute_tool(tc.function.name, json.loads(tc.function.arguments), session.permission_manager, session.cwd)
                         session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                     continue
 
@@ -1007,7 +1268,16 @@ def main():
         r = client.chat.completions.create(model=config["model"], messages=[{"role": "user", "content": prompt}])
         print(r.choices[0].message.content)
     else:
-        interactive(config, session, prompt)
+        try:
+            interactive(config, session, prompt)
+        finally:
+            # Cleanup: Unregister session on exit
+            if API_SERVER and session:
+                try:
+                    registry = SessionRegistry(CONFIG_DIR)
+                    registry.unregister_session(session.session_id)
+                except:
+                    pass
 
 if __name__ == "__main__":
     main()

@@ -1,7 +1,82 @@
 {
-  "version": "1.2.1",
-  "release_date": "2025-10-01",
+  "version": "1.3.0",
+  "release_date": "2025-10-02",
   "changelog": [
+    {
+      "version": "1.3.0",
+      "date": "2025-10-02",
+      "changes": [
+        "Added API server for inter-CLI communication",
+        "Added HTTP/REST API on port 7890 (127.0.0.1)",
+        "Added session registry for discovering active OpenCLI sessions",
+        "Added message queue for cross-session communication",
+        "Added /api command (start/stop/sessions/messages)",
+        "Added OpenCLIClient library for external integrations",
+        "Added IPC directory (~/.opencli/ipc) for session coordination",
+        "Added automatic session registration and cleanup",
+        "Enables external tools and CLIs to interact with OpenCLI",
+        "Supports session discovery, messaging, and tool invocation"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /api start command starts server",
+        "Test /api sessions shows active sessions",
+        "Test /api messages retrieves cross-session messages",
+        "Verify session registration on startup",
+        "Verify session cleanup on exit",
+        "Test OpenCLIClient library from Python",
+        "Verify HTTP API endpoints respond correctly",
+        "Test message queue between sessions"
+      ]
+    },
+    {
+      "version": "1.2.3",
+      "date": "2025-10-02",
+      "changes": [
+        "Added path-based risk detection for file operations",
+        "Added CRITICAL risk level for system paths and parent directories",
+        "Added protection for /etc, /bin, /usr, .ssh, .aws, .config directories",
+        "Added warning displays for operations outside working directory",
+        "Enhanced permission prompts to show current vs target paths",
+        "Prevents auto-accept bypass for CRITICAL and DANGEROUS paths",
+        "Even safe tools (Read) now require confirmation for CRITICAL paths",
+        "Protects against parent directory and outside directory modifications"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test editing file in /etc triggers CRITICAL warning",
+        "Test reading ~/.ssh/id_rsa triggers CRITICAL warning",
+        "Test editing parent directory file triggers DANGEROUS warning",
+        "Test editing file outside working directory triggers warning",
+        "Verify auto-accept mode doesn't bypass path warnings",
+        "Check path warnings show current directory and target path",
+        "Confirm relative paths (../) properly detected as risky"
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "date": "2025-10-02",
+      "changes": [
+        "Added tool permission system with risk-based classification",
+        "Added user confirmation prompts for Edit, Write, and Bash tools",
+        "Added /permissions command for managing tool permissions",
+        "Added auto-accept modes (global, session, per-tool)",
+        "Added [REQUIRES PERMISSION] markers in tool descriptions for AI awareness",
+        "Added comprehensive ARCHITECTURE.md with tool/module registration SOP",
+        "Integrated permission_manager with Session class",
+        "Ensured AI model is informed when tools require user confirmation"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /permissions status command",
+        "Verify Edit tool prompts for confirmation",
+        "Verify Write tool prompts for confirmation",
+        "Verify Bash tool prompts for confirmation",
+        "Test auto-accept modes (y/a/s/n options)",
+        "Check tool descriptions include [REQUIRES PERMISSION]",
+        "Verify permission persistence across sessions"
+      ]
+    },
     {
       "version": "1.2.1",
       "date": "2025-10-01",

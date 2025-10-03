@@ -123,6 +123,13 @@ class UpgradeManager:
 
         return []
 
+    def get_current_branch(self):
+        """Get current git branch"""
+        result = self.run_command("git branch --show-current", timeout=5)
+        if result['success']:
+            return result['stdout'].strip()
+        return None
+
     def preflight_checks(self):
         """Run pre-upgrade checks"""
         checks = []
@@ -138,6 +145,23 @@ class UpgradeManager:
         if not result['success']:
             return {'passed': False, 'checks': checks}
 
+        # Get current branch
+        current_branch = self.get_current_branch()
+        if not current_branch:
+            checks.append({
+                'name': 'Git Branch',
+                'passed': False,
+                'message': 'Could not determine current branch'
+            })
+            return {'passed': False, 'checks': checks}
+
+        checks.append({
+            'name': 'Current Branch',
+            'passed': True,
+            'message': f'On branch: {current_branch}',
+            'branch': current_branch
+        })
+
         # Check for uncommitted changes
         result = self.run_command("git diff --quiet")
         has_changes = result['returncode'] != 0
@@ -148,14 +172,14 @@ class UpgradeManager:
             'warning': has_changes
         })
 
-        # Check if remote updates available
+        # Check if remote updates available (use current branch, not hardcoded main)
         self.run_command("git fetch", timeout=10)
-        result = self.run_command("git rev-list HEAD...origin/main --count")
+        result = self.run_command(f"git rev-list HEAD...origin/{current_branch} --count")
         updates_available = int(result['stdout'] or '0') > 0
         checks.append({
             'name': 'Remote Updates',
             'passed': True,
-            'message': f"{result['stdout'] or '0'} commits available" if updates_available else 'Up to date'
+            'message': f"{result['stdout'] or '0'} commits available from origin/{current_branch}" if updates_available else f'Up to date with origin/{current_branch}'
         })
 
         # Check current installation
@@ -172,13 +196,131 @@ class UpgradeManager:
             'message': 'version.json found' if (self.repo_dir / "version.json").exists() else 'version.json missing'
         })
 
+        # Architecture compliance validation
+        arch_check = self.validate_architecture_compliance()
+        checks.append({
+            'name': 'Architecture Compliance',
+            'passed': arch_check['passed'],
+            'message': arch_check['message'],
+            'details': arch_check.get('details', [])
+        })
+
         all_passed = all(check['passed'] for check in checks)
         return {'passed': all_passed, 'checks': checks}
 
+    def validate_architecture_compliance(self):
+        """Validate code follows architecture guidelines"""
+        issues = []
+
+        # Check opencli.py line count (max 1200)
+        opencli_file = self.repo_dir / "opencli.py"
+        if opencli_file.exists():
+            line_count = len(opencli_file.read_text().splitlines())
+            if line_count > 1200:
+                issues.append(f"opencli.py exceeds 1200 lines ({line_count} lines)")
+            else:
+                issues.append(f"opencli.py: {line_count}/1200 lines ✓")
+
+        # Check module line counts (max 500)
+        modules_dir = self.repo_dir / "modules"
+        if modules_dir.exists():
+            for module_file in modules_dir.glob("*.py"):
+                line_count = len(module_file.read_text().splitlines())
+                if line_count > 500:
+                    issues.append(f"{module_file.name} exceeds 500 lines ({line_count} lines)")
+
+        # Check for required files
+        required_files = [
+            "opencli.py",
+            "version.json",
+            "requirements.txt",
+            "install.sh",
+            "ARCHITECTURE.md"
+        ]
+
+        for required_file in required_files:
+            if not (self.repo_dir / required_file).exists():
+                issues.append(f"Missing required file: {required_file}")
+
+        # Check modules directory
+        if not modules_dir.exists():
+            issues.append("modules/ directory missing")
+
+        # All checks passed?
+        violations = [issue for issue in issues if "exceeds" in issue.lower() or "missing" in issue.lower()]
+        passed = len(violations) == 0
+
+        return {
+            'passed': passed,
+            'message': 'Architecture compliant' if passed else f'{len(violations)} violation(s) found',
+            'details': issues
+        }
+
+    def compare_branches(self, current_branch):
+        """Compare current branch against Main branch"""
+        if current_branch == "Main":
+            return {
+                'comparison': 'none',
+                'message': 'Already on Main branch',
+                'divergence': None
+            }
+
+        # Check if Main branch exists
+        result = self.run_command("git show-ref --verify --quiet refs/heads/Main")
+        if not result['success']:
+            return {
+                'comparison': 'error',
+                'message': 'Main branch not found',
+                'divergence': None
+            }
+
+        # Get commits ahead of Main
+        result = self.run_command(f"git rev-list Main..{current_branch} --count")
+        commits_ahead = int(result['stdout'] or '0')
+
+        # Get commits behind Main
+        result = self.run_command(f"git rev-list {current_branch}..Main --count")
+        commits_behind = int(result['stdout'] or '0')
+
+        # Get diff summary
+        result = self.run_command(f"git diff --stat Main...{current_branch}")
+        diff_summary = result['stdout'] if result['success'] else ''
+
+        return {
+            'comparison': 'complete',
+            'current_branch': current_branch,
+            'commits_ahead': commits_ahead,
+            'commits_behind': commits_behind,
+            'diff_summary': diff_summary,
+            'message': f'{commits_ahead} commits ahead, {commits_behind} behind Main'
+        }
+
     def detect_changes(self):
         """Detect what changed between versions"""
-        result = self.run_command("git diff --stat HEAD")
+        current_branch = self.get_current_branch()
 
+        # Get local uncommitted changes
+        result = self.run_command("git diff --stat HEAD")
+        local_changes = self._categorize_changes(result['stdout'] if result['success'] else '')
+
+        # Get changes between current branch and Main
+        branch_comparison = self.compare_branches(current_branch)
+
+        # Get changes in current branch vs Main
+        if current_branch and current_branch != "Main":
+            result = self.run_command(f"git diff --stat Main...{current_branch}")
+            branch_changes = self._categorize_changes(result['stdout'] if result['success'] else '')
+        else:
+            branch_changes = {'core': [], 'modules': [], 'agents': [], 'docs': [], 'other': []}
+
+        return {
+            'local': local_changes,
+            'branch_vs_main': branch_changes,
+            'comparison': branch_comparison
+        }
+
+    def _categorize_changes(self, diff_output):
+        """Helper to categorize changes from git diff output"""
         changes = {
             'core': [],
             'modules': [],
@@ -187,10 +329,10 @@ class UpgradeManager:
             'other': []
         }
 
-        if not result['success']:
+        if not diff_output:
             return changes
 
-        for line in result['stdout'].split('\n'):
+        for line in diff_output.split('\n'):
             if not line.strip():
                 continue
 

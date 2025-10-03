@@ -88,6 +88,20 @@ class CommandRegistry:
                 'category': 'basic',
                 'default_enabled': True,
                 'requires_args': False
+            },
+            '/permissions': {
+                'description': 'Manage tool permissions',
+                'category': 'system',
+                'default_enabled': True,
+                'requires_args': False,
+                'requires_feature': 'TOOL_PERMISSIONS'
+            },
+            '/api': {
+                'description': 'API server control (start/stop/sessions/messages)',
+                'category': 'advanced',
+                'default_enabled': True,
+                'requires_args': False,
+                'requires_feature': 'API_SERVER'
             }
         }
 

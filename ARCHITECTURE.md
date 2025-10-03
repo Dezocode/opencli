@@ -171,3 +171,221 @@ Delete: On session end or every 24 hours (cleanup)
 3. **Cost savings** - Pay only for unique content
 4. **Scalability** - Support larger AGENTS.md files
 5. **Flexibility** - Easy to switch contexts per project
+
+## Tool & Module Registration SOP
+
+### Modular Architecture Guidelines
+
+**CRITICAL**: Keep files modular and within line length limits (≤500 lines recommended)
+
+### Adding a New Tool
+
+When creating a new tool, follow this exact process:
+
+**1. Create Module File** (`modules/your_tool.py`)
+```python
+"""
+Tool description and purpose
+"""
+
+def your_tool_function(arg1, arg2):
+    """
+    Implement your tool logic here
+    Returns: result string
+    """
+    # Implementation
+    return result
+```
+
+**2. Register in opencli.py** (Lines 20-65 - Imports section)
+```python
+# Your tool imports
+try:
+    from your_tool import YourToolClass
+    YOUR_TOOL = True
+except ImportError:
+    YOUR_TOOL = False
+```
+
+**3. Add Tool Definition** (Lines 185-280 - TOOLS array)
+```python
+{
+    "type": "function",
+    "function": {
+        "name": "YourTool",
+        "description": "Clear description. [REQUIRES PERMISSION] if risky",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "param1": {"type": "string", "description": "Param description"},
+                "param2": {"type": "string", "description": "Param description"}
+            },
+            "required": ["param1"]
+        }
+    }
+}
+```
+
+**4. Add Risk Classification** (`modules/tool_permissions.py` lines 20-29)
+```python
+self.tool_risks = {
+    # Existing tools...
+    'YourTool': RiskLevel.SAFE,  # or RISKY or DANGEROUS
+}
+```
+
+**5. Implement Execution** (Lines 286-315 - execute_tool function)
+```python
+def execute_tool(name, args, permission_manager=None):
+    # ... permission check code ...
+
+    tools = {
+        # Existing tools...
+        "YourTool": lambda: execute_your_tool(args["param1"], args.get("param2")),
+    }
+
+    # ... rest of function
+```
+
+**6. Create Tool Function** (Lines 240-280 - Tool implementations)
+```python
+def execute_your_tool(param1, param2=None):
+    """Execute your tool"""
+    if YOUR_TOOL:
+        try:
+            result = your_tool_function(param1, param2)
+            return result
+        except Exception as e:
+            return f"❌ Error: {e}"
+    return "❌ Tool not available"
+```
+
+### Adding a New Module
+
+**1. Create Module File** (`modules/your_module.py`)
+- Keep under 500 lines
+- Single responsibility
+- Clear docstrings
+
+**2. Register Import** (Lines 20-65 in opencli.py)
+```python
+try:
+    from your_module import YourModule
+    YOUR_MODULE = True
+except ImportError:
+    YOUR_MODULE = False
+```
+
+**3. Initialize in Session** (Lines 790-850 - interactive function)
+```python
+# Initialize your module
+your_module = None
+if YOUR_MODULE:
+    try:
+        your_module = YourModule(CONFIG_DIR)
+    except Exception as e:
+        print(f"\033[33m⚠️  Module initialization failed: {e}\033[0m\n")
+```
+
+**4. Integrate with Session Class** (Lines 317-360 - Session class)
+```python
+class Session:
+    def __init__(self, session_id=None, model=None):
+        # ... existing init ...
+        self.your_module = None
+```
+
+### Adding a Slash Command
+
+**1. Add to handle_slash_command** (Lines 360-780)
+```python
+elif cmd == "/yourcommand":
+    if not YOUR_MODULE or not session.your_module:
+        print("❌ Module not available\n")
+        return True
+
+    # Command implementation
+    session.your_module.do_something(args)
+    return True
+```
+
+**2. Register in Command Registry** (`modules/command_registry.py`)
+```python
+DEFAULT_COMMANDS = {
+    # ... existing commands ...
+    "/yourcommand": {
+        "enabled": True,
+        "description": "What your command does"
+    }
+}
+```
+
+**3. Add to Help Text** (Lines 763-783 - /help command)
+```python
+if YOUR_MODULE:
+    print("  /yourcommand   - Description of command")
+```
+
+### Module Placement Rules
+
+**modules/**: Core functionality modules
+- `agent_manager.py` - Agent orchestration
+- `context_builder.py` - Context management
+- `github_tool.py` - GitHub integration
+- `tool_permissions.py` - Permission system
+- `command_registry.py` - Command management
+- `prompt_processor.py` - Prompt processing
+- `upgrade_manager.py` - Version upgrades
+- `rollback_manager.py` - Version rollback
+- `api_server.py` - HTTP API server for inter-CLI communication
+- `api_client.py` - Client library for API access
+
+**Root**: Only main entry point
+- `opencli.py` - Main CLI (keep under 1200 lines)
+
+**agents/configs/**: Agent configurations
+- `agents.yaml` - Built-in agent definitions
+- `custom/` - User custom agents
+
+### Line Length Guidelines
+
+| File Type | Max Lines | Action if Exceeded |
+|-----------|-----------|-------------------|
+| opencli.py | 1200 | Extract to module |
+| Module files | 500 | Split into sub-modules |
+| Tool implementations | 300 | Create dedicated module |
+| Slash commands | 50 | Move to command handler module |
+
+### Testing New Tools/Modules
+
+**1. Import Test**
+```bash
+python3 -c "from modules.your_module import YourModule; print('✓')"
+```
+
+**2. Permission Test** (for tools)
+```bash
+opencli
+/permissions status  # Check tool is registered
+```
+
+**3. Integration Test**
+```bash
+opencli
+# Try using your tool/command
+# Verify permission prompts appear if required
+```
+
+### Context System Integration
+
+**For AI-aware tools**:
+- Update tool descriptions to include `[REQUIRES PERMISSION]` if risky
+- This informs the AI model to expect a pause for user confirmation
+- AI will not be "stopped" but will be "waiting" for user decision
+
+**Example**:
+```python
+"description": "Edit file contents. [REQUIRES PERMISSION] User will be prompted to approve."
+```
+
+This ensures the AI is prepared and doesn't treat permission prompts as failures.
