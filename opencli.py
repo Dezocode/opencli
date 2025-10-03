@@ -626,41 +626,6 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
                 print(f"📦 Backup created at: {result['backup_dir']}")
                 print()
 
-            # Commit changes in worktree
-            print("📝 Committing changes to version branch...")
-            commit_result = manager.run_command(
-                f"git add . && git commit -m 'Upgrade to v{new_version}'",
-                cwd=worktree_path
-            )
-
-            if commit_result['success']:
-                print(f"✓ Changes committed to {branch_name}\n")
-            else:
-                print(f"⚠️  Commit failed: {commit_result['stderr']}\n")
-
-            # Merge to Main
-            print(f"🔀 Merging {branch_name} to Main...")
-            merge_result = manager.run_command(
-                f"git checkout Main && git merge {branch_name} --no-ff -m 'Release v{new_version}: Upgrade complete'"
-            )
-
-            if merge_result['success']:
-                print("✓ Merged to Main\n")
-            else:
-                print(f"⚠️  Merge failed: {merge_result['stderr']}\n")
-                print(f"You can manually merge later with:")
-                print(f"  git checkout Main")
-                print(f"  git merge {branch_name} --no-ff")
-                print()
-
-            # Clean up worktree
-            print("🧹 Cleaning up worktree...")
-            cleanup_result = manager.cleanup_upgrade_worktree()
-            if cleanup_result:
-                print(f"✓ Worktree removed\n")
-            else:
-                print(f"⚠️  Could not remove worktree at {worktree_path}\n")
-
             # Show verification steps
             verification_steps = result.get('verification_steps', [])
             if verification_steps:
@@ -669,9 +634,16 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
                     print(f"  ☐ {step}")
                 print()
 
-            print("✅ Upgrade process complete!")
-            print(f"🎯 v{new_version} is now on Main branch")
-            print("🔄 Please restart opencli to use the new version\n")
+            print("✅ Upgrade installed successfully in worktree!")
+            print(f"📍 Installation location: {worktree_path}")
+            print(f"🌿 Branch: {branch_name}\n")
+
+            print("🎯 The upgrade is ready to use from the worktree.")
+            print(f"   You can test it by running opencli from {worktree_path}\n")
+
+            print("⚠️  IMPORTANT: Main branch is NOT touched!")
+            print("   Only YOU (maintainer) can merge to Main via PR review.")
+            print("   Users should use /contribute to submit PRs.\n")
 
             # Offer to exit
             try:
@@ -690,9 +662,9 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             else:
                 print("⚠️  No automatic rollback. Use /rollback to manually restore.\n")
 
-            # Clean up worktree on failure
-            print("🧹 Cleaning up worktree...")
-            manager.cleanup_upgrade_worktree()
+            # Keep worktree on failure for debugging
+            print(f"⚠️  Worktree left at {worktree_path} for debugging\n")
+            print("   Clean up manually with: git worktree remove ~/.opencli/upgrade-test --force")
 
         return True
 
