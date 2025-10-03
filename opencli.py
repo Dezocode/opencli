@@ -436,9 +436,26 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             print("❌ Upgrade system not available\n")
             return True
 
-        print("\n🔄 OpenCLI Upgrade System\n")
-
         manager = UpgradeManager()
+
+        # Check current branch - NEVER upgrade Main directly
+        current_branch = manager.get_current_branch()
+
+        if current_branch == "Main":
+            print("\n❌ Cannot upgrade Main branch directly!\n")
+            print("📋 Recommended workflow:")
+            print("  1. Create a version branch for testing:")
+            new_version = manager.get_new_version()
+            print(f"     git checkout -b v{new_version}")
+            print("  2. Run /upgrade on the version branch to test changes")
+            print("  3. Test the upgraded version thoroughly")
+            print("  4. Merge to Main after verification:")
+            print("     git checkout Main")
+            print("     git merge v{} --no-ff".format(new_version))
+            print()
+            return True
+
+        print(f"\n🔄 OpenCLI Upgrade System (Branch: {current_branch})\n")
 
         # Pre-flight checks
         print("Running pre-flight checks...")
