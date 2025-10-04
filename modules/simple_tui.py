@@ -88,18 +88,17 @@ class OpenCLITUI(App):
 
     #content {
         height: 1fr;
-        border: solid #888888;
-        border-title-align: left;
+        border: none;
         background: $background;
         overflow-y: auto;
-        scrollbar-background: $panel;
-        scrollbar-color: $primary;
+        scrollbar-size: 0 0;
     }
 
     VerticalScroll {
         background: $background;
         height: 100%;
         overflow-y: auto;
+        scrollbar-size: 0 0;
     }
 
     #stream-display {
