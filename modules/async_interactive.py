@@ -39,9 +39,40 @@ async def interactive_async(config, session, initial_prompt=None):
             app.exit()
             return
 
+        # Check if awaiting API key input
+        if hasattr(session, '_awaiting_api_key') and session._awaiting_api_key:
+            try:
+                from .model_manager import ModelManager
+            except (ImportError, ValueError):
+                from model_manager import ModelManager
+
+            model_mgr = ModelManager()
+            api_key = user_input.strip()
+
+            # Clear flag
+            session._awaiting_api_key = False
+
+            app.write("[dim]Validating key and fetching models...[/dim]\n")
+
+            # Fetch models from OpenRouter
+            result = await model_mgr.fetch_models_from_openrouter(api_key)
+
+            if result["success"]:
+                # Register models
+                model_mgr.add_api_key("openrouter", api_key)
+                model_mgr.register_models("openrouter", result["models"])
+
+                app.write(f"[green]✓ API key added![/green]\n")
+                app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
+                app.write("Use [cyan]/model[/cyan] to see available models\n\n")
+            else:
+                app.write(f"[red]✗ Failed: {result['error']}[/red]\n\n")
+
+            return
+
         # Handle slash commands
         if user_input.startswith('/'):
-            # Handle /model command locally (no API calls)
+            # Handle /model command locally
             if user_input.startswith('/model'):
                 try:
                     from .model_manager import ModelManager
@@ -55,37 +86,50 @@ async def interactive_async(config, session, initial_prompt=None):
                 args = parts[1] if len(parts) > 1 else None
 
                 if not args:
-                    # Show model selection UI
+                    # Show available models (only those with keys)
                     current = model_mgr.get_current_model(session)
-                    models = model_mgr.list_models()
+                    models = model_mgr.list_available_models()
+
+                    if not models:
+                        app.write("[yellow]⚠ No models available[/yellow]\n\n")
+                        app.write("Add an API key first:\n")
+                        app.write("  [cyan]/model add[/cyan]\n\n")
+                        return
 
                     app.write("[bold cyan]📋 Available Models:[/bold cyan]\n\n")
 
                     for idx, model in enumerate(models, 1):
                         marker = "→" if model["id"] == current else " "
-                        key_status = "✓" if model["has_key"] else "✗"
                         context = f"{model['context']//1000}K" if model['context'] else "?"
 
-                        app.write(f"{marker} [bold]{idx}.[/bold] {model['name']}\n")
+                        # Check if free
+                        pricing = model.get("pricing", {})
+                        is_free = ":free" in model["id"] or pricing.get("prompt") == "0"
+                        free_badge = " [green]FREE[/green]" if is_free else ""
+
+                        app.write(f"{marker} [bold]{idx}.[/bold] {model['name']}{free_badge}\n")
                         app.write(f"     ID: [dim]{model['id']}[/dim]\n")
-                        app.write(f"     Provider: {model['provider']} {key_status}  Context: {context}\n\n")
+                        app.write(f"     Context: {context}\n\n")
 
-                    app.write("\n[dim]Usage: /model <number> or /model <model-id>[/dim]\n")
-                    app.write("[dim]       /model key <provider> <api-key>[/dim]\n\n")
+                    app.write("\n[dim]Usage: /model <number>  or  /model add[/dim]\n\n")
 
-                elif args.startswith("key "):
-                    # Set API key
-                    key_parts = args.split(maxsplit=2)[1:]
-                    if len(key_parts) < 2:
-                        app.write("[red]Usage: /model key <provider> <api-key>[/red]\n\n")
-                    else:
-                        provider_id, api_key = key_parts[0], key_parts[1]
-                        model_mgr.set_api_key(provider_id, api_key)
-                        app.write(f"[green]✓ API key set for {provider_id}[/green]\n\n")
+                elif args == "add":
+                    # Interactive API key setup
+                    app.write("[bold]🔑 Add API Key[/bold]\n\n")
+                    app.write("Enter your OpenRouter API key:\n")
+                    app.write("[dim](Get one at https://openrouter.ai/keys)[/dim]\n\n")
+
+                    # Prompt for key on next input - set a flag
+                    app.write("[yellow]Type your key and press Enter:[/yellow]\n")
+                    session._awaiting_api_key = True
 
                 else:
-                    # Switch model
-                    models = model_mgr.list_models()
+                    # Switch model by number or ID
+                    models = model_mgr.list_available_models()
+
+                    if not models:
+                        app.write("[red]No models available. Use /model add first.[/red]\n\n")
+                        return
 
                     # Check if numeric selection
                     try:
@@ -100,22 +144,15 @@ async def interactive_async(config, session, initial_prompt=None):
                     result = model_mgr.switch_model(session, model_id)
 
                     if result["success"]:
-                        app.write(f"[green]✓ Switched to {result['model']}[/green]\n")
-                        app.write(f"[dim]Provider: {result['provider']}[/dim]\n\n")
+                        app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
 
-                        # Update client for new model
+                        # Update client
                         client.base_url = config["baseURL"]
-                        client.api_key = model_mgr.get_api_key(models[idx]["provider_id"] if 'idx' in locals() else model_mgr.models["models"][model_id]["provider"])
+                        client.api_key = config["apiKey"]
 
                         app.update_status()
                     else:
-                        app.write(f"[red]✗ {result['error']}[/red]\n")
-                        if result.get("needs_key"):
-                            providers = model_mgr.get_providers()
-                            for prov in providers:
-                                if prov["id"] == result["provider_id"]:
-                                    app.write(f"\n[yellow]Set API key with:[/yellow]\n")
-                                    app.write(f"  /model key {prov['id']} YOUR_API_KEY\n\n")
+                        app.write(f"[red]✗ {result['error']}[/red]\n\n")
 
                 return
 

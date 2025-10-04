@@ -1,81 +1,42 @@
 """
 Model Manager for OpenCLI
-Handles model switching and API key management
-Does NOT call any LLM APIs - pure local configuration management
+Auto-discovers models from API keys, no hardcoded model lists
 """
 
 import json
+import httpx
 from pathlib import Path
 from typing import Dict, List, Optional
 
 
 class ModelManager:
-    """Manage models and API keys locally without API calls"""
+    """Manage models dynamically based on configured API keys"""
 
     def __init__(self, config_dir: Path = None):
         self.config_dir = config_dir or Path.home() / ".opencli"
         self.models_file = self.config_dir / "models.json"
         self.config_file = self.config_dir / "config.json"
 
-        # Load models configuration
-        self.models = self._load_models()
+        # Load configurations
+        self.models_db = self._load_models()
         self.config = self._load_config()
 
     def _load_models(self) -> Dict:
-        """Load models configuration"""
+        """Load models database"""
         if self.models_file.exists():
             with open(self.models_file) as f:
                 return json.load(f)
-        else:
-            # Default models configuration
-            return {
-                "providers": {
-                    "openrouter": {
-                        "name": "OpenRouter",
-                        "base_url": "https://openrouter.ai/api/v1",
-                        "requires_key": True
-                    },
-                    "openai": {
-                        "name": "OpenAI",
-                        "base_url": "https://api.openai.com/v1",
-                        "requires_key": True
-                    },
-                    "anthropic": {
-                        "name": "Anthropic",
-                        "base_url": "https://api.anthropic.com/v1",
-                        "requires_key": True
-                    }
-                },
-                "models": {
-                    "openrouter/x-ai/grok-4-fast:free": {
-                        "provider": "openrouter",
-                        "name": "Grok 4 Fast (Free)",
-                        "context": 128000,
-                        "default": True
-                    },
-                    "openrouter/anthropic/claude-sonnet-4": {
-                        "provider": "openrouter",
-                        "name": "Claude Sonnet 4",
-                        "context": 200000
-                    },
-                    "openrouter/google/gemini-2.0-flash-thinking-exp:free": {
-                        "provider": "openrouter",
-                        "name": "Gemini 2.0 Flash Thinking (Free)",
-                        "context": 32000
-                    },
-                    "gpt-4o": {
-                        "provider": "openai",
-                        "name": "GPT-4o",
-                        "context": 128000
-                    },
-                    "claude-3-5-sonnet-20241022": {
-                        "provider": "anthropic",
-                        "name": "Claude 3.5 Sonnet",
-                        "context": 200000
-                    }
-                },
-                "api_keys": {}
+        return {
+            "api_keys": {},
+            "models": {},
+            "providers": {
+                "openrouter": {
+                    "name": "OpenRouter",
+                    "base_url": "https://openrouter.ai/api/v1",
+                    "models_endpoint": "https://openrouter.ai/api/v1/models"
+                }
             }
+        }
 
     def _load_config(self) -> Dict:
         """Load main config"""
@@ -85,45 +46,160 @@ class ModelManager:
         return {}
 
     def _save_models(self):
-        """Save models configuration"""
+        """Save models database"""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         with open(self.models_file, 'w') as f:
-            json.dump(self.models, f, indent=2)
+            json.dump(self.models_db, f, indent=2)
 
     def _save_config(self):
         """Save main config"""
         with open(self.config_file, 'w') as f:
             json.dump(self.config, f, indent=2)
 
-    def list_models(self) -> List[Dict]:
+    def get_configured_keys(self) -> Dict[str, str]:
+        """Get all configured API keys"""
+        keys = {}
+
+        # Check models.json
+        for provider, key in self.models_db.get("api_keys", {}).items():
+            if key:
+                keys[provider] = key
+
+        # Check main config for legacy openrouter key
+        if "apiKey" in self.config and "openrouter" not in keys:
+            keys["openrouter"] = self.config["apiKey"]
+
+        return keys
+
+    async def fetch_models_from_openrouter(self, api_key: str) -> Dict:
         """
-        List all available models
+        Fetch available models from OpenRouter API
+
+        Args:
+            api_key: OpenRouter API key
 
         Returns:
-            List of model dicts with metadata
+            Result dict with models list
         """
-        models_list = []
-        for model_id, model_info in self.models.get("models", {}).items():
-            provider_id = model_info.get("provider")
-            provider = self.models["providers"].get(provider_id, {})
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://openrouter.ai/api/v1/models",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "HTTP-Referer": "https://github.com/Dezocode/opencli",
+                        "X-Title": "OpenCLI"
+                    },
+                    timeout=10.0
+                )
 
-            has_key = bool(self.get_api_key(provider_id))
+                if response.status_code == 200:
+                    data = response.json()
+                    models = []
 
-            models_list.append({
-                "id": model_id,
-                "name": model_info.get("name", model_id),
-                "provider": provider.get("name", provider_id),
-                "provider_id": provider_id,
-                "context": model_info.get("context", 0),
-                "has_key": has_key,
-                "is_default": model_info.get("default", False)
-            })
+                    for model in data.get("data", []):
+                        models.append({
+                            "id": model.get("id"),
+                            "name": model.get("name", model.get("id")),
+                            "context": model.get("context_length", 0),
+                            "pricing": model.get("pricing", {}),
+                            "architecture": model.get("architecture", {})
+                        })
 
-        return sorted(models_list, key=lambda x: (not x["is_default"], x["name"]))
+                    return {
+                        "success": True,
+                        "models": models,
+                        "count": len(models)
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API error: {response.status_code}"
+                    }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def register_models(self, provider: str, models: List[Dict]):
+        """
+        Register models from API response
+
+        Args:
+            provider: Provider ID (e.g., 'openrouter')
+            models: List of model dicts from API
+        """
+        for model in models:
+            model_id = model["id"]
+            self.models_db["models"][model_id] = {
+                "provider": provider,
+                "name": model.get("name", model_id),
+                "context": model.get("context", 0),
+                "pricing": model.get("pricing"),
+                "architecture": model.get("architecture")
+            }
+
+        self._save_models()
+
+    def add_api_key(self, provider: str, api_key: str):
+        """
+        Add API key for provider
+
+        Args:
+            provider: Provider ID
+            api_key: API key string
+        """
+        self.models_db["api_keys"][provider] = api_key
+        self._save_models()
+
+        # Update main config
+        if provider == "openrouter":
+            self.config["apiKey"] = api_key
+            provider_info = self.models_db["providers"].get(provider, {})
+            self.config["baseURL"] = provider_info.get("base_url")
+            self._save_config()
+
+    def list_available_models(self) -> List[Dict]:
+        """
+        List only models for which we have API keys
+
+        Returns:
+            List of available model dicts
+        """
+        configured_keys = self.get_configured_keys()
+        available = []
+
+        for model_id, model_info in self.models_db.get("models", {}).items():
+            provider = model_info.get("provider")
+            if provider in configured_keys:
+                # We have a key for this provider
+                available.append({
+                    "id": model_id,
+                    "name": model_info.get("name", model_id),
+                    "provider": provider,
+                    "context": model_info.get("context", 0),
+                    "pricing": model_info.get("pricing", {})
+                })
+
+        # Sort: free models first, then by name
+        def sort_key(m):
+            pricing = m.get("pricing", {})
+            is_free = (
+                pricing.get("prompt") == "0" or
+                pricing.get("completion") == "0" or
+                ":free" in m["id"]
+            )
+            return (not is_free, m["name"].lower())
+
+        return sorted(available, key=sort_key)
 
     def get_current_model(self, session) -> str:
         """Get current model from session or config"""
-        return session.model if hasattr(session, 'model') and session.model else self.config.get("model", "openrouter/x-ai/grok-4-fast:free")
+        if hasattr(session, 'model') and session.model:
+            return session.model
+        return self.config.get("model", "")
 
     def switch_model(self, session, model_id: str) -> Dict:
         """
@@ -134,87 +210,58 @@ class ModelManager:
             model_id: Model identifier
 
         Returns:
-            Result dict with success status
+            Result dict
         """
-        if model_id not in self.models.get("models", {}):
+        if model_id not in self.models_db.get("models", {}):
             return {
                 "success": False,
-                "error": f"Unknown model: {model_id}"
+                "error": f"Model not found: {model_id}"
             }
 
-        model_info = self.models["models"][model_id]
-        provider_id = model_info.get("provider")
-        provider = self.models["providers"].get(provider_id, {})
+        model_info = self.models_db["models"][model_id]
+        provider = model_info.get("provider")
 
-        # Check if API key is required and available
-        if provider.get("requires_key"):
-            if not self.get_api_key(provider_id):
-                return {
-                    "success": False,
-                    "error": f"No API key set for {provider.get('name', provider_id)}",
-                    "needs_key": True,
-                    "provider_id": provider_id
-                }
+        # Check if we have API key
+        keys = self.get_configured_keys()
+        if provider not in keys:
+            return {
+                "success": False,
+                "error": f"No API key for provider: {provider}"
+            }
 
         # Update session
         session.model = model_id
 
-        # Update config for persistence
+        # Update config
         self.config["model"] = model_id
-        self.config["baseURL"] = provider.get("base_url")
+        provider_info = self.models_db["providers"].get(provider, {})
+        self.config["baseURL"] = provider_info.get("base_url")
+        self.config["apiKey"] = keys[provider]
         self._save_config()
 
         return {
             "success": True,
             "model": model_info.get("name", model_id),
-            "provider": provider.get("name", provider_id)
+            "provider": provider
         }
 
-    def get_api_key(self, provider_id: str) -> Optional[str]:
-        """Get API key for provider"""
-        # Check models.json first
-        key = self.models.get("api_keys", {}).get(provider_id)
-        if key:
-            return key
-
-        # Check main config as fallback
-        if provider_id == "openrouter":
-            return self.config.get("apiKey")
-
-        return None
-
-    def set_api_key(self, provider_id: str, api_key: str):
-        """
-        Set API key for provider
-
-        Args:
-            provider_id: Provider identifier
-            api_key: API key string
-        """
-        if "api_keys" not in self.models:
-            self.models["api_keys"] = {}
-
-        self.models["api_keys"][provider_id] = api_key
-        self._save_models()
-
-        # Also update main config if it's the current provider
-        current_model = self.config.get("model", "")
-        if current_model:
-            model_info = self.models.get("models", {}).get(current_model, {})
-            if model_info.get("provider") == provider_id:
-                self.config["apiKey"] = api_key
-                self._save_config()
-
     def get_providers(self) -> List[Dict]:
-        """List all providers"""
+        """List configured providers"""
+        keys = self.get_configured_keys()
         providers = []
-        for provider_id, provider_info in self.models.get("providers", {}).items():
-            has_key = bool(self.get_api_key(provider_id))
+
+        for provider_id, provider_info in self.models_db.get("providers", {}).items():
+            has_key = provider_id in keys
+            model_count = sum(
+                1 for m in self.models_db.get("models", {}).values()
+                if m.get("provider") == provider_id
+            )
+
             providers.append({
                 "id": provider_id,
                 "name": provider_info.get("name", provider_id),
-                "base_url": provider_info.get("base_url"),
-                "requires_key": provider_info.get("requires_key", False),
-                "has_key": has_key
+                "has_key": has_key,
+                "model_count": model_count
             })
+
         return providers
