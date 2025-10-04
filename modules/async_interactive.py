@@ -182,6 +182,25 @@ async def interactive_async(config, session, initial_prompt=None):
                     if result["success"]:
                         app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
 
+                        # Show pricing info if available
+                        if "pricing" in result:
+                            pricing = result["pricing"]
+                            prompt_cost = pricing.get("prompt", "?")
+                            completion_cost = pricing.get("completion", "?")
+
+                            # Convert to readable format (per 1M tokens)
+                            if prompt_cost != "?" and prompt_cost != "0":
+                                prompt_per_1m = float(prompt_cost) * 1_000_000
+                                app.write(f"[dim]💰 Pricing: ${prompt_per_1m:.2f}/1M prompt tokens, ", end="")
+                            elif prompt_cost == "0":
+                                app.write(f"[dim]💰 Pricing: FREE (prompt), ", end="")
+
+                            if completion_cost != "?" and completion_cost != "0":
+                                completion_per_1m = float(completion_cost) * 1_000_000
+                                app.write(f"${completion_per_1m:.2f}/1M completion tokens[/dim]\n\n")
+                            elif completion_cost == "0":
+                                app.write(f"FREE (completion)[/dim]\n\n")
+
                         # Update client
                         client.base_url = config["baseURL"]
                         client.api_key = config["apiKey"]

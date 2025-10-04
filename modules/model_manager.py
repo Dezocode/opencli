@@ -256,7 +256,9 @@ class ModelManager:
         return {
             "success": True,
             "model": model_info.get("name", model_id),
-            "provider": provider
+            "provider": provider,
+            "pricing": model_info.get("pricing", {}),
+            "context": model_info.get("context", 0)
         }
 
     def get_providers(self) -> List[Dict]:
