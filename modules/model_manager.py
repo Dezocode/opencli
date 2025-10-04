@@ -144,16 +144,17 @@ class ModelManager:
 
         Args:
             provider: Provider ID (e.g., 'openrouter')
-            models: List of model dicts from API
+            models: List of model dicts from API (already sorted by popularity)
         """
-        for model in models:
+        for idx, model in enumerate(models):
             model_id = model["id"]
             self.models_db["models"][model_id] = {
                 "provider": provider,
                 "name": model.get("name", model_id),
                 "context": model.get("context", 0),
                 "pricing": model.get("pricing"),
-                "architecture": model.get("architecture")
+                "architecture": model.get("architecture"),
+                "popularity_rank": idx  # Preserve OpenRouter's ranking
             }
 
         self._save_models()
@@ -198,7 +199,7 @@ class ModelManager:
                     "pricing": model_info.get("pricing", {})
                 })
 
-        # Sort: free models first, then by name
+        # Sort: FREE models first, then by OpenRouter popularity rank
         def sort_key(m):
             pricing = m.get("pricing", {})
             is_free = (
@@ -206,7 +207,12 @@ class ModelManager:
                 pricing.get("completion") == "0" or
                 ":free" in m["id"]
             )
-            return (not is_free, m["name"].lower())
+            # Get popularity rank from models_db
+            model_info = self.models_db.get("models", {}).get(m["id"], {})
+            popularity_rank = model_info.get("popularity_rank", 999999)
+
+            # Sort: free first (0), then paid (1), then by popularity
+            return (not is_free, popularity_rank)
 
         return sorted(available, key=sort_key)
 
