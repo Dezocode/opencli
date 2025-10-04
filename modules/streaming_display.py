@@ -22,12 +22,15 @@ class StreamingDisplay(Static):
     """
 
     content: reactive[RenderableType] = reactive("")
+    can_focus = True
 
-    # CSS to ensure ANSI background
+    # CSS to ensure ANSI background and scrolling
     DEFAULT_CSS = """
     StreamingDisplay {
         background: default;
         color: auto;
+        overflow-y: auto;
+        height: 1fr;
     }
     """
 

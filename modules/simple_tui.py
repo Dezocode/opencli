@@ -186,8 +186,9 @@ class OpenCLITUI(App):
         """Create TUI layout"""
         # Scrollable content area with streaming support
         if CUSTOM_WIDGETS_AVAILABLE and StreamingDisplay:
-            # Use streaming display for laser effect - keep ID as "content"
-            yield StreamingDisplay(id="content")
+            # Use streaming display wrapped in scrollable container
+            with VerticalScroll(id="content"):
+                yield StreamingDisplay(id="stream-display")
         elif CUSTOM_WIDGETS_AVAILABLE and self.tui_config and self.tui_config.get('text_selection.mode') == 'custom':
             yield SelectableRichLog(
                 id="content",
@@ -214,13 +215,23 @@ class OpenCLITUI(App):
 
     def on_mount(self) -> None:
         """Initialize"""
-        # Get content widget - expect our implementation
-        content = self.query_one("#content")
+        # Try to get StreamingDisplay widget
+        stream_display = None
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+        except:
+            # Might be old structure
+            try:
+                content = self.query_one("#content")
+                if StreamingDisplay is not None and isinstance(content, StreamingDisplay):
+                    stream_display = content
+            except:
+                pass
 
-        # Configure if it's StreamingDisplay (check if class is available first)
-        if StreamingDisplay is not None and isinstance(content, StreamingDisplay):
-            content.set_laser_colors(self._laser_colors)
-            content.set_laser_enabled(self._laser_mode)
+        # Configure if it's StreamingDisplay
+        if stream_display is not None:
+            stream_display.set_laser_colors(self._laser_colors)
+            stream_display.set_laser_enabled(self._laser_mode)
 
             # Show welcome
             welcome = f""" ██████╗ ██████╗ ███████╗███╗   ██╗     ██████╗██╗     ██╗
@@ -232,7 +243,7 @@ class OpenCLITUI(App):
 
 Session: {self.session.session_id[:8]} | Ready
 """
-            content.write_line(welcome)
+            stream_display.write_line(welcome)
         else:
             # RichLog fallback
             content.border_title = f"OpenCLI - {self.session.session_id[:8]}"
@@ -292,23 +303,41 @@ Session: {self.session.session_id[:8]} | Ready
 
     def write(self, text: str, end: str = "\n", style: str = None) -> None:
         """Write to content area with optional hot laser effect"""
-        # Get content widget - check if it's StreamingDisplay
-        content = self.query_one("#content")
+        # Try to get StreamingDisplay (might be inside VerticalScroll)
+        stream_display = None
+        scroll_container = None
 
-        if StreamingDisplay is not None and isinstance(content, StreamingDisplay):
+        try:
+            # Try direct query first
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            scroll_container = self.query_one("#content", VerticalScroll)
+        except:
+            # Might be the old structure where StreamingDisplay IS #content
+            try:
+                content = self.query_one("#content")
+                if StreamingDisplay is not None and isinstance(content, StreamingDisplay):
+                    stream_display = content
+            except:
+                pass
+
+        if stream_display is not None:
             # Use streaming display with laser effect
             if end == "":
                 # Streaming mode - write with pulsing laser
-                content.write_stream(text)
+                stream_display.write_stream(text)
                 self._streaming_active = True
             else:
                 # End of streaming - finish and revert to default color
-                content.finish_stream()
+                stream_display.finish_stream()
                 self._streaming_active = False
 
                 # Write any final text
                 if text and text.strip():
-                    content.write(text, style=style)
+                    stream_display.write(text, style=style)
+
+            # Auto-scroll to bottom if in scroll container
+            if scroll_container:
+                scroll_container.scroll_end(animate=False)
         else:
             # Fallback to RichLog or VerticalScroll
             try:
