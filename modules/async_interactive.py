@@ -126,11 +126,17 @@ async def interactive_async(config, session, initial_prompt=None):
                         app.write("  [cyan]/model add[/cyan]\n\n")
                         return
 
+                    # Get provider info
+                    providers = model_mgr.get_providers()
+                    provider_names = {p["id"]: p["name"] for p in providers}
+
                     app.write("[bold cyan]📋 Available Models:[/bold cyan]\n\n")
 
                     for idx, model in enumerate(models, 1):
                         marker = "→" if model["id"] == current else " "
                         context = f"{model['context']//1000}K" if model['context'] else "?"
+                        provider = model.get("provider", "unknown")
+                        provider_name = provider_names.get(provider, provider)
 
                         # Check if free
                         pricing = model.get("pricing", {})
@@ -139,7 +145,7 @@ async def interactive_async(config, session, initial_prompt=None):
 
                         app.write(f"{marker} [bold]{idx}.[/bold] {model['name']}{free_badge}\n")
                         app.write(f"     ID: [dim]{model['id']}[/dim]\n")
-                        app.write(f"     Context: {context}\n\n")
+                        app.write(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
 
                     app.write("\n[dim]Usage: /model <number>  or  /model add[/dim]\n\n")
 
