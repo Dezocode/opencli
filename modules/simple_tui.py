@@ -91,17 +91,22 @@ class OpenCLITUI(App):
         border: solid #888888;
         border-title-align: left;
         background: $background;
+        overflow-y: auto;
         scrollbar-background: $panel;
         scrollbar-color: $primary;
     }
 
     VerticalScroll {
         background: $background;
+        height: 100%;
+        overflow-y: auto;
     }
 
     #stream-display {
         background: $background;
         color: auto;
+        height: auto;
+        min-height: 100%;
     }
 
     #footer {
@@ -335,9 +340,10 @@ Session: {self.session.session_id[:8]} | Ready
                 if text and text.strip():
                     stream_display.write(text, style=style)
 
-            # Auto-scroll to bottom if in scroll container
+            # Auto-scroll to bottom using Textual's scroll methods
             if scroll_container:
-                scroll_container.scroll_end(animate=False)
+                # Schedule scroll on next frame to ensure content is rendered
+                self.call_after_refresh(scroll_container.scroll_end, animate=False)
         else:
             # Fallback to RichLog or VerticalScroll
             try:
