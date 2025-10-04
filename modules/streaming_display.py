@@ -97,20 +97,38 @@ class StreamingDisplay(Static):
 
             self.update(display_text)
 
-    def write_line(self, text: str, style: str = None):
-        """Write a complete line (no laser effect)"""
-        if style:
-            self._lines.append(Text(text, style=style).plain)
+    def write(self, text: str | Text, style: str = None):
+        """
+        Write text (compatibility with RichLog interface)
+
+        Args:
+            text: Text string or Rich Text object
+            style: Optional style string
+        """
+        # Convert Text to string if needed
+        if isinstance(text, Text):
+            text_str = text.plain
         else:
-            self._lines.append(text)
+            text_str = str(text)
+
+        # Add to lines
+        if style:
+            self._lines.append(Text(text_str, style=style).plain)
+        else:
+            self._lines.append(text_str)
 
         # Rebuild display
         display_text = Text()
         for line in self._lines:
             display_text.append(line)
-            display_text.append("\n")
+            if not line.endswith("\n"):
+                display_text.append("\n")
 
         self.update(display_text)
+
+    def write_line(self, text: str, style: str = None):
+        """Write a complete line (no laser effect) - alias for write()"""
+        self.write(text, style=style)
 
     def clear(self):
         """Clear all content"""

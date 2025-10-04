@@ -292,28 +292,23 @@ Session: {self.session.session_id[:8]} | Ready
 
     def write(self, text: str, end: str = "\n", style: str = None) -> None:
         """Write to content area with optional hot laser effect"""
-        # Try to get streaming display widget first
-        try:
-            stream_display = self.query_one("#stream-display", StreamingDisplay)
-            use_streaming = True
-        except:
-            stream_display = None
-            use_streaming = False
+        # Get content widget - check if it's StreamingDisplay
+        content = self.query_one("#content")
 
-        if use_streaming and stream_display:
+        if StreamingDisplay is not None and isinstance(content, StreamingDisplay):
             # Use streaming display with laser effect
             if end == "":
                 # Streaming mode - write with pulsing laser
-                stream_display.write_stream(text)
+                content.write_stream(text)
                 self._streaming_active = True
             else:
                 # End of streaming - finish and revert to default color
-                stream_display.finish_stream()
+                content.finish_stream()
                 self._streaming_active = False
 
                 # Write any final text
                 if text and text.strip():
-                    stream_display.write_line(text, style=style)
+                    content.write(text, style=style)
         else:
             # Fallback to RichLog or VerticalScroll
             try:
