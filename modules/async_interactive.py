@@ -29,6 +29,36 @@ async def interactive_async(config, session, initial_prompt=None):
     # Store initial prompt for processing after TUI starts
     app.initial_prompt = initial_prompt
 
+    # Auto-initialize models if API key exists but no models registered
+    try:
+        from .model_manager import ModelManager
+    except (ImportError, ValueError):
+        from model_manager import ModelManager
+
+    model_mgr = ModelManager()
+    keys = model_mgr.get_configured_keys()
+    models = model_mgr.list_available_models()
+
+    # If we have an OpenRouter key but no models, fetch them
+    if "openrouter" in keys and not models:
+        async def auto_init_models():
+            """Auto-fetch models on first run"""
+            await asyncio.sleep(0.5)  # Let TUI mount first
+            app.write("[dim]Detecting API key... fetching available models...[/dim]\n")
+
+            result = await model_mgr.fetch_models_from_openrouter(keys["openrouter"])
+
+            if result["success"]:
+                model_mgr.add_api_key("openrouter", keys["openrouter"])
+                model_mgr.register_models("openrouter", result["models"])
+                app.write(f"[green]✓ Registered {result['count']} models from OpenRouter[/green]\n\n")
+                app.write("Use [cyan]/model[/cyan] to see available models\n\n")
+            else:
+                app.write(f"[yellow]⚠ Could not fetch models: {result['error']}[/yellow]\n\n")
+
+        # Schedule auto-init after TUI mounts
+        asyncio.create_task(auto_init_models())
+
     # Setup message handler
     async def handle_user_input(user_input: str):
         """Handle user input and generate response"""

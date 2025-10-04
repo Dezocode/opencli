@@ -16,6 +16,7 @@ class ModelManager:
         self.config_dir = config_dir or Path.home() / ".opencli"
         self.models_file = self.config_dir / "models.json"
         self.config_file = self.config_dir / "config.json"
+        self.secrets_file = self.config_dir / ".secrets"
 
         # Load configurations
         self.models_db = self._load_models()
@@ -68,6 +69,16 @@ class ModelManager:
         # Check main config for legacy openrouter key
         if "apiKey" in self.config and "openrouter" not in keys:
             keys["openrouter"] = self.config["apiKey"]
+
+        # Check .secrets file for legacy OpenCLI setup
+        if "openrouter" not in keys and self.secrets_file.exists():
+            try:
+                with open(self.secrets_file) as f:
+                    secrets = json.load(f)
+                    if "apiKey" in secrets:
+                        keys["openrouter"] = secrets["apiKey"]
+            except:
+                pass
 
         return keys
 
