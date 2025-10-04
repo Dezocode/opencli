@@ -30,6 +30,7 @@ class ModelManager:
         return {
             "api_keys": {},
             "models": {},
+            "usage_history": [],  # Track recently used models
             "providers": {
                 "openrouter": {
                     "name": "OpenRouter",
@@ -253,6 +254,16 @@ class ModelManager:
         self.config["apiKey"] = keys[provider]
         self._save_config()
 
+        # Track usage history (keep last 10)
+        usage_history = self.models_db.get("usage_history", [])
+        # Remove if already in history
+        usage_history = [m for m in usage_history if m != model_id]
+        # Add to front
+        usage_history.insert(0, model_id)
+        # Keep only last 10
+        self.models_db["usage_history"] = usage_history[:10]
+        self._save_models()
+
         return {
             "success": True,
             "model": model_info.get("name", model_id),
@@ -260,6 +271,24 @@ class ModelManager:
             "pricing": model_info.get("pricing", {}),
             "context": model_info.get("context", 0)
         }
+
+    def get_recent_models(self) -> List[Dict]:
+        """Get recently used models with full info"""
+        usage_history = self.models_db.get("usage_history", [])
+        recent = []
+
+        for model_id in usage_history:
+            if model_id in self.models_db.get("models", {}):
+                model_info = self.models_db["models"][model_id]
+                recent.append({
+                    "id": model_id,
+                    "name": model_info.get("name", model_id),
+                    "provider": model_info.get("provider"),
+                    "context": model_info.get("context", 0),
+                    "pricing": model_info.get("pricing", {})
+                })
+
+        return recent
 
     def get_providers(self) -> List[Dict]:
         """List configured providers"""

@@ -69,6 +69,50 @@ async def interactive_async(config, session, initial_prompt=None):
             app.exit()
             return
 
+        # Check if awaiting model confirmation (y/n)
+        if hasattr(session, '_awaiting_model_confirm') and session._awaiting_model_confirm:
+            model_id = session._awaiting_model_confirm
+            response = user_input.strip().lower()
+
+            # Clear flag
+            session._awaiting_model_confirm = None
+
+            if response in ['y', 'yes']:
+                try:
+                    from .model_manager import ModelManager
+                except (ImportError, ValueError):
+                    from model_manager import ModelManager
+
+                model_mgr = ModelManager()
+                result = model_mgr.switch_model(session, model_id)
+
+                if result["success"]:
+                    app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
+
+                    # Show pricing info
+                    if "pricing" in result:
+                        pricing = result["pricing"]
+                        prompt_cost = pricing.get("prompt", "?")
+                        completion_cost = pricing.get("completion", "?")
+
+                        if prompt_cost != "?" and prompt_cost != "0":
+                            prompt_per_1m = float(prompt_cost) * 1_000_000
+                            app.write(f"[dim]💰 Pricing: ${prompt_per_1m:.2f}/1M prompt tokens, ", end="")
+                        if completion_cost != "?" and completion_cost != "0":
+                            completion_per_1m = float(completion_cost) * 1_000_000
+                            app.write(f"${completion_per_1m:.2f}/1M completion tokens[/dim]\n\n")
+
+                    # Update client
+                    client.base_url = config["baseURL"]
+                    client.api_key = config["apiKey"]
+                    app.update_status()
+                else:
+                    app.write(f"[red]✗ {result['error']}[/red]\n\n")
+            else:
+                app.write("[dim]Model switch cancelled.[/dim]\n\n")
+
+            return
+
         # Check if awaiting API key input
         if hasattr(session, '_awaiting_api_key') and session._awaiting_api_key:
             try:
@@ -119,6 +163,7 @@ async def interactive_async(config, session, initial_prompt=None):
                     # Show available models (only those with keys)
                     current = model_mgr.get_current_model(session)
                     models = model_mgr.list_available_models()
+                    recent = model_mgr.get_recent_models()
 
                     if not models:
                         app.write("[yellow]⚠ No models available[/yellow]\n\n")
@@ -130,7 +175,28 @@ async def interactive_async(config, session, initial_prompt=None):
                     providers = model_mgr.get_providers()
                     provider_names = {p["id"]: p["name"] for p in providers}
 
-                    app.write("[bold cyan]📋 Available Models:[/bold cyan]\n\n")
+                    # Show recently used models first
+                    if recent:
+                        app.write("[bold magenta]⭐ Recently Used:[/bold magenta]\n\n")
+
+                        for idx, model in enumerate(recent[:5], 1):  # Top 5 recent
+                            marker = "→" if model["id"] == current else " "
+                            context = f"{model['context']//1000}K" if model['context'] else "?"
+                            provider = model.get("provider", "unknown")
+                            provider_name = provider_names.get(provider, provider)
+
+                            # Check if free
+                            pricing = model.get("pricing", {})
+                            is_free = ":free" in model["id"] or pricing.get("prompt") == "0"
+                            free_badge = " [green]FREE[/green]" if is_free else ""
+
+                            app.write(f"{marker} [bold]r{idx}.[/bold] {model['name']}{free_badge}\n")
+                            app.write(f"     ID: [dim]{model['id']}[/dim]\n")
+                            app.write(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
+
+                        app.write("\n")
+
+                    app.write("[bold cyan]📋 All Available Models:[/bold cyan]\n\n")
 
                     for idx, model in enumerate(models, 1):
                         marker = "→" if model["id"] == current else " "
@@ -147,7 +213,7 @@ async def interactive_async(config, session, initial_prompt=None):
                         app.write(f"     ID: [dim]{model['id']}[/dim]\n")
                         app.write(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
 
-                    app.write("\n[dim]Usage: /model <number>  or  /model add[/dim]\n\n")
+                    app.write("\n[dim]Usage: /model <number> or /model r<number> (recent)  or  /model add[/dim]\n\n")
 
                 elif args == "add":
                     # Interactive API key setup
@@ -162,20 +228,65 @@ async def interactive_async(config, session, initial_prompt=None):
                 else:
                     # Switch model by number or ID
                     models = model_mgr.list_available_models()
+                    recent = model_mgr.get_recent_models()
 
                     if not models:
                         app.write("[red]No models available. Use /model add first.[/red]\n\n")
                         return
 
-                    # Check if numeric selection
-                    try:
+                    # Check if recent model selection (r1, r2, etc.)
+                    if args.lower().startswith('r') and args[1:].isdigit():
+                        idx = int(args[1:]) - 1
+                        if 0 <= idx < len(recent):
+                            model_id = recent[idx]["id"]
+                            selected_model = recent[idx]
+                        else:
+                            app.write(f"[red]✗ Invalid recent model number: {args}[/red]\n\n")
+                            return
+                    # Check if numeric selection from all models
+                    elif args.isdigit():
                         idx = int(args) - 1
                         if 0 <= idx < len(models):
                             model_id = models[idx]["id"]
+                            selected_model = models[idx]
                         else:
-                            raise ValueError()
-                    except ValueError:
+                            app.write(f"[red]✗ Invalid model number: {args}[/red]\n\n")
+                            return
+                    # Model ID directly
+                    else:
                         model_id = args
+                        # Find in models list for pricing check
+                        selected_model = None
+                        for m in models:
+                            if m["id"] == model_id:
+                                selected_model = m
+                                break
+
+                    # Check if paid model - show confirmation
+                    if selected_model:
+                        pricing = selected_model.get("pricing", {})
+                        is_free = ":free" in selected_model["id"] or pricing.get("prompt") == "0"
+
+                        if not is_free:
+                            # Calculate readable pricing
+                            prompt_cost = pricing.get("prompt", "?")
+                            completion_cost = pricing.get("completion", "?")
+
+                            app.write(f"[yellow]⚠️  PAID MODEL WARNING[/yellow]\n\n")
+                            app.write(f"Model: [bold]{selected_model['name']}[/bold]\n")
+
+                            if prompt_cost != "?":
+                                prompt_per_1m = float(prompt_cost) * 1_000_000
+                                app.write(f"Prompt: [yellow]${prompt_per_1m:.2f}/1M tokens[/yellow]\n")
+                            if completion_cost != "?":
+                                completion_per_1m = float(completion_cost) * 1_000_000
+                                app.write(f"Completion: [yellow]${completion_per_1m:.2f}/1M tokens[/yellow]\n\n")
+
+                            app.write("[yellow]Switch to this paid model? (y/n):[/yellow]\n")
+
+                            # Set flag to await y/n response
+                            session._awaiting_model_confirm = model_id
+                            return
 
                     result = model_mgr.switch_model(session, model_id)
 
