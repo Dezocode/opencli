@@ -171,6 +171,15 @@ async def interactive_async(config, session, initial_prompt=None):
                 args = parts[1] if len(parts) > 1 else None
 
                 if not args:
+                    # Refresh models from OpenRouter to get latest rankings/pricing
+                    keys = model_mgr.get_configured_keys()
+                    if "openrouter" in keys:
+                        app.write("[dim]Refreshing models from OpenRouter...[/dim]\n")
+                        result = await model_mgr.fetch_models_from_openrouter(keys["openrouter"])
+                        if result["success"]:
+                            model_mgr.register_models("openrouter", result["models"])
+                            app.write("[dim]✓ Updated {count} models[/dim]\n\n".format(count=result["count"]))
+
                     # Show available models (only those with keys)
                     current = model_mgr.get_current_model(session)
                     models = model_mgr.list_available_models()
