@@ -41,7 +41,85 @@ async def interactive_async(config, session, initial_prompt=None):
 
         # Handle slash commands
         if user_input.startswith('/'):
-            # Import from main module
+            # Handle /model command locally (no API calls)
+            if user_input.startswith('/model'):
+                try:
+                    from .model_manager import ModelManager
+                except (ImportError, ValueError):
+                    from model_manager import ModelManager
+
+                model_mgr = ModelManager()
+
+                # Parse args
+                parts = user_input.split(maxsplit=1)
+                args = parts[1] if len(parts) > 1 else None
+
+                if not args:
+                    # Show model selection UI
+                    current = model_mgr.get_current_model(session)
+                    models = model_mgr.list_models()
+
+                    app.write("[bold cyan]📋 Available Models:[/bold cyan]\n\n")
+
+                    for idx, model in enumerate(models, 1):
+                        marker = "→" if model["id"] == current else " "
+                        key_status = "✓" if model["has_key"] else "✗"
+                        context = f"{model['context']//1000}K" if model['context'] else "?"
+
+                        app.write(f"{marker} [bold]{idx}.[/bold] {model['name']}\n")
+                        app.write(f"     ID: [dim]{model['id']}[/dim]\n")
+                        app.write(f"     Provider: {model['provider']} {key_status}  Context: {context}\n\n")
+
+                    app.write("\n[dim]Usage: /model <number> or /model <model-id>[/dim]\n")
+                    app.write("[dim]       /model key <provider> <api-key>[/dim]\n\n")
+
+                elif args.startswith("key "):
+                    # Set API key
+                    key_parts = args.split(maxsplit=2)[1:]
+                    if len(key_parts) < 2:
+                        app.write("[red]Usage: /model key <provider> <api-key>[/red]\n\n")
+                    else:
+                        provider_id, api_key = key_parts[0], key_parts[1]
+                        model_mgr.set_api_key(provider_id, api_key)
+                        app.write(f"[green]✓ API key set for {provider_id}[/green]\n\n")
+
+                else:
+                    # Switch model
+                    models = model_mgr.list_models()
+
+                    # Check if numeric selection
+                    try:
+                        idx = int(args) - 1
+                        if 0 <= idx < len(models):
+                            model_id = models[idx]["id"]
+                        else:
+                            raise ValueError()
+                    except ValueError:
+                        model_id = args
+
+                    result = model_mgr.switch_model(session, model_id)
+
+                    if result["success"]:
+                        app.write(f"[green]✓ Switched to {result['model']}[/green]\n")
+                        app.write(f"[dim]Provider: {result['provider']}[/dim]\n\n")
+
+                        # Update client for new model
+                        client.base_url = config["baseURL"]
+                        client.api_key = model_mgr.get_api_key(models[idx]["provider_id"] if 'idx' in locals() else model_mgr.models["models"][model_id]["provider"])
+
+                        app.update_status()
+                    else:
+                        app.write(f"[red]✗ {result['error']}[/red]\n")
+                        if result.get("needs_key"):
+                            providers = model_mgr.get_providers()
+                            for prov in providers:
+                                if prov["id"] == result["provider_id"]:
+                                    app.write(f"\n[yellow]Set API key with:[/yellow]\n")
+                                    app.write(f"  /model key {prov['id']} YOUR_API_KEY\n\n")
+
+                return
+
+            # Handle other commands via main opencli module
             try:
                 import sys
                 import os
