@@ -49,7 +49,10 @@ class StreamingDisplay(Static):
 
         # Add completed lines in default color
         for line in self._lines:
-            display_text.append(line)
+            if isinstance(line, Text):
+                display_text.append_text(line)
+            else:
+                display_text.append(str(line))
             display_text.append("\n")
 
         # Add current streaming line with trailing wave effect
@@ -84,15 +87,24 @@ class StreamingDisplay(Static):
         """Finish streaming and revert to default color"""
         if self._current_stream:
             # Add current stream as completed line (default color)
-            self._lines.append(self._current_stream)
+            # Parse markup if present
+            self._lines.append(Text.from_markup(self._current_stream))
             self._current_stream = ""
             self._streaming = False
 
             # Rebuild display with all lines in default color
             display_text = Text()
             for line in self._lines:
-                display_text.append(line)
-                if not line.endswith("\n"):
+                if isinstance(line, Text):
+                    display_text.append_text(line)
+                else:
+                    display_text.append(str(line))
+
+                # Add newline if not present
+                if isinstance(line, Text):
+                    if not line.plain.endswith("\n"):
+                        display_text.append("\n")
+                elif not line.endswith("\n"):
                     display_text.append("\n")
 
             self.update(display_text)
@@ -105,24 +117,33 @@ class StreamingDisplay(Static):
             text: Text string or Rich Text object
             style: Optional style string
         """
-        # Convert Text to string if needed
+        # Handle Rich Text objects
         if isinstance(text, Text):
-            text_str = text.plain
+            # Already a Text object - store it directly
+            self._lines.append(text)
         else:
+            # String - parse markup and create Text
             text_str = str(text)
-
-        # Add to lines
-        if style:
-            self._lines.append(Text(text_str, style=style).plain)
-        else:
-            self._lines.append(text_str)
+            if style:
+                # Apply style
+                self._lines.append(Text(text_str, style=style))
+            else:
+                # Parse markup like [green]...[/green]
+                self._lines.append(Text.from_markup(text_str))
 
         # Rebuild display
         display_text = Text()
         for line in self._lines:
-            display_text.append(line)
-            if not line.endswith("\n"):
-                display_text.append("\n")
+            # Each line might be Text object or string
+            if isinstance(line, Text):
+                display_text.append_text(line)
+            else:
+                display_text.append(str(line))
+
+            # Add newline if not present
+            if not (isinstance(line, str) and line.endswith("\n")):
+                if not (isinstance(line, Text) and line.plain.endswith("\n")):
+                    display_text.append("\n")
 
         self.update(display_text)
 
