@@ -51,6 +51,9 @@ class ModelManager:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         with open(self.models_file, 'w') as f:
             json.dump(self.models_db, f, indent=2)
+        # Set restrictive permissions (0o600) since it contains API keys
+        import os
+        os.chmod(self.models_file, 0o600)
 
     def _save_config(self):
         """Save main config"""
