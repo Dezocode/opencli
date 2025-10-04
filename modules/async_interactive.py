@@ -95,12 +95,23 @@ async def interactive_async(config, session, initial_prompt=None):
                         prompt_cost = pricing.get("prompt", "?")
                         completion_cost = pricing.get("completion", "?")
 
-                        if prompt_cost != "?" and prompt_cost != "0":
+                        # Build pricing message
+                        pricing_parts = []
+
+                        if prompt_cost == "0":
+                            pricing_parts.append("FREE (prompt)")
+                        elif prompt_cost != "?":
                             prompt_per_1m = float(prompt_cost) * 1_000_000
-                            app.write(f"[dim]💰 Pricing: ${prompt_per_1m:.2f}/1M prompt tokens, ", end="")
-                        if completion_cost != "?" and completion_cost != "0":
+                            pricing_parts.append(f"${prompt_per_1m:.2f}/1M prompt tokens")
+
+                        if completion_cost == "0":
+                            pricing_parts.append("FREE (completion)")
+                        elif completion_cost != "?":
                             completion_per_1m = float(completion_cost) * 1_000_000
-                            app.write(f"${completion_per_1m:.2f}/1M completion tokens[/dim]\n\n")
+                            pricing_parts.append(f"${completion_per_1m:.2f}/1M completion tokens")
+
+                        if pricing_parts:
+                            app.write(f"[dim]💰 Pricing: {', '.join(pricing_parts)}[/dim]\n\n")
 
                     # Update client
                     client.base_url = config["baseURL"]
@@ -299,18 +310,25 @@ async def interactive_async(config, session, initial_prompt=None):
                             prompt_cost = pricing.get("prompt", "?")
                             completion_cost = pricing.get("completion", "?")
 
-                            # Convert to readable format (per 1M tokens)
-                            if prompt_cost != "?" and prompt_cost != "0":
-                                prompt_per_1m = float(prompt_cost) * 1_000_000
-                                app.write(f"[dim]💰 Pricing: ${prompt_per_1m:.2f}/1M prompt tokens, ", end="")
-                            elif prompt_cost == "0":
-                                app.write(f"[dim]💰 Pricing: FREE (prompt), ", end="")
+                            # Build pricing message
+                            pricing_parts = []
 
-                            if completion_cost != "?" and completion_cost != "0":
+                            # Prompt pricing
+                            if prompt_cost == "0":
+                                pricing_parts.append("FREE (prompt)")
+                            elif prompt_cost != "?":
+                                prompt_per_1m = float(prompt_cost) * 1_000_000
+                                pricing_parts.append(f"${prompt_per_1m:.2f}/1M prompt tokens")
+
+                            # Completion pricing
+                            if completion_cost == "0":
+                                pricing_parts.append("FREE (completion)")
+                            elif completion_cost != "?":
                                 completion_per_1m = float(completion_cost) * 1_000_000
-                                app.write(f"${completion_per_1m:.2f}/1M completion tokens[/dim]\n\n")
-                            elif completion_cost == "0":
-                                app.write(f"FREE (completion)[/dim]\n\n")
+                                pricing_parts.append(f"${completion_per_1m:.2f}/1M completion tokens")
+
+                            if pricing_parts:
+                                app.write(f"[dim]💰 Pricing: {', '.join(pricing_parts)}[/dim]\n\n")
 
                         # Update client
                         client.base_url = config["baseURL"]
