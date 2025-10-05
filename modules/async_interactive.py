@@ -1523,8 +1523,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # Check if we have tool calls
                 if tool_calls_dict:
                     # Finish any streaming content first
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
                     if hasattr(app, 'finish_stream'):
                         app.finish_stream()
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 POST-STREAM: finish_stream done (tool path)[/dim]\n")
                     app.write("\n")
 
                     # Build tool calls list
@@ -1732,12 +1736,20 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
 
                     # Finish and save continuation
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
                     if hasattr(app, 'finish_stream'):
                         app.finish_stream()
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
                     app.write("\n\n")
 
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner...[/dim]\n")
                     if hasattr(app, 'stop_spinner'):
                         app.stop_spinner()
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 POST-STREAM: stop_spinner done[/dim]\n")
 
                     # Only save if we have content
                     if full_response.strip():
@@ -1756,15 +1768,23 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # No tool calls - regular response
                 # Finish streaming to process markdown FIRST (before adding newlines)
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (regular path)...[/dim]\n")
                 if hasattr(app, 'finish_stream'):
                     app.finish_stream()
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 POST-STREAM: finish_stream done (regular path)[/dim]\n")
 
                 # Then add spacing after rendered markdown
                 app.write("\n\n")
 
                 # Stop spinner - API response complete
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner (regular path)...[/dim]\n")
                 if hasattr(app, 'stop_spinner'):
                     app.stop_spinner()
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 POST-STREAM: stop_spinner done (regular path)[/dim]\n")
 
                 # Save response
                 session.messages.append({
