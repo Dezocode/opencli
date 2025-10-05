@@ -1759,46 +1759,56 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             last_chunk_time = asyncio.get_event_loop().time()
         
                             async for chunk in response:
-                                chunk_count += 1
-                                current_time = asyncio.get_event_loop().time()
+                                try:
+                                    chunk_count += 1
+                                    current_time = asyncio.get_event_loop().time()
+
+                                    if session.debug_mode and chunk_count % 10 == 0:
+                                        elapsed = current_time - last_chunk_time
+                                        app.write(f"[dim]🐛 CONTINUATION STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
+                                        last_chunk_time = current_time
+
+                                    if app.should_exit:
+                                        break
+
+                                    # Capture finish_reason (CRITICAL for knowing when to stop!)
+                                    if chunk.choices and chunk.choices[0].finish_reason:
+                                        finish_reason_continuation = chunk.choices[0].finish_reason
+                                        if session.debug_mode:
+                                            app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
+
+                                    delta = chunk.choices[0].delta if chunk.choices else None
+                                    if not delta:
+                                        continue
         
-                                if session.debug_mode and chunk_count % 10 == 0:
-                                    elapsed = current_time - last_chunk_time
-                                    app.write(f"[dim]🐛 CONTINUATION STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
-                                    last_chunk_time = current_time
-        
-                                if app.should_exit:
-                                    break
-        
-                                # Capture finish_reason (CRITICAL for knowing when to stop!)
-                                if chunk.choices and chunk.choices[0].finish_reason:
-                                    finish_reason_continuation = chunk.choices[0].finish_reason
+                                    # Handle tool calls in continuation too!
+                                    if delta.tool_calls:
+                                        for tc in delta.tool_calls:
+                                            idx = tc.index
+                                            if idx not in tool_calls_dict_continuation:
+                                                tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
+                                            if tc.function:
+                                                if tc.function.name:
+                                                    tool_calls_dict_continuation[idx]["name"] = tc.function.name
+                                                if tc.function.arguments:
+                                                    tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
+            
+                                        # Handle content
+                                        if delta.content:
+                                            full_response += delta.content
+                                            app.write(delta.content, end="")
+                                            # Yield to event loop after writing
+                                            await asyncio.sleep(0)
+
+                                except Exception as chunk_error:
+                                    # CRITICAL: Don't let chunk errors kill the entire stream
+                                    app.write(f"\n[red]⚠️ Chunk #{chunk_count} error: {chunk_error}[/red]\n")
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
-        
-                                delta = chunk.choices[0].delta if chunk.choices else None
-                                if not delta:
-                                    continue
-        
-                                # Handle tool calls in continuation too!
-                                if delta.tool_calls:
-                                    for tc in delta.tool_calls:
-                                        idx = tc.index
-                                        if idx not in tool_calls_dict_continuation:
-                                            tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
-                                        if tc.function:
-                                            if tc.function.name:
-                                                tool_calls_dict_continuation[idx]["name"] = tc.function.name
-                                            if tc.function.arguments:
-                                                tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
-        
-                                # Handle content
-                                if delta.content:
-                                    full_response += delta.content
-                                    app.write(delta.content, end="")
-                                    # Yield to event loop after writing
+                                        import traceback
+                                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                                    # Continue processing next chunk
                                     await asyncio.sleep(0)
-        
+
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
