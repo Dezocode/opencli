@@ -1477,8 +1477,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 full_response = ""
                 tool_calls_dict = {}
+                chunk_count = 0
+                last_chunk_time = asyncio.get_event_loop().time()
 
                 async for chunk in response:
+                    chunk_count += 1
+                    current_time = asyncio.get_event_loop().time()
+
+                    if session.debug_mode and chunk_count % 10 == 0:
+                        elapsed = current_time - last_chunk_time
+                        app.write(f"[dim]🐛 STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
+                        last_chunk_time = current_time
+
                     if app.should_exit:
                         break
 
@@ -1504,6 +1514,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         full_response += delta.content
                         # Thread-safe write to UI
                         app.write(delta.content, end="")
+                        # Yield to event loop after writing
+                        await asyncio.sleep(0)
+
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
 
                 # Check if we have tool calls
                 if tool_calls_dict:
@@ -1692,13 +1707,29 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     # Process the continuation response (simplified - no more tool calls expected)
                     full_response = ""
+                    chunk_count = 0
+                    last_chunk_time = asyncio.get_event_loop().time()
+
                     async for chunk in response:
+                        chunk_count += 1
+                        current_time = asyncio.get_event_loop().time()
+
+                        if session.debug_mode and chunk_count % 10 == 0:
+                            elapsed = current_time - last_chunk_time
+                            app.write(f"[dim]🐛 CONTINUATION STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
+                            last_chunk_time = current_time
+
                         if app.should_exit:
                             break
                         delta = chunk.choices[0].delta if chunk.choices else None
                         if delta and delta.content:
                             full_response += delta.content
                             app.write(delta.content, end="")
+                            # Yield to event loop after writing
+                            await asyncio.sleep(0)
+
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
 
                     # Finish and save continuation
                     if hasattr(app, 'finish_stream'):
