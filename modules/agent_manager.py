@@ -43,6 +43,11 @@ class AgentConfig:
         """Build complete system prompt with project context"""
         parts = [self.system_prompt]
 
+        # Add constitution (essential context)
+        if project_context and 'constitution' in project_context:
+            parts.append(f"\n{project_context['constitution']}")
+
+        # Add project-specific AGENTS.md or template
         if project_context:
             if 'agents_md' in project_context:
                 parts.append(f"\n## Project Context\n{project_context['agents_md']}")
@@ -179,6 +184,14 @@ class AgentManager:
                 'max_context_tokens': 100000
             })
 
+    def load_constitution(self) -> str:
+        """Load constitution from agents/system_prompts/base/"""
+        constitution_file = self.config_dir / 'agents' / 'system_prompts' / 'base' / 'constitution.md'
+        if constitution_file.exists():
+            with open(constitution_file) as f:
+                return f.read()
+        return ""
+
     def find_agents_md(self, working_dir: str = None) -> Optional[str]:
         """Find and read AGENTS.md file (closest to working dir)"""
         search_paths = []
@@ -195,6 +208,12 @@ class AgentManager:
         # Fallback to current directory
         if Path('AGENTS.md').exists():
             with open('AGENTS.md') as f:
+                return f.read()
+
+        # If no project AGENTS.md found, use template
+        template_file = self.config_dir / 'agents' / 'system_prompts' / 'base' / 'AGENTS.md'
+        if template_file.exists():
+            with open(template_file) as f:
                 return f.read()
 
         return None
@@ -255,7 +274,8 @@ class AgentManager:
             else:
                 # Fallback to old method
                 project_context = {
-                    'working_dir': working_dir or os.getcwd()
+                    'working_dir': working_dir or os.getcwd(),
+                    'constitution': self.load_constitution()  # Always include constitution
                 }
                 agents_md = self.find_agents_md(working_dir)
                 if agents_md:
