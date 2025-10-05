@@ -86,14 +86,14 @@ async def interactive_async(config, session, initial_prompt=None):
         session: Session object
         initial_prompt: Optional initial prompt string
     """
-    # Tool definitions for OpenRouter
+    # Tool definitions - MUST match opencli.py exactly
     TOOLS = [
-        {"type": "function", "function": {"name": "Read", "description": "Read file contents from the filesystem.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Path to file to read"}}, "required": ["file_path"]}}},
-        {"type": "function", "function": {"name": "Write", "description": "Write content to a file. Creates new file.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Path where file will be created"}, "content": {"type": "string", "description": "Content to write to file"}}, "required": ["file_path", "content"]}}},
-        {"type": "function", "function": {"name": "Edit", "description": "Edit existing file by replacing exact text match.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string", "description": "Path to file to edit"}, "old_string": {"type": "string", "description": "Exact text to find (must be unique)"}, "new_string": {"type": "string", "description": "Replacement text"}}, "required": ["file_path", "old_string", "new_string"]}}},
-        {"type": "function", "function": {"name": "Bash", "description": "Execute bash command in terminal.", "parameters": {"type": "object", "properties": {"command": {"type": "string", "description": "Bash command to execute"}, "description": {"type": "string", "description": "Human-readable description of what command does"}}, "required": ["command"]}}},
-        {"type": "function", "function": {"name": "Glob", "description": "Find files matching glob pattern.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string", "description": "Glob pattern like **/*.py"}}, "required": ["pattern"]}}},
-        {"type": "function", "function": {"name": "Grep", "description": "Search for regex pattern in files.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string", "description": "Regex pattern to search"}, "path": {"type": "string", "description": "Directory or file to search in (optional)"}, "output_mode": {"type": "string", "enum": ["files_with_matches", "content", "count"], "description": "Output format (default: files_with_matches)"}}, "required": ["pattern"]}}}
+        {"type": "function", "function": {"name": "Read", "description": "Read file contents. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
+        {"type": "function", "function": {"name": "Write", "description": "Write to file. [REQUIRES PERMISSION] User will be prompted to approve this operation.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}}},
+        {"type": "function", "function": {"name": "Edit", "description": "Edit file by replacing text. [REQUIRES PERMISSION] User will be prompted to approve this operation.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}, "required": ["file_path", "old_string", "new_string"]}}},
+        {"type": "function", "function": {"name": "Bash", "description": "Execute bash command. [REQUIRES PERMISSION] User will be prompted to approve this command before execution.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "description": {"type": "string"}}, "required": ["command"]}}},
+        {"type": "function", "function": {"name": "Glob", "description": "Find files by pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
+        {"type": "function", "function": {"name": "Grep", "description": "Search files for pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
     ]
 
     # Create async OpenAI client
