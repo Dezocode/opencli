@@ -97,11 +97,58 @@ class CommandRegistry:
                 'requires_feature': 'TOOL_PERMISSIONS'
             },
             '/api': {
-                'description': 'API server control (start/stop/sessions/messages)',
+                'description': 'IPC server control (start/stop/status)',
                 'category': 'advanced',
                 'default_enabled': True,
-                'requires_args': False,
-                'requires_feature': 'API_SERVER'
+                'requires_args': False
+            },
+            '/providers': {
+                'description': 'Manage API provider keys with auto-detection',
+                'category': 'basic',
+                'default_enabled': True,
+                'requires_args': False
+            },
+            '/specify': {
+                'description': 'Create spec describing what to build (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': True
+            },
+            '/constitution': {
+                'description': 'Create project principles and guidelines (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': True
+            },
+            '/plan': {
+                'description': 'Create technical implementation plan (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': True
+            },
+            '/tasks': {
+                'description': 'Break down plan into actionable tasks (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': False
+            },
+            '/implement': {
+                'description': 'Implement tasks from the plan (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': False
+            },
+            '/test': {
+                'description': 'Create and run tests (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': False
+            },
+            '/spec-check': {
+                'description': 'Validate spec completeness (Spec-Kit)',
+                'category': 'spec-driven',
+                'default_enabled': True,
+                'requires_args': False
             }
         }
 
@@ -239,7 +286,7 @@ class CommandRegistry:
                 categories[cat] = []
             categories[cat].append((cmd, info))
 
-        category_order = ['basic', 'agents', 'advanced', 'system']
+        category_order = ['basic', 'spec-driven', 'agents', 'advanced', 'system']
 
         for category in category_order:
             if category not in categories:
@@ -319,7 +366,7 @@ class CommandRegistry:
                 categories[cat] = []
             categories[cat].append((cmd, info))
 
-        for category in ['basic', 'agents', 'advanced', 'system']:
+        for category in ['basic', 'spec-driven', 'agents', 'advanced', 'system']:
             if category not in categories:
                 continue
 

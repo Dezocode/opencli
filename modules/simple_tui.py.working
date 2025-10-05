@@ -5,7 +5,7 @@ Provides scrollable content area with fixed prompt at bottom
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Static, Input, RichLog, TextArea
+from textual.widgets import Static, Input, RichLog
 from textual.reactive import reactive
 from rich.text import Text
 from datetime import datetime
@@ -14,7 +14,6 @@ import asyncio
 import time
 import threading
 from queue import Queue
-from pathlib import Path
 
 # Import custom modules - relative imports since we're in modules/ dir
 try:
@@ -67,24 +66,11 @@ class StatusLine(Static):
         turns = len([m for m in self.session.messages if m.get('role') == 'user'])
         cwd_short = os.path.basename(self.session.cwd)
 
-        # Get IPC server status
-        ipc_status = "off"
-        subagent_count = 0
-        if hasattr(self.session, 'ipc_server') and self.session.ipc_server:
-            if self.session.ipc_server.running:
-                subagent_count = self.session.ipc_server.get_subagent_count()
-                ipc_status = str(subagent_count)
-
         status = Text()
 
         # Use frontier colors if available
         if FRONTIER_COLORS:
-            status.append(" S: ", style=f"dim {STATUS_COLORS['time']}")
-            if ipc_status == "off":
-                status.append(f"{ipc_status}", style="#5C6773")  # Gray for off
-            else:
-                status.append(f"{ipc_status}", style="#89B8C2")  # Soft cyan for active
-            status.append(" │ Model: ", style=f"dim {STATUS_COLORS['time']}")
+            status.append(" Model: ", style=f"dim {STATUS_COLORS['time']}")
             status.append(f"{model_short}", style=STATUS_COLORS['model'])
             status.append(" │ Tokens: ", style=f"dim {STATUS_COLORS['time']}")
             status.append(f"{tokens:,}", style=STATUS_COLORS['tokens'])
@@ -95,9 +81,7 @@ class StatusLine(Static):
             status.append(f" │ {now}", style=STATUS_COLORS['time'])
         else:
             # Fallback to original colors
-            status.append(" S: ", style="dim")
-            status.append(f"{ipc_status}", style="dim" if ipc_status == "off" else "cyan")
-            status.append(" │ Model: ", style="dim")
+            status.append(" Model: ", style="dim")
             status.append(f"{model_short}", style="cyan")
             status.append(" │ Tokens: ", style="dim")
             status.append(f"{tokens:,}", style="magenta")
@@ -222,16 +206,7 @@ class OpenCLITUI(App):
             self._laser_intensity = self.tui_config.laser_intensity
         else:
             self._laser_mode = True
-            # Use frontier colors if available, otherwise fallback
-            if FRONTIER_COLORS:
-                try:
-                    from .frontier_colors import FRONTIER_LASER_COLORS
-                    self._laser_colors = FRONTIER_LASER_COLORS
-                except (ImportError, ValueError):
-                    from frontier_colors import FRONTIER_LASER_COLORS
-                    self._laser_colors = FRONTIER_LASER_COLORS
-            else:
-                self._laser_colors = ["#3E4450", "#5C6773", "#7B91A3", "#89B8C2", "#B3B1AD"]
+            self._laser_colors = ["#8B0000", "#FF4500", "#FFA500", "#FFFF00", "#FFFFFF"]
             self._laser_intensity = 1.0
 
         self._char_timestamps = []  # Track when each char was written
@@ -242,11 +217,6 @@ class OpenCLITUI(App):
         self._queue_thread = None
         self._stop_queue_thread = threading.Event()
         self._content_widget = None  # Output widget resolved on mount
-
-        # Prompt history for up/down arrow navigation
-        self._prompt_history = []
-        self._history_index = -1
-        self._load_prompt_history()
 
         # Always disable dark mode for ANSI background mode
         self.dark = False
@@ -282,8 +252,7 @@ class OpenCLITUI(App):
                 # Use frontier prompt color
                 prompt_color = FRONTIER_COLORS.get('prompt_symbol', '#6B9E78') if FRONTIER_COLORS else 'green'
                 yield Static(f"[{prompt_color}]│ > [/{prompt_color}]", id="prompt-label")
-                # Use TextArea for multi-line input with wrapping
-                yield TextArea(id="prompt-input", language="markdown")
+                yield Input(placeholder="Enter your message...", id="prompt-input")
 
     def on_mount(self) -> None:
         """Initialize"""
@@ -355,26 +324,14 @@ Session: {self.session.session_id[:8]} | Ready
             self.initial_prompt = None
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle user input from Input widget"""
-        await self._handle_user_message(event.value.strip(), event.input)
+        """Handle user input"""
+        user_input = event.value.strip()
 
-    async def on_text_area_submitted(self, event: TextArea.Submitted) -> None:
-        """Handle user input from TextArea widget (Ctrl+J)"""
-        await self._handle_user_message(event.text_area.text.strip(), event.text_area)
-
-    async def _handle_user_message(self, user_input: str, widget) -> None:
-        """Common handler for user messages"""
         if not user_input:
             return
 
-        # Add to history
-        self._add_to_history(user_input)
-
         # Clear input
-        if isinstance(widget, TextArea):
-            widget.text = ""
-        else:
-            widget.value = ""
+        event.input.value = ""
 
         # Get GitHub username if authenticated
         username = "You"
@@ -403,59 +360,9 @@ Session: {self.session.session_id[:8]} | Ready
         elif self.input_future and not self.input_future.done():
             self.input_future.set_result(user_input)
 
-    def on_key(self, event) -> None:
-        """Handle key presses for history navigation"""
-        prompt = self.query_one("#prompt-input")
-
-        # Up arrow - previous in history
-        if event.key == "up":
-            if self._prompt_history:
-                if self._history_index == -1:
-                    self._history_index = len(self._prompt_history) - 1
-                elif self._history_index > 0:
-                    self._history_index -= 1
-
-                if isinstance(prompt, TextArea):
-                    prompt.text = self._prompt_history[self._history_index]
-                else:
-                    prompt.value = self._prompt_history[self._history_index]
-                event.prevent_default()
-                event.stop()
-
-        # Down arrow - next in history
-        elif event.key == "down":
-            if self._prompt_history and self._history_index >= 0:
-                if self._history_index < len(self._prompt_history) - 1:
-                    self._history_index += 1
-                    if isinstance(prompt, TextArea):
-                        prompt.text = self._prompt_history[self._history_index]
-                    else:
-                        prompt.value = self._prompt_history[self._history_index]
-                else:
-                    # At newest - clear input
-                    self._history_index = -1
-                    if isinstance(prompt, TextArea):
-                        prompt.text = ""
-                    else:
-                        prompt.value = ""
-                event.prevent_default()
-                event.stop()
-
     def action_quit_app(self) -> None:
-        """Quit and persist IPC server"""
+        """Quit"""
         self.should_exit = True
-
-        # Persist IPC server for 20 minutes
-        if self.ipc_server and self.ipc_server.running:
-            async def persist_ipc():
-                await self.ipc_server.stop(persist=True)
-
-            # Run persistence in event loop
-            try:
-                asyncio.create_task(persist_ipc())
-            except Exception:
-                pass  # Ignore if event loop is closing
-
         # Stop background thread
         self._stop_queue_thread.set()
         if self._queue_thread and self._queue_thread.is_alive():
@@ -503,36 +410,6 @@ Session: {self.session.session_id[:8]} | Ready
 
         self._queue_thread = threading.Thread(target=queue_processor, daemon=True)
         self._queue_thread.start()
-
-    def _load_prompt_history(self):
-        """Load prompt history from file"""
-        history_file = Path.home() / ".opencli" / "prompt_history.txt"
-        if history_file.exists():
-            try:
-                with open(history_file) as f:
-                    self._prompt_history = [line.strip() for line in f if line.strip()]
-            except Exception:
-                self._prompt_history = []
-
-    def _save_prompt_history(self):
-        """Save prompt history to file"""
-        history_file = Path.home() / ".opencli" / "prompt_history.txt"
-        try:
-            with open(history_file, 'w') as f:
-                # Save last 100 prompts
-                for prompt in self._prompt_history[-100:]:
-                    f.write(f"{prompt}\n")
-        except Exception:
-            pass
-
-    def _add_to_history(self, prompt: str):
-        """Add prompt to history"""
-        if prompt and prompt.strip():
-            # Avoid consecutive duplicates
-            if not self._prompt_history or self._prompt_history[-1] != prompt:
-                self._prompt_history.append(prompt)
-                self._save_prompt_history()
-        self._history_index = -1
 
     def _resolve_content_widget(self):
         """Find the active output widget (StreamingDisplay or RichLog)."""

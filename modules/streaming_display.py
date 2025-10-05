@@ -7,9 +7,18 @@ Uses ANSI background (terminal default) while preserving full RGB colors for tex
 
 from textual.widgets import Static
 from textual.reactive import reactive
+from textual import events
 from rich.text import Text
 from rich.console import RenderableType
 from rich.style import Style
+import subprocess
+
+try:
+    from .frontier_colors import FRONTIER_LASER_COLORS, FRONTIER_COLORS
+    from .markdown_renderer import get_markdown_renderer
+except (ImportError, ValueError):
+    from frontier_colors import FRONTIER_LASER_COLORS, FRONTIER_COLORS
+    from markdown_renderer import get_markdown_renderer
 
 
 class StreamingDisplay(Static):
@@ -32,13 +41,25 @@ class StreamingDisplay(Static):
     }
     """
 
+    BINDINGS = [
+        ("ctrl+a", "select_all", "Select All"),
+        ("cmd+c", "copy_all", "Copy"),
+        ("ctrl+c", "copy_all", "Copy"),
+    ]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._lines = []
         self._current_stream = ""
         self._streaming = False
-        self._laser_colors = ["#8B0000", "#FF4500", "#FFA500", "#FFFF00", "#FFFFFF"]
+        self._laser_colors = FRONTIER_LASER_COLORS
         self._laser_enabled = True
+        self._markdown_renderer = get_markdown_renderer()
+
+        # Text selection state
+        self._selection_start = None
+        self._selection_end = None
+        self._selecting = False
 
     def write_stream(self, text: str):
         """Write streaming text with trailing laser wave effect"""
@@ -83,6 +104,7 @@ class StreamingDisplay(Static):
             display_text.append(self._current_stream)
 
         self.update(display_text)
+        self._scroll_to_bottom()
 
     def finish_stream(self):
         """Finish streaming and revert to default color"""
@@ -109,6 +131,7 @@ class StreamingDisplay(Static):
                     display_text.append("\n")
 
             self.update(display_text)
+            self._scroll_to_bottom()
 
     def write(self, text: str | Text, style: str = None):
         """
@@ -147,6 +170,7 @@ class StreamingDisplay(Static):
                     display_text.append("\n")
 
         self.update(display_text)
+        self._scroll_to_bottom()
 
     def write_line(self, text: str, style: str = None):
         """Write a complete line (no laser effect) - alias for write()"""
@@ -166,3 +190,157 @@ class StreamingDisplay(Static):
     def set_laser_enabled(self, enabled: bool):
         """Enable/disable laser effect"""
         self._laser_enabled = enabled
+
+    def write_markdown(self, text: str):
+        """Write markdown-formatted text with proper rendering"""
+        rendered = self._markdown_renderer.render(text)
+        self._lines.append(rendered)
+
+        # Rebuild display
+        display_text = Text()
+        for line in self._lines:
+            if isinstance(line, Text):
+                display_text.append_text(line)
+            else:
+                display_text.append(str(line))
+
+            # Add newline if not present
+            if not (isinstance(line, str) and line.endswith("\n")):
+                if not (isinstance(line, Text) and line.plain.endswith("\n")):
+                    display_text.append("\n")
+
+        self.update(display_text)
+        self._scroll_to_bottom()
+
+    def _scroll_to_bottom(self):
+        """Scroll the parent container to bottom - NON-BLOCKING async version"""
+        def do_scroll():
+            try:
+                # Find parent VerticalScroll container
+                parent = self.parent
+                while parent is not None:
+                    if parent.__class__.__name__ == 'VerticalScroll':
+                        # Scroll to end without animation (faster)
+                        parent.scroll_end(animate=False)
+                        break
+                    parent = parent.parent
+            except Exception:
+                pass  # Silently ignore if scrolling fails
+
+        # Schedule scroll on next event loop cycle - doesn't block current operation
+        try:
+            self.call_later(do_scroll)
+        except Exception:
+            # Fallback to immediate if call_later not available
+            do_scroll()
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Handle mouse down - start selection"""
+        self._selecting = True
+        self._selection_start = (event.x, event.y)
+        self._selection_end = (event.x, event.y)
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Handle mouse move - update selection"""
+        if self._selecting:
+            self._selection_end = (event.x, event.y)
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Handle mouse up - finish selection and copy to clipboard"""
+        if self._selecting:
+            self._selecting = False
+            self._copy_selection()
+
+    def _get_selected_text(self) -> str:
+        """Get the currently selected text"""
+        if not self._selection_start or not self._selection_end:
+            return ""
+
+        # Get all text content
+        all_text = []
+        for line in self._lines:
+            if isinstance(line, Text):
+                all_text.append(line.plain)
+            else:
+                all_text.append(str(line))
+
+        if self._current_stream:
+            all_text.append(self._current_stream)
+
+        full_text = "\\n".join(all_text)
+
+        # For now, return all text (simple implementation)
+        # TODO: Implement proper character-level selection based on coordinates
+        return full_text
+
+    def _copy_selection(self):
+        """Copy selected text to clipboard"""
+        selected_text = self._get_selected_text()
+        if not selected_text:
+            return
+
+        try:
+            # Use pbcopy on macOS, xclip on Linux, clip on Windows
+            import platform
+            system = platform.system()
+
+            if system == "Darwin":  # macOS
+                process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+                process.communicate(selected_text.encode('utf-8'))
+            elif system == "Linux":
+                try:
+                    process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+                    process.communicate(selected_text.encode('utf-8'))
+                except FileNotFoundError:
+                    # Fallback to xsel
+                    process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
+                    process.communicate(selected_text.encode('utf-8'))
+            elif system == "Windows":
+                process = subprocess.Popen(['clip'], stdin=subprocess.PIPE, shell=True)
+                process.communicate(selected_text.encode('utf-8'))
+
+        except Exception:
+            pass  # Silently ignore clipboard errors
+
+    def action_select_all(self) -> None:
+        """Select all text (Ctrl+A)"""
+        # Set selection to cover all text
+        self._selection_start = (0, 0)
+        self._selection_end = (999, 999)  # Large values to cover all
+
+    def action_copy_all(self) -> None:
+        """Copy all text to clipboard (Cmd+C / Ctrl+C)"""
+        # Get all text
+        all_text = []
+        for line in self._lines:
+            if isinstance(line, Text):
+                all_text.append(line.plain)
+            else:
+                all_text.append(str(line))
+
+        if self._current_stream:
+            all_text.append(self._current_stream)
+
+        full_text = "\n".join(all_text)
+
+        # Copy to clipboard
+        try:
+            import platform
+            system = platform.system()
+
+            if system == "Darwin":  # macOS
+                process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+                process.communicate(full_text.encode('utf-8'))
+            elif system == "Linux":
+                try:
+                    process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+                    process.communicate(full_text.encode('utf-8'))
+                except FileNotFoundError:
+                    process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
+                    process.communicate(full_text.encode('utf-8'))
+            elif system == "Windows":
+                process = subprocess.Popen(['clip'], stdin=subprocess.PIPE, shell=True)
+                process.communicate(full_text.encode('utf-8'))
+
+        except Exception:
+            pass

@@ -35,7 +35,32 @@ class ModelManager:
                 "openrouter": {
                     "name": "OpenRouter",
                     "base_url": "https://openrouter.ai/api/v1",
-                    "models_endpoint": "https://openrouter.ai/api/v1/models"
+                    "models_endpoint": "https://openrouter.ai/api/v1/models",
+                    "key_patterns": ["sk-or-", "OPENROUTER"]
+                },
+                "anthropic": {
+                    "name": "Anthropic",
+                    "base_url": "https://api.anthropic.com/v1",
+                    "models_endpoint": None,  # Uses predefined model list
+                    "key_patterns": ["sk-ant-"]
+                },
+                "openai": {
+                    "name": "OpenAI",
+                    "base_url": "https://api.openai.com/v1",
+                    "models_endpoint": "https://api.openai.com/v1/models",
+                    "key_patterns": ["sk-proj-", "sk-"]
+                },
+                "deepseek": {
+                    "name": "DeepSeek",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "models_endpoint": "https://api.deepseek.com/v1/models",
+                    "key_patterns": ["sk-"]
+                },
+                "google": {
+                    "name": "Google AI",
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                    "models_endpoint": None,
+                    "key_patterns": ["AIza"]
                 }
             }
         }
@@ -60,12 +85,15 @@ class ModelManager:
         """Save main config"""
         with open(self.config_file, 'w') as f:
             json.dump(self.config, f, indent=2)
+        # Set restrictive permissions since config contains API keys
+        import os
+        os.chmod(self.config_file, 0o600)
 
     def get_configured_keys(self) -> Dict[str, str]:
         """Get all configured API keys"""
         keys = {}
 
-        # Check models.json
+        # Check models.json (primary storage)
         for provider, key in self.models_db.get("api_keys", {}).items():
             if key:
                 keys[provider] = key
@@ -74,13 +102,21 @@ class ModelManager:
         if "apiKey" in self.config and "openrouter" not in keys:
             keys["openrouter"] = self.config["apiKey"]
 
-        # Check .secrets file for legacy OpenCLI setup
-        if "openrouter" not in keys and self.secrets_file.exists():
+        # Check .secrets file for all providers
+        if self.secrets_file.exists():
             try:
                 with open(self.secrets_file) as f:
                     secrets = json.load(f)
-                    if "apiKey" in secrets:
+
+                    # Legacy OpenRouter format
+                    if "apiKey" in secrets and "openrouter" not in keys:
                         keys["openrouter"] = secrets["apiKey"]
+
+                    # New multi-provider format
+                    if "providers" in secrets:
+                        for provider, key in secrets["providers"].items():
+                            if key and provider not in keys:
+                                keys[provider] = key
             except:
                 pass
 
@@ -167,15 +203,48 @@ class ModelManager:
             provider: Provider ID
             api_key: API key string
         """
+        # Save to models.json (primary storage)
         self.models_db["api_keys"][provider] = api_key
         self._save_models()
 
-        # Update main config
+        # Also save to .secrets for compatibility
+        self._save_to_secrets(provider, api_key)
+
+        # Update main config for active provider
         if provider == "openrouter":
             self.config["apiKey"] = api_key
             provider_info = self.models_db["providers"].get(provider, {})
             self.config["baseURL"] = provider_info.get("base_url")
             self._save_config()
+
+    def _save_to_secrets(self, provider: str, api_key: str):
+        """Save API key to .secrets file for compatibility"""
+        secrets = {}
+
+        # Load existing secrets
+        if self.secrets_file.exists():
+            try:
+                with open(self.secrets_file) as f:
+                    secrets = json.load(f)
+            except:
+                secrets = {}
+
+        # Add provider key
+        if provider == "openrouter":
+            # Legacy format for OpenRouter
+            secrets["apiKey"] = api_key
+
+        # Store all provider keys
+        if "providers" not in secrets:
+            secrets["providers"] = {}
+        secrets["providers"][provider] = api_key
+
+        # Save with restrictive permissions
+        with open(self.secrets_file, 'w') as f:
+            json.dump(secrets, f, indent=2)
+
+        import os
+        os.chmod(self.secrets_file, 0o600)
 
     def list_available_models(self) -> List[Dict]:
         """
@@ -316,3 +385,151 @@ class ModelManager:
             })
 
         return providers
+
+    def detect_provider(self, api_key: str) -> Optional[str]:
+        """
+        Auto-detect provider from API key format
+
+        Args:
+            api_key: API key string to analyze
+
+        Returns:
+            Provider ID or None if not detected
+        """
+        for provider_id, provider_info in self.models_db.get("providers", {}).items():
+            patterns = provider_info.get("key_patterns", [])
+            for pattern in patterns:
+                if api_key.startswith(pattern):
+                    return provider_id
+
+        # Fallback detection by key structure
+        if api_key.startswith("sk-or-"):
+            return "openrouter"
+        elif api_key.startswith("sk-ant-"):
+            return "anthropic"
+        elif api_key.startswith("sk-proj-"):
+            return "openai"
+        elif api_key.startswith("AIza"):
+            return "google"
+
+        return None
+
+    async def fetch_models_from_provider(self, provider: str, api_key: str) -> Dict:
+        """
+        Fetch models from any supported provider
+
+        Args:
+            provider: Provider ID
+            api_key: API key for the provider
+
+        Returns:
+            Result dict with models list
+        """
+        provider_info = self.models_db.get("providers", {}).get(provider)
+        if not provider_info:
+            return {"success": False, "error": f"Unknown provider: {provider}"}
+
+        # OpenRouter uses existing method
+        if provider == "openrouter":
+            return await self.fetch_models_from_openrouter(api_key)
+
+        # OpenAI compatible providers
+        if provider in ["openai", "deepseek"]:
+            return await self._fetch_openai_compatible(provider, provider_info, api_key)
+
+        # Anthropic - predefined models
+        if provider == "anthropic":
+            return self._get_anthropic_models()
+
+        # Google AI - predefined models
+        if provider == "google":
+            return self._get_google_models()
+
+        return {"success": False, "error": f"Provider not yet supported: {provider}"}
+
+    async def _fetch_openai_compatible(self, provider: str, provider_info: Dict, api_key: str) -> Dict:
+        """Fetch models from OpenAI-compatible API"""
+        try:
+            endpoint = provider_info.get("models_endpoint")
+            if not endpoint:
+                return {"success": False, "error": "No models endpoint configured"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=10.0
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    models = []
+
+                    for model in data.get("data", []):
+                        models.append({
+                            "id": model.get("id"),
+                            "name": model.get("id"),  # Most don't have friendly names
+                            "context": model.get("context_length", 8192),
+                            "pricing": {},  # Usually not in API response
+                            "architecture": {}
+                        })
+
+                    return {"success": True, "models": models, "count": len(models)}
+                else:
+                    return {"success": False, "error": f"API error: {response.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _get_anthropic_models(self) -> Dict:
+        """Get predefined Anthropic models"""
+        models = [
+            {
+                "id": "claude-3-5-sonnet-20241022",
+                "name": "Claude 3.5 Sonnet",
+                "context": 200000,
+                "pricing": {"prompt": "0.000003", "completion": "0.000015"},
+                "architecture": {}
+            },
+            {
+                "id": "claude-3-5-haiku-20241022",
+                "name": "Claude 3.5 Haiku",
+                "context": 200000,
+                "pricing": {"prompt": "0.000001", "completion": "0.000005"},
+                "architecture": {}
+            },
+            {
+                "id": "claude-3-opus-20240229",
+                "name": "Claude 3 Opus",
+                "context": 200000,
+                "pricing": {"prompt": "0.000015", "completion": "0.000075"},
+                "architecture": {}
+            }
+        ]
+        return {"success": True, "models": models, "count": len(models)}
+
+    def _get_google_models(self) -> Dict:
+        """Get predefined Google AI models"""
+        models = [
+            {
+                "id": "gemini-2.0-flash-exp",
+                "name": "Gemini 2.0 Flash",
+                "context": 1000000,
+                "pricing": {"prompt": "0", "completion": "0"},
+                "architecture": {}
+            },
+            {
+                "id": "gemini-1.5-pro",
+                "name": "Gemini 1.5 Pro",
+                "context": 2000000,
+                "pricing": {"prompt": "0.00000125", "completion": "0.000005"},
+                "architecture": {}
+            },
+            {
+                "id": "gemini-1.5-flash",
+                "name": "Gemini 1.5 Flash",
+                "context": 1000000,
+                "pricing": {"prompt": "0", "completion": "0"},
+                "architecture": {}
+            }
+        ]
+        return {"success": True, "models": models, "count": len(models)}
