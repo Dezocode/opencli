@@ -1612,12 +1612,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                         # Show tool result to user
                         app.write(f"[dim]{result}[/dim]\n")
+                        await asyncio.sleep(0)  # CRITICAL: Yield after writing potentially large result
 
                         # Add tool result to messages
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
                         session.messages.append(tool_msg)
                         if session.debug_mode:
                             app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
+                        await asyncio.sleep(0)  # Yield after each tool result added
 
                     # Save session with tool results (non-blocking)
                     if session.debug_mode:
