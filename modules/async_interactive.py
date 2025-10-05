@@ -1446,16 +1446,28 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 api_timeout = 300  # 5 minutes
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STALL DEBUG: About to call API (timeout={api_timeout}s)...[/dim]\n")
+                    app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+
+                # CRITICAL FIX: Yield control to event loop before heavy API call
+                await asyncio.sleep(0)
+
                 try:
-                    response = await asyncio.wait_for(
-                        client.chat.completions.create(
-                            model=session.model or config["model"],
-                            messages=messages_with_context,
-                            tools=TOOLS,
-                            stream=True
-                        ),
-                        timeout=api_timeout
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
+
+                    # Create the API call - this might block during request setup
+                    api_call = client.chat.completions.create(
+                        model=session.model or config["model"],
+                        messages=messages_with_context,
+                        tools=TOOLS,
+                        stream=True
                     )
+
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+
+                    response = await asyncio.wait_for(api_call, timeout=api_timeout)
+
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
                 except asyncio.TimeoutError:
@@ -1649,16 +1661,28 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Add timeout protection to continuation API call
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
+                        app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+
+                    # CRITICAL FIX: Yield control to event loop before heavy API call
+                    await asyncio.sleep(0)
+
                     try:
-                        response = await asyncio.wait_for(
-                            client.chat.completions.create(
-                                model=session.model or config["model"],
-                                messages=messages_with_context,
-                                tools=TOOLS,
-                                stream=True
-                            ),
-                            timeout=api_timeout
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
+
+                        # Create the API call - this might block during request setup
+                        api_call = client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=messages_with_context,
+                            tools=TOOLS,
+                            stream=True
                         )
+
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+
+                        response = await asyncio.wait_for(api_call, timeout=api_timeout)
+
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
                     except asyncio.TimeoutError:
