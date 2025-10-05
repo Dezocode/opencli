@@ -1623,243 +1623,265 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: Session save COMPLETED[/dim]\n")
 
-                    # Continue conversation - make new API call with tool results
+                    # Continue conversation - LOOP until we get text response (not more tools)
                     app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: About to prepare continuation messages...[/dim]\n")
 
-                    # Recursive call to get AI's response to tool results
-                    # Debug: Show session messages before processing (only if debug mode enabled)
-                    if session.debug_mode:
-                        app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
-                        for i, msg in enumerate(session.messages):
-                            role = msg.get('role', 'unknown')
-                            has_tool_calls = 'tool_calls' in msg
-                            has_content = 'content' in msg
-                            tool_call_id = msg.get('tool_call_id', '')
-                            app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
-                    
-                    # Prepare messages with agent manager (same as initial call)
-                    try:
-                        if agent_manager:
-                            if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: Using agent manager for continuation...[/dim]\n")
-                            # RUN IN THREAD TO PREVENT BLOCKING THE EVENT LOOP!
-                            messages_with_context = await asyncio.to_thread(
-                                agent_manager.prepare_messages,
-                                session.current_agent,
-                                session.messages,
-                                session.cwd if hasattr(session, 'cwd') else os.getcwd(),
-                                session.session_id
-                            )
-                            if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: agent_manager continuation COMPLETED[/dim]\n")
-                        else:
-                            if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: Using fallback context for continuation...[/dim]\n")
-                            messages_with_context = await prepare_messages_with_context(
-                                session.messages,
-                                config,
-                                spec_memory=spec_memory,
-                                goal_tracker=goal_tracker
-                            )
-                            if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: Fallback context continuation COMPLETED[/dim]\n")
-                    except Exception as e:
-                        if session.debug_mode:
-                            app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
-                        import traceback
-                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
-                        return
+                    continuation_round = 0
+                    max_continuation_rounds = 20  # Safety limit to prevent infinite loops
 
-                    # Debug: Log continuation message structure (only if debug mode enabled)
-                    if session.debug_mode:
-                        app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
-                        for i, msg in enumerate(messages_with_context):
-                            role = msg.get('role', 'unknown')
-                            has_tool_calls = 'tool_calls' in msg
-                            has_content = 'content' in msg
-                            tool_call_id = msg.get('tool_call_id', '')
-                            app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
-
-                        # EXTREME DEBUG: Show exact continuation messages
-                        app.write(f"[dim]🚨 CONTINUATION JSON:[/dim]\n")
-                        app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
-
-                    # Add timeout protection to continuation API call
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
-                        app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
-
-                    # CRITICAL FIX: Yield control to event loop before heavy API call
-                    await asyncio.sleep(0)
-
-                    try:
-                        if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
-
-                        # Create the API call - this might block during request setup
-                        api_call = client.chat.completions.create(
-                            model=session.model or config["model"],
-                            messages=messages_with_context,
-                            tools=TOOLS,
-                            stream=True
-                        )
+                    while continuation_round < max_continuation_rounds:
+                        continuation_round += 1
 
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
-
-                        response = await asyncio.wait_for(api_call, timeout=api_timeout)
-
+                            app.write(f"[dim]🐛 CONTINUATION ROUND #{continuation_round}: Preparing messages...[/dim]\n")
+    
+                        # Recursive call to get AI's response to tool results
+                        # Debug: Show session messages before processing (only if debug mode enabled)
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
-                    except asyncio.TimeoutError:
-                        app.write(f"[red]❌ Continuation API request timed out after {api_timeout}s[/red]\n")
-                        app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
-                        return
-
-                    # Process the continuation response - CAN have more tool calls!
-                    full_response = ""
-                    tool_calls_dict_continuation = {}
-                    chunk_count = 0
-                    last_chunk_time = asyncio.get_event_loop().time()
-
-                    async for chunk in response:
-                        chunk_count += 1
-                        current_time = asyncio.get_event_loop().time()
-
-                        if session.debug_mode and chunk_count % 10 == 0:
-                            elapsed = current_time - last_chunk_time
-                            app.write(f"[dim]🐛 CONTINUATION STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
-                            last_chunk_time = current_time
-
-                        if app.should_exit:
-                            break
-
-                        # Check for finish_reason and errors
-                        if chunk.choices and session.debug_mode:
-                            finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
-                            if finish_reason:
-                                app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
-
-                        delta = chunk.choices[0].delta if chunk.choices else None
-                        if not delta:
-                            continue
-
-                        # Handle tool calls in continuation too!
-                        if delta.tool_calls:
-                            for tc in delta.tool_calls:
-                                idx = tc.index
-                                if idx not in tool_calls_dict_continuation:
-                                    tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
-                                if tc.function:
-                                    if tc.function.name:
-                                        tool_calls_dict_continuation[idx]["name"] = tc.function.name
-                                    if tc.function.arguments:
-                                        tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
-
-                        # Handle content
-                        if delta.content:
-                            full_response += delta.content
-                            app.write(delta.content, end="")
-                            # Yield to event loop after writing
-                            await asyncio.sleep(0)
-
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
-                        app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
-                        app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
-
-                    # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
-                    if tool_calls_dict_continuation:
-                        if session.debug_mode:
-                            app.write(f"\n[dim]🐛 RECURSIVE TOOLS: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
-                            for idx, tc_data in tool_calls_dict_continuation.items():
-                                app.write(f"[dim]  Tool #{idx}: {tc_data['name']}[/dim]\n")
-
-                        app.write("\n")
-
-                        # Build tool calls list from continuation
-                        from types import SimpleNamespace
-                        tool_calls_continuation = []
-                        for idx, tc_data in tool_calls_dict_continuation.items():
-                            tc_obj = SimpleNamespace(
-                                id=tc_data["id"],
-                                function=SimpleNamespace(name=tc_data["name"], arguments=tc_data["arguments"])
-                            )
-                            tool_calls_continuation.append(tc_obj)
-
-                        # Save assistant message with tool calls
-                        assistant_msg = {
-                            "role": "assistant",
-                            "content": full_response if full_response else "",
-                            "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls_continuation]
-                        }
-                        session.messages.append(assistant_msg)
-
-                        # Execute each continuation tool
-                        for tc in tool_calls_continuation:
-                            if session.debug_mode:
-                                app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
-                            app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
-                            args = json.loads(tc.function.arguments)
-
-                            # Execute tool
-                            try:
-                                result = await execute_tool_async(
-                                    tc.function.name,
-                                    args,
-                                    permission_manager=session.permission_manager,
-                                    current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
-                                    app=app
+                            app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
+                            for i, msg in enumerate(session.messages):
+                                role = msg.get('role', 'unknown')
+                                has_tool_calls = 'tool_calls' in msg
+                                has_content = 'content' in msg
+                                tool_call_id = msg.get('tool_call_id', '')
+                                app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+                        
+                        # Prepare messages with agent manager (same as initial call)
+                        try:
+                            if agent_manager:
+                                if session.debug_mode:
+                                    app.write(f"[dim]🐛 STALL DEBUG: Using agent manager for continuation...[/dim]\n")
+                                # RUN IN THREAD TO PREVENT BLOCKING THE EVENT LOOP!
+                                messages_with_context = await asyncio.to_thread(
+                                    agent_manager.prepare_messages,
+                                    session.current_agent,
+                                    session.messages,
+                                    session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                                    session.session_id
                                 )
-                            except Exception as e:
-                                result = f"Tool execution error: {str(e)}"
-
-                            app.write(f"[dim]{result}[/dim]\n")
-
-                            # Add tool result
-                            tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
-                            session.messages.append(tool_msg)
-
-                        # Save and make ANOTHER continuation call
-                        await asyncio.to_thread(session.save)
-                        app.write("\n[yellow]⚠️  Multiple tool call rounds detected - stopping to prevent infinite loops.[/yellow]\n")
-                        app.write("[yellow]Please send another message to continue the conversation.[/yellow]\n\n")
-                        return
-
-                    # Finish and save continuation (text response only)
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
-                    if hasattr(app, 'finish_stream'):
-                        app.finish_stream()
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
-                    app.write("\n\n")
-                    # CRITICAL: Yield after write
-                    await asyncio.sleep(0)
-
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner...[/dim]\n")
-                    if hasattr(app, 'stop_spinner'):
-                        app.stop_spinner()
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: stop_spinner done[/dim]\n")
-
-                    # Only save if we have content
-                    if full_response.strip():
-                        session.messages.append({
-                            "role": "assistant",
-                            "content": full_response
-                        })
+                                if session.debug_mode:
+                                    app.write(f"[dim]🐛 STALL DEBUG: agent_manager continuation COMPLETED[/dim]\n")
+                            else:
+                                if session.debug_mode:
+                                    app.write(f"[dim]🐛 STALL DEBUG: Using fallback context for continuation...[/dim]\n")
+                                messages_with_context = await prepare_messages_with_context(
+                                    session.messages,
+                                    config,
+                                    spec_memory=spec_memory,
+                                    goal_tracker=goal_tracker
+                                )
+                                if session.debug_mode:
+                                    app.write(f"[dim]🐛 STALL DEBUG: Fallback context continuation COMPLETED[/dim]\n")
+                        except Exception as e:
+                            if session.debug_mode:
+                                app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
+                            import traceback
+                            app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                            return
+    
+                        # Debug: Log continuation message structure (only if debug mode enabled)
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Saving continuation response...[/dim]\n")
-                        await asyncio.to_thread(session.save)
+                            app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                            for i, msg in enumerate(messages_with_context):
+                                role = msg.get('role', 'unknown')
+                                has_tool_calls = 'tool_calls' in msg
+                                has_content = 'content' in msg
+                                tool_call_id = msg.get('tool_call_id', '')
+                                app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+    
+                            # EXTREME DEBUG: Show exact continuation messages
+                            app.write(f"[dim]🚨 CONTINUATION JSON:[/dim]\n")
+                            app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
+    
+                        # Add timeout protection to continuation API call
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Continuation save COMPLETED[/dim]\n")
-                        app.update_status()
+                            app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
+                            app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+    
+                        # CRITICAL FIX: Yield control to event loop before heavy API call
+                        await asyncio.sleep(0)
+    
+                        try:
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
+    
+                            # Create the API call - this might block during request setup
+                            api_call = client.chat.completions.create(
+                                model=session.model or config["model"],
+                                messages=messages_with_context,
+                                tools=TOOLS,
+                                stream=True
+                            )
+    
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+    
+                            response = await asyncio.wait_for(api_call, timeout=api_timeout)
+    
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
+                        except asyncio.TimeoutError:
+                            app.write(f"[red]❌ Continuation API request timed out after {api_timeout}s[/red]\n")
+                            app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
+                            return
+    
+                        # Process the continuation response - CAN have more tool calls!
+                        full_response = ""
+                        tool_calls_dict_continuation = {}
+                        chunk_count = 0
+                        last_chunk_time = asyncio.get_event_loop().time()
+    
+                        async for chunk in response:
+                            chunk_count += 1
+                            current_time = asyncio.get_event_loop().time()
+    
+                            if session.debug_mode and chunk_count % 10 == 0:
+                                elapsed = current_time - last_chunk_time
+                                app.write(f"[dim]🐛 CONTINUATION STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
+                                last_chunk_time = current_time
+    
+                            if app.should_exit:
+                                break
+    
+                            # Check for finish_reason and errors
+                            if chunk.choices and session.debug_mode:
+                                finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
+                                if finish_reason:
+                                    app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
+    
+                            delta = chunk.choices[0].delta if chunk.choices else None
+                            if not delta:
+                                continue
+    
+                            # Handle tool calls in continuation too!
+                            if delta.tool_calls:
+                                for tc in delta.tool_calls:
+                                    idx = tc.index
+                                    if idx not in tool_calls_dict_continuation:
+                                        tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
+                                    if tc.function:
+                                        if tc.function.name:
+                                            tool_calls_dict_continuation[idx]["name"] = tc.function.name
+                                        if tc.function.arguments:
+                                            tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
+    
+                            # Handle content
+                            if delta.content:
+                                full_response += delta.content
+                                app.write(delta.content, end="")
+                                # Yield to event loop after writing
+                                await asyncio.sleep(0)
+    
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                            app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
+                            app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
+    
+                        # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
+                        if tool_calls_dict_continuation:
+                            if session.debug_mode:
+                                app.write(f"\n[dim]🐛 RECURSIVE TOOLS: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
+                                for idx, tc_data in tool_calls_dict_continuation.items():
+                                    app.write(f"[dim]  Tool #{idx}: {tc_data['name']}[/dim]\n")
+    
+                            app.write("\n")
+    
+                            # Build tool calls list from continuation
+                            from types import SimpleNamespace
+                            tool_calls_continuation = []
+                            for idx, tc_data in tool_calls_dict_continuation.items():
+                                tc_obj = SimpleNamespace(
+                                    id=tc_data["id"],
+                                    function=SimpleNamespace(name=tc_data["name"], arguments=tc_data["arguments"])
+                                )
+                                tool_calls_continuation.append(tc_obj)
+    
+                            # Save assistant message with tool calls
+                            assistant_msg = {
+                                "role": "assistant",
+                                "content": full_response if full_response else "",
+                                "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls_continuation]
+                            }
+                            session.messages.append(assistant_msg)
+    
+                            # Execute each continuation tool
+                            for tc in tool_calls_continuation:
+                                if session.debug_mode:
+                                    app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
+                                app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                                args = json.loads(tc.function.arguments)
+    
+                                # Execute tool
+                                try:
+                                    result = await execute_tool_async(
+                                        tc.function.name,
+                                        args,
+                                        permission_manager=session.permission_manager,
+                                        current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                                        app=app
+                                    )
+                                except Exception as e:
+                                    result = f"Tool execution error: {str(e)}"
+    
+                                app.write(f"[dim]{result}[/dim]\n")
+    
+                                # Add tool result
+                                tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
+                                session.messages.append(tool_msg)
+    
+                            # Save and loop to make ANOTHER continuation call AUTOMATICALLY
+                            await asyncio.to_thread(session.save)
+    
+                            if session.debug_mode:
+                                app.write(f"\n[dim]🐛 RECURSIVE: Tools executed, looping for another API call...[/dim]\n")
+    
+                            app.write("\n[dim]Continuing with more tool results...[/dim]\n\n")
+    
+                            # Continue the while loop - will make another API call with new tool results
+                            continue
+    
+                        # No more tool calls - we got a text response! Save it and exit loop.
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 LOOP: Text response received, exiting continuation loop[/dim]\n")
+    
+                        # Finish and save continuation (text response only)
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
+                        if hasattr(app, 'finish_stream'):
+                            app.finish_stream()
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
+                        app.write("\n\n")
+                        # CRITICAL: Yield after write
+                        await asyncio.sleep(0)
+    
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner...[/dim]\n")
+                        if hasattr(app, 'stop_spinner'):
+                            app.stop_spinner()
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 POST-STREAM: stop_spinner done[/dim]\n")
+    
+                        # Only save if we have content
+                        if full_response.strip():
+                            session.messages.append({
+                                "role": "assistant",
+                                "content": full_response
+                            })
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Saving continuation response...[/dim]\n")
+                            await asyncio.to_thread(session.save)
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Continuation save COMPLETED[/dim]\n")
+                            app.update_status()
+    
+                    break  # Exit the continuation loop
 
-                    return  # Exit after tool continuation
+                # End of while loop - all continuation rounds complete
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
+
+                return  # Exit after tool continuation
 
                 # No tool calls - regular response
                 # Finish streaming to process markdown FIRST (before adding newlines)
