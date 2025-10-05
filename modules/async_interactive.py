@@ -3,8 +3,10 @@ Async Interactive Mode for OpenCLI
 Fully async architecture with Textual TUI integration
 """
 
+import os
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from openai import AsyncOpenAI
 from simple_tui import OpenCLITUI
 
@@ -15,6 +17,64 @@ except (ImportError, ValueError):
         from frontier_colors import FRONTIER_COLORS
     except ImportError:
         FRONTIER_COLORS = {}
+
+
+def prepare_messages_with_context(messages, config):
+    """
+    Prepare messages with system context (constitution + AGENTS.md + cwd)
+    Only adds system message if one doesn't already exist
+    """
+    # Check if system message already exists
+    has_system = any(m.get('role') == 'system' for m in messages)
+
+    if has_system:
+        return messages
+
+    # Load essential context
+    config_dir = Path.home() / '.opencli'
+    constitution_file = config_dir / 'agents' / 'system_prompts' / 'base' / 'constitution.md'
+    agents_template = config_dir / 'agents' / 'system_prompts' / 'base' / 'AGENTS.md'
+
+    # Build system message
+    system_parts = []
+
+    # Add constitution (tool guides)
+    if constitution_file.exists():
+        with open(constitution_file) as f:
+            system_parts.append(f.read())
+
+    # Add AGENTS.md (project context or template)
+    # First try to find project-specific AGENTS.md
+    cwd = os.getcwd()
+    current = Path(cwd)
+    agents_md_content = None
+
+    for parent in [current] + list(current.parents):
+        agents_file = parent / 'AGENTS.md'
+        if agents_file.exists():
+            with open(agents_file) as f:
+                agents_md_content = f.read()
+            break
+
+    # If no project AGENTS.md, use template
+    if not agents_md_content and agents_template.exists():
+        with open(agents_template) as f:
+            agents_md_content = f.read()
+
+    if agents_md_content:
+        system_parts.append(f"\n## Project Context\n{agents_md_content}")
+
+    # Add working directory
+    system_parts.append(f"\nWorking directory: {cwd}")
+
+    # Create system message
+    system_message = {
+        'role': 'system',
+        'content': '\n'.join(system_parts)
+    }
+
+    # Return messages with system message first
+    return [system_message] + messages
 
 
 async def interactive_async(config, session, initial_prompt=None):
@@ -958,9 +1018,12 @@ async def interactive_async(config, session, initial_prompt=None):
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
             try:
+                # Prepare messages with system context
+                messages_with_context = prepare_messages_with_context(session.messages, config)
+
                 response = await client.chat.completions.create(
                     model=session.model or config["model"],
-                    messages=session.messages,
+                    messages=messages_with_context,
                     stream=True
                 )
 
