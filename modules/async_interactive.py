@@ -654,6 +654,61 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     app.write("  • 🚨 EXTREME DEBUG - Full JSON payloads\n\n")
                 return
 
+            # Handle /performance command - toggle performance monitoring
+            if user_input.startswith('/performance'):
+                try:
+                    from .performance_monitor import get_monitor
+                except (ImportError, ValueError):
+                    from performance_monitor import get_monitor
+
+                perf_monitor = get_monitor()
+
+                # Parse subcommand
+                parts = user_input.split(maxsplit=1)
+                subcommand = parts[1] if len(parts) > 1 else None
+
+                if subcommand == "report":
+                    # Show detailed report
+                    app.write(perf_monitor.get_detailed_report())
+                    return
+
+                if subcommand == "fast":
+                    # Toggle fast mode (skip markdown rendering for speed)
+                    if not hasattr(session, 'fast_mode'):
+                        session.fast_mode = False
+
+                    session.fast_mode = not session.fast_mode
+                    status = "enabled" if session.fast_mode else "disabled"
+                    color = "green" if session.fast_mode else "yellow"
+
+                    app.write(f"[{color}]⚡ Fast mode {status}[/{color}]\n\n")
+                    if session.fast_mode:
+                        app.write("[dim]Optimizations enabled:\n")
+                        app.write("  • Skipped markdown post-processing\n")
+                        app.write("  • Raw text rendering only\n")
+                        app.write("  • Maximum token throughput\n\n")
+                        app.write("⚠️ Note: Markdown formatting will not render\n\n")
+                    else:
+                        app.write("[dim]Markdown rendering restored\n\n")
+                    return
+
+                # Toggle monitoring
+                if perf_monitor.enabled:
+                    perf_monitor.stop()
+                    app.write("[yellow]📊 Performance monitoring disabled[/yellow]\n\n")
+                else:
+                    perf_monitor.start()
+                    app.write("[green]📊 Performance monitoring enabled[/green]\n\n")
+                    app.write("[dim]Statusline will appear beneath prompt showing:\n")
+                    app.write("  • 🟢 CPU usage and trend\n")
+                    app.write("  • 💾 Memory usage\n")
+                    app.write("  • 🧵 Thread count\n")
+                    app.write("  • ⚡ Token streaming speed\n")
+                    app.write("  • 🔴 Current bottlenecks\n\n")
+                    app.write("Use [cyan]/performance report[/cyan] for detailed analysis\n\n")
+
+                return
+
             # Handle /model command locally
             if user_input.startswith('/model'):
                 try:
@@ -1405,7 +1460,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
             try:
                 if hasattr(app, 'stop_spinner'):
                     app.stop_spinner()
-                if hasattr(app, 'finish_stream'):
+                if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                     app.finish_stream()
                 if error_msg:
                     app.write(f"\n[red]❌ {error_msg}[/red]\n")
@@ -1548,6 +1603,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Handle content
                     if delta.content:
                         full_response += delta.content
+
+                        # Record token for performance monitoring
+                        try:
+                            from .performance_monitor import get_monitor
+                            monitor = get_monitor()
+                            if monitor.enabled:
+                                monitor.record_token()
+                        except:
+                            pass
+
                         # CRITICAL: Write in thread to prevent blocking UI
                         await async_write(app, delta.content, end="")
 
@@ -1560,8 +1625,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Finish any streaming content first
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
-                    if hasattr(app, 'finish_stream'):
-                        app.finish_stream()
+                    if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
+                    app.finish_stream()
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: finish_stream done (tool path)[/dim]\n")
                     app.write("\n")
@@ -1830,6 +1895,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         # Handle content
                                         if delta.content:
                                             full_response += delta.content
+
+                                            # Record token for performance monitoring
+                                            try:
+                                                from .performance_monitor import get_monitor
+                                                monitor = get_monitor()
+                                                if monitor.enabled:
+                                                    monitor.record_token()
+                                            except:
+                                                pass
+
                                             # CRITICAL: Write in thread to prevent blocking UI
                                             await async_write(app, delta.content, end="")
 
@@ -1957,8 +2032,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             # Finish and save continuation (EOS reached)
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
-                            if hasattr(app, 'finish_stream'):
-                                app.finish_stream()
+                            if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
+                    app.finish_stream()
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
                             app.write("\n\n")
@@ -2010,7 +2085,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # Finish streaming to process markdown FIRST (before adding newlines)
                 if session.debug_mode:
                     app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (regular path)...[/dim]\n")
-                if hasattr(app, 'finish_stream'):
+                if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                     app.finish_stream()
                 if session.debug_mode:
                     app.write(f"[dim]🐛 POST-STREAM: finish_stream done (regular path)[/dim]\n")
