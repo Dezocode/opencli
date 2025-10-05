@@ -19,8 +19,9 @@ sessions/*.json
 # Background tasks
 bashes/*
 
-# Config (contains user-specific settings)
+# Config (contains user-specific settings and API keys)
 config.json
+models.json
 
 # Python
 __pycache__/

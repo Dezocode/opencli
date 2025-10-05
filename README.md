@@ -31,6 +31,7 @@
 
 ## Features
 
+### Core Features
 - 🚀 **Fast streaming responses** - Token-by-token display for instant feedback
 - 🤖 **Smart agent system** - Auto-switching agents based on task type (debug, review, test, etc.)
 - 🔧 **Full tool support** - Read, Write, Edit, Bash, Glob, Grep
@@ -38,12 +39,27 @@
 - 💾 **Session management** - Resume and continue conversations
 - 📊 **Context optimization** - Smart context compression maintains max throughput
 - 🎯 **AGENTS.md support** - Auto-loads project-specific AI instructions
-- 🎨 **Rich terminal UI** - Bordered input, colored status bar, git info
 - 🔐 **Secure secrets** - API keys stored with 0o600 permissions
 - ⚡ **Slash commands** - Quick access to common operations
 - 🔄 **Version control** - Built-in upgrade/rollback system with verification
 - 🛡️ **Safe upgrades** - Automatic backups and rollback on failure
 - 📦 **Version archiving** - Complete version history preservation
+
+### Advanced TUI Interface
+- 🎨 **Modern terminal UI** - Textual-based interface with Frontier design system
+- ✍️ **Multi-line input** - Smooth text wrapping with cursor positioning
+- 📝 **Live markdown rendering** - Real-time markdown formatting during streaming
+- ⚡ **Integrated spinner** - Visual feedback for API activity and IPC operations
+- 🎯 **Status line** - Real-time session info, IPC status, and git integration
+- 🖥️ **Terminal background** - Uses native terminal background (transparent mode)
+- 🎭 **Rich color support** - Full RGB foreground with ANSI background compatibility
+
+### IPC System
+- 🔗 **Claude Code bridge** - Bidirectional communication with Claude Code
+- 📡 **Interactive sessions** - Send commands and receive responses via IPC
+- 🔄 **Auto-upgrade** - Upgrade OpenCLI from within Claude Code sessions
+- 📊 **Status monitoring** - Track IPC read/write operations with visual indicators
+- 🛠️ **Background tasks** - Manage multiple background processes and shells
 
 ## Installation
 
@@ -479,7 +495,24 @@ opencli/
 │   ├── agent_manager.py       # Agent orchestration
 │   ├── context_builder.py     # Context caching
 │   ├── github_tool.py         # GitHub integration
+│   ├── simple_tui.py          # Advanced TUI interface
+│   ├── streaming_display.py   # Markdown streaming widget
+│   ├── multiline_input.py     # Multi-line input with spinner
+│   ├── markdown_renderer.py   # Markdown processor
+│   ├── ansi_background.py     # Terminal background support
 │   └── README.md
+├── scripts/                   # Utility scripts
+│   ├── claude_code_bridge.py  # Claude Code IPC bridge
+│   ├── claude_code_executor.py # Claude Code executor
+│   ├── claude_code_interactive.py # Interactive IPC
+│   ├── claude_code_persistent.py # Persistent session
+│   ├── find_opencli_session.py # Session finder
+│   └── send_message_to_opencli.py # Message sender
+├── tests/                     # Test files
+│   ├── test_async_write.py    # Async write tests
+│   ├── test_claude_ipc.py     # IPC tests
+│   ├── test_upgrade_via_ipc.py # Upgrade tests
+│   └── debug_chat_display.py  # Display debugging
 ├── opencli.py                 # Main CLI script
 ├── install.sh                 # Installation script
 ├── requirements.txt           # Python dependencies
@@ -487,6 +520,7 @@ opencli/
 ├── README.md                  # This file
 ├── ARCHITECTURE.md            # System architecture docs
 └── INTEGRATION_STATUS.md      # Integration details
+```
 
 ### Installation Structure
 
