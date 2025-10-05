@@ -1390,6 +1390,20 @@ async def interactive_async(config, session=None, initial_prompt=None):
             app.write(f"[dim]🐛 STALL DEBUG: User message save COMPLETED, starting AI response...[/dim]\n")
 
         # Stream response in separate thread to avoid blocking UI
+        def restore_ui_state(error_msg: str = None):
+            """GUARANTEED UI restoration - call on ANY error"""
+            try:
+                if hasattr(app, 'stop_spinner'):
+                    app.stop_spinner()
+                if hasattr(app, 'finish_stream'):
+                    app.finish_stream()
+                if error_msg:
+                    app.write(f"\n[red]❌ {error_msg}[/red]\n")
+                app.write("\n[yellow]⚠️ You can continue chatting.[/yellow]\n\n")
+                app.update_status()
+            except:
+                pass  # Ignore errors in error handler
+
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
             try:
@@ -1442,10 +1456,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     app.write(f"[dim]🚨 EXTREME DEBUG - Exact JSON being sent to API:[/dim]\n")
                     app.write(f"[dim]{json.dumps(messages_with_context, indent=2)}[/dim]\n")
 
-                # Add timeout protection to API call (5 minute default)
-                api_timeout = 300  # 5 minutes
+                # NO TIMEOUT - Let AI run as long as needed (user's choice)
+                api_timeout = None
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: About to call API (timeout={api_timeout}s)...[/dim]\n")
+                    app.write(f"[dim]🐛 STALL DEBUG: About to call API (no timeout - unlimited)...[/dim]\n")
                     app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
 
                 # CRITICAL FIX: Yield control to event loop before heavy API call
@@ -1466,13 +1480,19 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
 
-                    response = await asyncio.wait_for(api_call, timeout=api_timeout)
+                    # No timeout - let it run indefinitely (user's choice)
+                    if api_timeout:
+                        response = await asyncio.wait_for(api_call, timeout=api_timeout)
+                    else:
+                        response = await api_call
 
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
                 except asyncio.TimeoutError:
-                    app.write(f"[red]❌ API request timed out after {api_timeout}s[/red]\n")
+                    timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
+                    app.write(f"[red]❌ API request timed out after {timeout_msg}[/red]\n")
                     app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
+                    restore_ui_state()
                     return
 
                 full_response = ""
@@ -1740,15 +1760,21 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 )
         
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
-        
-                                response = await asyncio.wait_for(api_call, timeout=api_timeout)
-        
+                                    app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")
+
+                                # No timeout - let it run indefinitely
+                                if api_timeout:
+                                    response = await asyncio.wait_for(api_call, timeout=api_timeout)
+                                else:
+                                    response = await api_call
+
                                 if session.debug_mode:
                                     app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
                             except asyncio.TimeoutError:
-                                app.write(f"[red]❌ Continuation API request timed out after {api_timeout}s[/red]\n")
+                                timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
+                                app.write(f"[red]❌ Continuation API request timed out after {timeout_msg}[/red]\n")
                                 app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
+                                restore_ui_state()
                                 return
         
                             # Process the continuation response - CAN have more tool calls!
@@ -1970,16 +1996,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     except Exception as e:
                         # CRITICAL: Gracefully handle continuation errors instead of freezing
-                        app.write(f"\n[red]❌ Continuation error: {e}[/red]\n")
                         if session.debug_mode:
                             import traceback
                             app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
 
-                        # Stop spinner and restore UI
-                        if hasattr(app, 'stop_spinner'):
-                            app.stop_spinner()
-                        app.write("\n[yellow]⚠️ Continuation failed. You can continue chatting.[/yellow]\n\n")
-                        app.update_status()
+                        # GUARANTEED UI restoration
+                        restore_ui_state(f"Continuation error: {e}")
 
                     return  # Exit after tool continuation
 
@@ -2041,17 +2063,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     app.write(f"[dim]🐛 STALL DEBUG: ✅ Stream AI response FULLY COMPLETED[/dim]\n")
 
             except Exception as e:
-                app.write(f"[red]❌ Streaming Error: {e}[/red]\n")
-
-                # Show traceback in debug mode
+                # Show error with traceback
                 if session.debug_mode:
                     import traceback
                     tb = traceback.format_exc()
                     app.write(f"[dim]{tb}[/dim]\n")
 
-                # Stop spinner on error
-                if hasattr(app, 'stop_spinner'):
-                    app.stop_spinner()
+                # GUARANTEED UI restoration
+                restore_ui_state(f"Streaming Error: {e}")
 
         # Start streaming in background task with error handling wrapper
         async def safe_stream_wrapper():
@@ -2059,10 +2078,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
             try:
                 await stream_ai_response()
             except Exception as e:
-                app.write(f"[red]❌ Fatal streaming error: {e}[/red]\n")
                 if session.debug_mode:
                     import traceback
                     app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                # GUARANTEED UI restoration
+                restore_ui_state(f"Fatal streaming error: {e}")
 
         asyncio.create_task(safe_stream_wrapper())
 
