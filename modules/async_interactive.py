@@ -1828,10 +1828,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                         app=app
                                     )
+                                    # CRITICAL: Show completion and yield to UI
+                                    app.write(f"[dim]✓ Tool {tc.function.name} completed (continuation)[/dim]\n")
+                                    await asyncio.sleep(0)  # Yield to UI
                                 except Exception as e:
                                     result = f"Tool execution error: {str(e)}"
-    
+
                                 app.write(f"[dim]{result}[/dim]\n")
+                                await asyncio.sleep(0)  # Yield after result write
     
                                 # Add tool result
                                 tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -1843,8 +1847,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if session.debug_mode:
                                 app.write(f"\n[dim]🐛 RECURSIVE: Tools executed, looping for another API call...[/dim]\n")
     
-                            app.write("\n[dim]Continuing with more tool results...[/dim]\n\n")
-    
+                            app.write("\n[dim]Continuing with more tool results...[/dim]\n")
+                            await asyncio.sleep(0)  # Yield before next loop iteration
+
                             # Continue the while loop - will make another API call with new tool results
                             continue
     
