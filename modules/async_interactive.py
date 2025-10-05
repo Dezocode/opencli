@@ -1350,8 +1350,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
             try:
                 # Prepare messages with system context (same as fallback mode)
                 if agent_manager:
-                    # Use agent manager for context (same as fallback mode in opencli.py:1350-1358)
-                    messages_with_context = agent_manager.prepare_messages(
+                    # Use agent manager for context - RUN IN THREAD TO PREVENT BLOCKING!
+                    messages_with_context = await asyncio.to_thread(
+                        agent_manager.prepare_messages,
                         session.current_agent,
                         session.messages,
                         session.cwd if hasattr(session, 'cwd') else os.getcwd(),
@@ -1517,7 +1518,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if agent_manager:
                             if session.debug_mode:
                                 app.write(f"[dim]🔍 DEBUG: Using agent manager[/dim]\n")
-                            messages_with_context = agent_manager.prepare_messages(
+                            # RUN IN THREAD TO PREVENT BLOCKING THE EVENT LOOP!
+                            messages_with_context = await asyncio.to_thread(
+                                agent_manager.prepare_messages,
                                 session.current_agent,
                                 session.messages,
                                 session.cwd if hasattr(session, 'cwd') else os.getcwd(),
