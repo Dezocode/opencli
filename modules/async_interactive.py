@@ -1342,14 +1342,24 @@ async def interactive_async(config, session=None, initial_prompt=None):
         })
 
         # Auto-save session state (non-blocking)
+        if session.debug_mode:
+            app.write(f"[dim]🐛 STALL DEBUG: Saving user message...[/dim]\n")
         await asyncio.to_thread(session.save)
+        if session.debug_mode:
+            app.write(f"[dim]🐛 STALL DEBUG: User message save COMPLETED, starting AI response...[/dim]\n")
 
         # Stream response in separate thread to avoid blocking UI
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
             try:
+                # STALL DEBUG: Starting message preparation
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 STALL DEBUG: Starting message preparation...[/dim]\n")
+
                 # Prepare messages with system context (same as fallback mode)
                 if agent_manager:
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: Using agent_manager.prepare_messages...[/dim]\n")
                     # Use agent manager for context - RUN IN THREAD TO PREVENT BLOCKING!
                     messages_with_context = await asyncio.to_thread(
                         agent_manager.prepare_messages,
@@ -1358,7 +1368,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                         session.session_id
                     )
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: agent_manager.prepare_messages COMPLETED[/dim]\n")
                 else:
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: Using prepare_messages_with_context...[/dim]\n")
                     # Fallback to basic context preparation WITH GOAL TRACKING (NOW ASYNC!)
                     messages_with_context = await prepare_messages_with_context(
                         session.messages,
@@ -1366,6 +1380,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         spec_memory=spec_memory,
                         goal_tracker=goal_tracker
                     )
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: prepare_messages_with_context COMPLETED[/dim]\n")
 
                 # Debug: Show system message is being sent (only in debug mode)
                 if session.debug_mode and messages_with_context and messages_with_context[0].get('role') == 'system':
@@ -1387,6 +1403,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # Add timeout protection to API call (5 minute default)
                 api_timeout = 300  # 5 minutes
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 STALL DEBUG: About to call API (timeout={api_timeout}s)...[/dim]\n")
                 try:
                     response = await asyncio.wait_for(
                         client.chat.completions.create(
@@ -1397,6 +1415,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         ),
                         timeout=api_timeout
                     )
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
                 except asyncio.TimeoutError:
                     app.write(f"[red]❌ API request timed out after {api_timeout}s[/red]\n")
                     app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
@@ -1461,6 +1481,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     # Execute each tool WITH GOAL SANITY VALIDATION (ASYNC - NO BLOCKING!)
                     for tc in tool_calls:
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Starting tool execution: {tc.function.name}[/dim]\n")
                         app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
                         args = json.loads(tc.function.arguments)
 
@@ -1474,6 +1496,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 status = "✅" if sanity_check[0] else "⚠️"
                                 app.write(f"[dim]{status} Goal Check: {sanity_check[1]}[/dim]\n")
 
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
                         # Execute tool ASYNCHRONOUSLY - no blocking!
                         result = await execute_tool_async(
                             tc.function.name,
@@ -1482,6 +1506,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                             app=app
                         )
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} COMPLETED[/dim]\n")
 
                         # Record tool execution in goal tracker
                         if goal_tracker:
@@ -1497,10 +1523,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
 
                     # Save session with tool results (non-blocking)
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: About to save session after tools...[/dim]\n")
                     await asyncio.to_thread(session.save)
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: Session save COMPLETED[/dim]\n")
 
                     # Continue conversation - make new API call with tool results
                     app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: About to prepare continuation messages...[/dim]\n")
 
                     # Recursive call to get AI's response to tool results
                     # Debug: Show session messages before processing (only if debug mode enabled)
@@ -1517,7 +1549,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     try:
                         if agent_manager:
                             if session.debug_mode:
-                                app.write(f"[dim]🔍 DEBUG: Using agent manager[/dim]\n")
+                                app.write(f"[dim]🐛 STALL DEBUG: Using agent manager for continuation...[/dim]\n")
                             # RUN IN THREAD TO PREVENT BLOCKING THE EVENT LOOP!
                             messages_with_context = await asyncio.to_thread(
                                 agent_manager.prepare_messages,
@@ -1526,17 +1558,19 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                 session.session_id
                             )
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: agent_manager continuation COMPLETED[/dim]\n")
                         else:
                             if session.debug_mode:
-                                app.write(f"[dim]🔍 DEBUG: Using fallback context[/dim]\n")
+                                app.write(f"[dim]🐛 STALL DEBUG: Using fallback context for continuation...[/dim]\n")
                             messages_with_context = await prepare_messages_with_context(
                                 session.messages,
                                 config,
                                 spec_memory=spec_memory,
                                 goal_tracker=goal_tracker
                             )
-                        if session.debug_mode:
-                            app.write(f"[dim]🔍 DEBUG: Message preparation successful[/dim]\n")
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Fallback context continuation COMPLETED[/dim]\n")
                     except Exception as e:
                         if session.debug_mode:
                             app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
@@ -1559,6 +1593,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
 
                     # Add timeout protection to continuation API call
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
                     try:
                         response = await asyncio.wait_for(
                             client.chat.completions.create(
@@ -1569,6 +1605,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             ),
                             timeout=api_timeout
                         )
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
                     except asyncio.TimeoutError:
                         app.write(f"[red]❌ Continuation API request timed out after {api_timeout}s[/red]\n")
                         app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
@@ -1598,7 +1636,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             "role": "assistant",
                             "content": full_response
                         })
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Saving continuation response...[/dim]\n")
                         await asyncio.to_thread(session.save)
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Continuation save COMPLETED[/dim]\n")
                         app.update_status()
 
                     return  # Exit after tool continuation
@@ -1622,7 +1664,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 })
 
                 # Auto-save session state (non-blocking)
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 STALL DEBUG: Saving regular response...[/dim]\n")
                 await asyncio.to_thread(session.save)
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 STALL DEBUG: Regular response save COMPLETED[/dim]\n")
 
                 # Broadcast response to IPC clients
                 if hasattr(session, 'ipc_server') and session.ipc_server and session.ipc_server.running:
@@ -1642,6 +1688,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # Update status
                 app.update_status()
+
+                if session.debug_mode:
+                    app.write(f"[dim]🐛 STALL DEBUG: ✅ Stream AI response FULLY COMPLETED[/dim]\n")
 
             except Exception as e:
                 app.write(f"[red]❌ Streaming Error: {e}[/red]\n")
