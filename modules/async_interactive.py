@@ -919,8 +919,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         except Exception:
                             pass
 
-                    # Save current session
-                    session.save()
+                    # Save current session (non-blocking)
+                    await asyncio.to_thread(session.save)
                     app.write("[dim]✓ Session saved[/dim]\n\n")
 
                     # Get the OpenCLI command path
@@ -1621,8 +1621,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     "content": full_response
                 })
 
-                # Auto-save session state
-                session.save()
+                # Auto-save session state (non-blocking)
+                await asyncio.to_thread(session.save)
 
                 # Broadcast response to IPC clients
                 if hasattr(session, 'ipc_server') and session.ipc_server and session.ipc_server.running:
