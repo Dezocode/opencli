@@ -240,10 +240,12 @@ def execute_tool(name, args, permission_manager=None, current_dir=None, app=None
     return tools.get(name, lambda: f"Unknown tool: {name}")()
 
 
-def prepare_messages_with_context(messages, config, spec_memory=None, goal_tracker=None):
+async def prepare_messages_with_context(messages, config, spec_memory=None, goal_tracker=None):
     """
     Prepare messages with system context (constitution + AGENTS.md + cwd + GOAL CONTEXT)
     ALWAYS adds fresh system message - removes old one if exists
+
+    NOW ASYNC - Uses asyncio.to_thread for all file I/O to prevent blocking!
     """
     # Remove any existing system messages (we'll add a fresh one)
     messages_without_system = [m for m in messages if m.get('role') != 'system']
@@ -256,10 +258,10 @@ def prepare_messages_with_context(messages, config, spec_memory=None, goal_track
     # Build system message
     system_parts = []
 
-    # Add constitution (tool guides)
+    # Add constitution (tool guides) - ASYNC FILE READ
     if constitution_file.exists():
-        with open(constitution_file) as f:
-            system_parts.append(f.read())
+        constitution_content = await asyncio.to_thread(constitution_file.read_text)
+        system_parts.append(constitution_content)
 
     # Add AGENTS.md (project context or template)
     # First try to find project-specific AGENTS.md
@@ -270,14 +272,12 @@ def prepare_messages_with_context(messages, config, spec_memory=None, goal_track
     for parent in [current] + list(current.parents):
         agents_file = parent / 'AGENTS.md'
         if agents_file.exists():
-            with open(agents_file) as f:
-                agents_md_content = f.read()
+            agents_md_content = await asyncio.to_thread(agents_file.read_text)
             break
 
-    # If no project AGENTS.md, use template
+    # If no project AGENTS.md, use template - ASYNC FILE READ
     if not agents_md_content and agents_template.exists():
-        with open(agents_template) as f:
-            agents_md_content = f.read()
+        agents_md_content = await asyncio.to_thread(agents_template.read_text)
 
     if agents_md_content:
         system_parts.append(f"\n## Project Context\n{agents_md_content}")
@@ -1358,8 +1358,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         session.session_id
                     )
                 else:
-                    # Fallback to basic context preparation WITH GOAL TRACKING
-                    messages_with_context = prepare_messages_with_context(
+                    # Fallback to basic context preparation WITH GOAL TRACKING (NOW ASYNC!)
+                    messages_with_context = await prepare_messages_with_context(
                         session.messages,
                         config,
                         spec_memory=spec_memory,
@@ -1526,7 +1526,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         else:
                             if session.debug_mode:
                                 app.write(f"[dim]🔍 DEBUG: Using fallback context[/dim]\n")
-                            messages_with_context = prepare_messages_with_context(
+                            messages_with_context = await prepare_messages_with_context(
                                 session.messages,
                                 config,
                                 spec_memory=spec_memory,
