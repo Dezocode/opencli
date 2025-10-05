@@ -1623,11 +1623,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: Session save COMPLETED[/dim]\n")
 
-                    # Continue conversation - LOOP until we get text response (not more tools)
+                    # Continue conversation - LOOP until API sends EOS token (finish_reason: "stop")
                     app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
 
                     continuation_round = 0
-                    max_continuation_rounds = 20  # Safety limit to prevent infinite loops
+                    max_continuation_rounds = 100  # Safety limit to prevent infinite loops (API should send EOS)
 
                     while continuation_round < max_continuation_rounds:
                         continuation_round += 1
@@ -1728,6 +1728,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         # Process the continuation response - CAN have more tool calls!
                         full_response = ""
                         tool_calls_dict_continuation = {}
+                        finish_reason_continuation = None
                         chunk_count = 0
                         last_chunk_time = asyncio.get_event_loop().time()
     
@@ -1743,11 +1744,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if app.should_exit:
                                 break
     
-                            # Check for finish_reason and errors
-                            if chunk.choices and session.debug_mode:
-                                finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
-                                if finish_reason:
-                                    app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
+                            # Capture finish_reason (CRITICAL for knowing when to stop!)
+                            if chunk.choices and chunk.choices[0].finish_reason:
+                                finish_reason_continuation = chunk.choices[0].finish_reason
+                                if session.debug_mode:
+                                    app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
     
                             delta = chunk.choices[0].delta if chunk.choices else None
                             if not delta:
@@ -1840,11 +1841,22 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             # Continue the while loop - will make another API call with new tool results
                             continue
     
-                        # No more tool calls - we got a text response! Save it and exit loop.
+                        # No tool calls in this response - check finish_reason to know what to do
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 LOOP: Text response received, exiting continuation loop[/dim]\n")
+                            app.write(f"[dim]🐛 LOOP: No tool calls, finish_reason: {finish_reason_continuation}[/dim]\n")
+
+                        # Only exit on EOS token (finish_reason: "stop")
+                        if finish_reason_continuation != "stop":
+                            # Not done yet - continue streaming
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 LOOP: No stop token, continuing loop...[/dim]\n")
+                            continue
+
+                        # finish_reason == "stop" - EOS token, conversation complete
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 LOOP: EOS token received, exiting continuation loop[/dim]\n")
     
-                        # Finish and save continuation (text response only)
+                        # Finish and save continuation (EOS reached)
                         if session.debug_mode:
                             app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
                         if hasattr(app, 'finish_stream'):
@@ -1880,6 +1892,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # End of while loop - all continuation rounds complete
                 if session.debug_mode:
                     app.write(f"[dim]🐛 LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
+
+                # Warn if safety limit was hit
+                if continuation_round >= max_continuation_rounds:
+                    app.write(f"[yellow]⚠️ Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
 
                 return  # Exit after tool continuation
 
