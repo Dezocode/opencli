@@ -82,10 +82,22 @@ def execute_grep(pattern):
     except Exception as e:
         return f"Error: {str(e)}"
 
-def execute_tool(name, args, permission_manager=None, current_dir=None):
+def execute_tool(name, args, permission_manager=None, current_dir=None, app=None):
     """Execute a tool with permission checking"""
-    # TODO: Add permission manager integration
 
+    # Check if permission is required
+    if permission_manager:
+        should_prompt, reason, path_risk = permission_manager.should_prompt(name, args, current_dir)
+
+        if should_prompt:
+            # For TUI, we need to prompt the user
+            # For now, auto-deny risky operations (TODO: add TUI prompt dialog)
+            if app:
+                app.write(f"[yellow]⚠ {name} requires permission: {reason}[/yellow]\n")
+                app.write(f"[yellow]Permission denied (TUI prompt not implemented yet)[/yellow]\n")
+            return f"❌ Operation cancelled - permission required: {reason}"
+
+    # Execute the tool
     tools = {
         "Read": lambda: execute_read(args["file_path"]),
         "Write": lambda: execute_write(args["file_path"], args["content"]),
@@ -180,6 +192,15 @@ async def interactive_async(config, session, initial_prompt=None):
         base_url=config["baseURL"],
         api_key=config["apiKey"]
     )
+
+    # Initialize permission manager
+    try:
+        from .tool_permissions import ToolPermissionManager
+    except (ImportError, ValueError):
+        from tool_permissions import ToolPermissionManager
+
+    if not hasattr(session, 'permission_manager') or session.permission_manager is None:
+        session.permission_manager = ToolPermissionManager()
 
     # Create TUI - color mode is configured automatically in __init__
     app = OpenCLITUI(session=session, config=config)
@@ -1173,7 +1194,13 @@ async def interactive_async(config, session, initial_prompt=None):
                     for tc in tool_calls:
                         app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
                         args = json.loads(tc.function.arguments)
-                        result = execute_tool(tc.function.name, args)
+                        result = execute_tool(
+                            tc.function.name,
+                            args,
+                            permission_manager=session.permission_manager,
+                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                            app=app
+                        )
 
                         # Show tool result to user
                         app.write(f"[dim]{result}[/dim]\n")
