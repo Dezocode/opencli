@@ -109,25 +109,41 @@ def execute_edit(file_path, old_string, new_string):
     except Exception as e:
         return f"Error editing {file_path}: {str(e)}"
 
-async def execute_bash_async(command, description=None, timeout=30):
+async def execute_bash_async(command, description=None, timeout=30, current_dir=None, debug=False):
     """Non-blocking async bash execution"""
     try:
+        # Set working directory if provided
+        cwd = current_dir if current_dir else os.getcwd()
+
+        if debug:
+            print(f"[BASH ASYNC] Creating subprocess for: {command} in {cwd}")
+
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd
         )
+
+        if debug:
+            print(f"[BASH ASYNC] Subprocess created, waiting for output (timeout={timeout}s)...")
 
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            if debug:
+                print(f"[BASH ASYNC] Got output: stdout={len(stdout)} bytes, stderr={len(stderr)} bytes")
             output = stdout.decode() + stderr.decode()
             return output if output else f"✓ Command executed: {command}"
         except asyncio.TimeoutError:
+            if debug:
+                print(f"[BASH ASYNC] TIMEOUT after {timeout}s")
             proc.kill()
             await proc.wait()
             return f"⏱ Command timed out after {timeout}s"
 
     except Exception as e:
+        if debug:
+            print(f"[BASH ASYNC] EXCEPTION: {e}")
         return f"Error executing command: {str(e)}"
 
 def execute_bash(command, description=None):
@@ -191,9 +207,16 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
     # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
     # TODO: Implement TUI permission prompt dialog
 
+    debug_mode = hasattr(app, 'session') and hasattr(app.session, 'debug_mode') and app.session.debug_mode if app else False
+
     try:
+        if debug_mode and app:
+            app.write(f"[dim]🐛 TOOL EXEC: Entering execute_tool_async for {name}[/dim]\n")
+
         if name == "Read":
             # Run file I/O in thread pool to avoid blocking
+            if debug_mode and app:
+                app.write(f"[dim]🐛 TOOL EXEC: About to read file {args['file_path']}[/dim]\n")
             return await asyncio.to_thread(execute_read, args["file_path"])
 
         elif name == "Write":
@@ -204,7 +227,12 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
 
         elif name == "Bash":
             # Use async subprocess for bash commands
-            return await execute_bash_async(args["command"], args.get("description"))
+            if debug_mode and app:
+                app.write(f"[dim]🐛 TOOL EXEC: About to run bash command: {args['command']}[/dim]\n")
+            result = await execute_bash_async(args["command"], args.get("description"), current_dir=current_dir)
+            if debug_mode and app:
+                app.write(f"[dim]🐛 TOOL EXEC: Bash command returned[/dim]\n")
+            return result
 
         elif name == "Glob":
             # Glob is fast, run in thread pool
@@ -1497,7 +1525,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: Starting tool execution: {tc.function.name}[/dim]\n")
                         app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Parsing arguments JSON...[/dim]\n")
                         args = json.loads(tc.function.arguments)
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Arguments parsed: {args}[/dim]\n")
 
                         # GOAL SANITY CHECK - validate tool call aligns with current goal
                         sanity_check = (True, "No goal tracker")
@@ -1511,16 +1544,24 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
+
                         # Execute tool ASYNCHRONOUSLY - no blocking!
-                        result = await execute_tool_async(
-                            tc.function.name,
-                            args,
-                            permission_manager=session.permission_manager,
-                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
-                            app=app
-                        )
-                        if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} COMPLETED[/dim]\n")
+                        try:
+                            result = await execute_tool_async(
+                                tc.function.name,
+                                args,
+                                permission_manager=session.permission_manager,
+                                current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                                app=app
+                            )
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} COMPLETED with result length: {len(str(result))}[/dim]\n")
+                        except Exception as e:
+                            result = f"Tool execution error: {str(e)}"
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} FAILED: {e}[/dim]\n")
+                                import traceback
+                                app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
 
                         # Record tool execution in goal tracker
                         if goal_tracker:
