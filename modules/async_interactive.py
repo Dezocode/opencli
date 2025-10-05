@@ -1622,8 +1622,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         else:
                             result_display = result
 
-                        app.write(f"[dim]{result_display}[/dim]\n")
-                        await asyncio.sleep(0)  # CRITICAL: Yield after writing potentially large result
+                        # CRITICAL: Write in chunks to prevent blocking on large results
+                        chunk_size = 5000
+                        result_str = f"[dim]{result_display}[/dim]\n"
+                        for i in range(0, len(result_str), chunk_size):
+                            chunk = result_str[i:i+chunk_size]
+                            app.write(chunk, end="")
+                            await asyncio.sleep(0)  # Yield after each chunk
 
                         # Add tool result to messages
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -1860,8 +1865,25 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     else:
                                         result_display = result
     
-                                    app.write(f"[dim]{result_display}[/dim]\n")
-                                    await asyncio.sleep(0)  # Yield after result write
+                                    # CRITICAL: Write in chunks to prevent blocking on large results
+
+    
+                                    chunk_size = 5000
+
+    
+                                    result_str = f"[dim]{result_display}[/dim]\n"
+
+    
+                                    for i in range(0, len(result_str), chunk_size):
+
+    
+                                        chunk = result_str[i:i+chunk_size]
+
+    
+                                        app.write(chunk, end="")
+
+    
+                                        await asyncio.sleep(0)  # Yield after each chunk
         
                                     # Add tool result
                                     tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
