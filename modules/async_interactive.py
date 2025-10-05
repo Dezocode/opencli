@@ -603,6 +603,19 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
         # Handle slash commands
         if user_input.startswith('/'):
+            # Handle /debug command - toggle debug mode
+            if user_input.startswith('/debug'):
+                session.debug_mode = not session.debug_mode
+                status = "enabled" if session.debug_mode else "disabled"
+                color = "green" if session.debug_mode else "yellow"
+                app.write(f"[{color}]🐛 Debug mode {status}[/{color}]\n\n")
+                if session.debug_mode:
+                    app.write("[dim]Debug logs will show:\n")
+                    app.write("  • 🐛 STALL DEBUG - Async operation boundaries\n")
+                    app.write("  • 🔍 DEBUG - Message structure and API calls\n")
+                    app.write("  • 🚨 EXTREME DEBUG - Full JSON payloads\n\n")
+                return
+
             # Handle /model command locally
             if user_input.startswith('/model'):
                 try:
