@@ -1341,8 +1341,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
             "content": user_input
         })
 
-        # Auto-save session state
-        session.save()
+        # Auto-save session state (non-blocking)
+        await asyncio.to_thread(session.save)
 
         # Stream response in separate thread to avoid blocking UI
         async def stream_ai_response():
@@ -1496,8 +1496,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if session.debug_mode:
                             app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
 
-                    # Save session with tool results
-                    session.save()
+                    # Save session with tool results (non-blocking)
+                    await asyncio.to_thread(session.save)
 
                     # Continue conversation - make new API call with tool results
                     app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
@@ -1598,7 +1598,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             "role": "assistant",
                             "content": full_response
                         })
-                        session.save()
+                        await asyncio.to_thread(session.save)
                         app.update_status()
 
                     return  # Exit after tool continuation
