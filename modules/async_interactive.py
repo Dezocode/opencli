@@ -1594,6 +1594,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                 app=app
                             )
+                            # ALWAYS show tool completion
+                            app.write(f"[dim]✓ Tool {tc.function.name} completed[/dim]\n")
+                            await asyncio.sleep(0)  # Yield to UI
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} COMPLETED with result length: {len(str(result))}[/dim]\n")
                         except Exception as e:
@@ -1624,7 +1627,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"[dim]🐛 STALL DEBUG: Session save COMPLETED[/dim]\n")
 
                     # Continue conversation - LOOP until API sends EOS token (finish_reason: "stop")
-                    app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
+                    app.write("\n[dim]Continuing with tool results...[/dim]\n")
+                    await asyncio.sleep(0)  # Yield to UI
 
                     continuation_round = 0
                     max_continuation_rounds = 100  # Safety limit to prevent infinite loops (API should send EOS)
@@ -1694,10 +1698,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
     
                         # Add timeout protection to continuation API call
+                        app.write(f"[dim]⏳ Calling API (round {continuation_round})...[/dim]\n")
+                        await asyncio.sleep(0)  # Yield to UI
+
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
                             app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
-    
+
                         # CRITICAL FIX: Yield control to event loop before heavy API call
                         await asyncio.sleep(0)
     
