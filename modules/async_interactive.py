@@ -1530,6 +1530,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: finish_stream done (tool path)[/dim]\n")
                     app.write("\n")
+                    # CRITICAL: Yield after write
+                    await asyncio.sleep(0)
 
                     # Build tool calls list
                     from types import SimpleNamespace
@@ -1743,6 +1745,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
                     app.write("\n\n")
+                    # CRITICAL: Yield after write
+                    await asyncio.sleep(0)
 
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner...[/dim]\n")
@@ -1777,6 +1781,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # Then add spacing after rendered markdown
                 app.write("\n\n")
+                # CRITICAL: Yield after write
+                await asyncio.sleep(0)
 
                 # Stop spinner - API response complete
                 if session.debug_mode:
