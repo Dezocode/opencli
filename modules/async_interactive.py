@@ -113,13 +113,10 @@ def execute_tool(name, args, permission_manager=None, current_dir=None, app=None
 def prepare_messages_with_context(messages, config):
     """
     Prepare messages with system context (constitution + AGENTS.md + cwd)
-    Only adds system message if one doesn't already exist
+    ALWAYS adds fresh system message - removes old one if exists
     """
-    # Check if system message already exists
-    has_system = any(m.get('role') == 'system' for m in messages)
-
-    if has_system:
-        return messages
+    # Remove any existing system messages (we'll add a fresh one)
+    messages_without_system = [m for m in messages if m.get('role') != 'system']
 
     # Load essential context
     config_dir = Path.home() / '.opencli'
@@ -164,8 +161,8 @@ def prepare_messages_with_context(messages, config):
         'content': '\n'.join(system_parts)
     }
 
-    # Return messages with system message first
-    return [system_message] + messages
+    # Return messages with system message first (always fresh)
+    return [system_message] + messages_without_system
 
 
 async def interactive_async(config, session, initial_prompt=None):
