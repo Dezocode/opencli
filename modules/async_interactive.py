@@ -1770,22 +1770,62 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
                         app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
 
-                    # Check if continuation has MORE tool calls
+                    # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                     if tool_calls_dict_continuation:
-                        app.write("\n[yellow]⚠️  API wants to call MORE tools - this will cause infinite loops![/yellow]\n")
-                        app.write("[yellow]For now, stopping here. This needs recursive tool call handling.[/yellow]\n\n")
-
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 BUG: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
+                            app.write(f"\n[dim]🐛 RECURSIVE TOOLS: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
                             for idx, tc_data in tool_calls_dict_continuation.items():
                                 app.write(f"[dim]  Tool #{idx}: {tc_data['name']}[/dim]\n")
 
-                        # For now, just save what we have and warn
-                        if full_response.strip():
-                            session.messages.append({
-                                "role": "assistant",
-                                "content": full_response
-                            })
+                        app.write("\n")
+
+                        # Build tool calls list from continuation
+                        from types import SimpleNamespace
+                        tool_calls_continuation = []
+                        for idx, tc_data in tool_calls_dict_continuation.items():
+                            tc_obj = SimpleNamespace(
+                                id=tc_data["id"],
+                                function=SimpleNamespace(name=tc_data["name"], arguments=tc_data["arguments"])
+                            )
+                            tool_calls_continuation.append(tc_obj)
+
+                        # Save assistant message with tool calls
+                        assistant_msg = {
+                            "role": "assistant",
+                            "content": full_response if full_response else "",
+                            "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls_continuation]
+                        }
+                        session.messages.append(assistant_msg)
+
+                        # Execute each continuation tool
+                        for tc in tool_calls_continuation:
+                            if session.debug_mode:
+                                app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
+                            app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                            args = json.loads(tc.function.arguments)
+
+                            # Execute tool
+                            try:
+                                result = await execute_tool_async(
+                                    tc.function.name,
+                                    args,
+                                    permission_manager=session.permission_manager,
+                                    current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                                    app=app
+                                )
+                            except Exception as e:
+                                result = f"Tool execution error: {str(e)}"
+
+                            app.write(f"[dim]{result}[/dim]\n")
+
+                            # Add tool result
+                            tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
+                            session.messages.append(tool_msg)
+
+                        # Save and make ANOTHER continuation call
+                        await asyncio.to_thread(session.save)
+                        app.write("\n[yellow]⚠️  Multiple tool call rounds detected - stopping to prevent infinite loops.[/yellow]\n")
+                        app.write("[yellow]Please send another message to continue the conversation.[/yellow]\n\n")
                         return
 
                     # Finish and save continuation (text response only)
