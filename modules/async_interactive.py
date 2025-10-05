@@ -7,6 +7,8 @@ import os
 import json
 import asyncio
 import subprocess
+import queue
+import threading
 from datetime import datetime
 from pathlib import Path
 from openai import AsyncOpenAI
@@ -15,6 +17,14 @@ from simple_tui import OpenCLITUI
 # Inline normalization function to avoid import issues
 import uuid
 from copy import deepcopy
+
+
+# CRITICAL: Async wrapper for app.write() to prevent UI blocking
+async def async_write(app, text, end="\n"):
+    """Write to app in a thread to prevent blocking UI"""
+    def _write():
+        app.write(text, end=end)
+    await asyncio.to_thread(_write)
 
 def normalize_tool_call_messages(messages):
     """Return a sanitized copy of messages with well-formed tool call payloads."""
@@ -1538,10 +1548,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Handle content
                     if delta.content:
                         full_response += delta.content
-                        # Thread-safe write to UI
-                        app.write(delta.content, end="")
-                        # Yield to event loop after writing
-                        await asyncio.sleep(0)
+                        # CRITICAL: Write in thread to prevent blocking UI
+                        await async_write(app, delta.content, end="")
 
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -1647,8 +1655,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         result_str = f"[dim]{result_display}[/dim]\n"
                         for i in range(0, len(result_str), chunk_size):
                             chunk = result_str[i:i+chunk_size]
-                            app.write(chunk, end="")
-                            await asyncio.sleep(0)  # Yield after each chunk
+                            # Write in thread to prevent blocking UI
+                            await async_write(app, chunk, end="")
 
                         # Add tool result to messages
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -1822,9 +1830,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         # Handle content
                                         if delta.content:
                                             full_response += delta.content
-                                            app.write(delta.content, end="")
-                                            # Yield to event loop after writing
-                                            await asyncio.sleep(0)
+                                            # CRITICAL: Write in thread to prevent blocking UI
+                                            await async_write(app, delta.content, end="")
 
                                 except Exception as chunk_error:
                                     # CRITICAL: Don't let chunk errors kill the entire stream
@@ -1911,15 +1918,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
     
                                     for i in range(0, len(result_str), chunk_size):
-
-    
                                         chunk = result_str[i:i+chunk_size]
-
-    
-                                        app.write(chunk, end="")
-
-    
-                                        await asyncio.sleep(0)  # Yield after each chunk
+                                        # Write in thread to prevent blocking UI
+                                        await async_write(app, chunk, end="")
         
                                     # Add tool result
                                     tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
