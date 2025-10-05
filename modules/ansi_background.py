@@ -139,6 +139,101 @@ def _patched_domnode_rich_style(self):
 DOMNode.rich_style = property(_patched_domnode_rich_style)
 
 
+# Patch TextAreaTheme.apply_css to handle ANSI background mode
+try:
+    from textual._text_area_theme import TextAreaTheme
+    from rich.style import Style as RichStyle
+
+    _original_apply_css = TextAreaTheme.apply_css
+
+    def _patched_textarea_apply_css(self, text_area):
+        """Patch TextAreaTheme.apply_css to work with ANSI backgrounds"""
+        from rich.color import Color as RichColor
+        from textual.color import Color as TextualColor
+
+        # Start with original logic
+        self.base_style = text_area.rich_style or RichStyle()
+        get_style = text_area.get_component_rich_style
+
+        if self.base_style.color is None:
+            self.base_style = RichStyle(color="#f3f3f3", bgcolor=self.base_style.bgcolor)
+
+        app_theme = text_area.app.current_theme
+
+        # PATCH: If bgcolor is None and app_theme.surface is also None (ANSI mode),
+        # use marker color instead of failing
+        if self.base_style.bgcolor is None:
+            if app_theme.surface is not None:
+                self.base_style = RichStyle(
+                    color=self.base_style.color, bgcolor=app_theme.surface
+                )
+            else:
+                # ANSI background mode - use marker color
+                self.base_style = RichStyle(
+                    color=self.base_style.color,
+                    bgcolor=RichColor.parse("rgb(0,0,1)")  # ColorManager marker
+                )
+
+        # Now continue with rest of original apply_css logic
+        configured = self._theme_configured_attributes.__contains__
+
+        assert self.base_style is not None
+        assert self.base_style.color is not None
+        assert self.base_style.bgcolor is not None
+
+        if not configured("gutter_style"):
+            gutter_style = get_style("text-area--gutter")
+            if gutter_style:
+                self.gutter_style = gutter_style
+            else:
+                self.gutter_style = self.base_style.copy()
+
+        background_color = TextualColor.from_rich_color(self.base_style.bgcolor)
+        if not configured("cursor_style"):
+            cursor_style = get_style("text-area--cursor")
+            if cursor_style:
+                self.cursor_style = cursor_style
+            else:
+                self.cursor_style = RichStyle.from_color(
+                    color=background_color.rich_color,
+                    bgcolor=background_color.inverse.rich_color,
+                )
+
+        if not configured("cursor_line_style"):
+            self.cursor_line_style = get_style("text-area--cursor-line")
+
+        if not configured("cursor_line_gutter_style"):
+            self.cursor_line_gutter_style = get_style("text-area--cursor-gutter")
+
+        if not configured("bracket_matching_style"):
+            matching_bracket_style = get_style("text-area--matching-bracket")
+            if matching_bracket_style:
+                self.bracket_matching_style = matching_bracket_style
+            else:
+                bracket_matching_background = background_color.blend(
+                    background_color.inverse, factor=0.05
+                )
+                self.bracket_matching_style = RichStyle(
+                    bgcolor=bracket_matching_background.rich_color
+                )
+
+        if not configured("selection_style"):
+            selection_style = get_style("text-area--selection")
+            if selection_style:
+                self.selection_style = selection_style
+            else:
+                selection_background_color = background_color.blend(
+                    app_theme.primary, factor=0.5
+                )
+                self.selection_style = RichStyle.from_color(
+                    bgcolor=selection_background_color.rich_color
+                )
+
+    TextAreaTheme.apply_css = _patched_textarea_apply_css
+except ImportError:
+    pass  # TextArea not available in this Textual version
+
+
 class ANSIBackgroundMixin:
     """
     Mixin to enable configurable color modes in Textual apps

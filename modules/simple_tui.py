@@ -16,6 +16,12 @@ import threading
 from queue import Queue
 from pathlib import Path
 
+# Import custom multi-line input (with integrated spinner)
+try:
+    from .multiline_input import MultiLineInput
+except (ImportError, ValueError):
+    from multiline_input import MultiLineInput
+
 # Import custom modules - relative imports since we're in modules/ dir
 try:
     from .tui_config import get_tui_config
@@ -44,12 +50,20 @@ except (ImportError, ValueError) as e:
 
 
 class StatusLine(Static):
-    """Fixed status line showing session info"""
+    """Fixed status line showing session info with IPC activity spinner"""
+
+    is_spinning = reactive(False)
+    spinner_frame = reactive(0)
+    spinner_mode = reactive("idle")  # "idle", "read", "write"
+
+    # Spinner frames
+    SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     def __init__(self, session, config):
         super().__init__()
         self.session = session
         self.config = config
+        self._spin_task = None
 
     def render(self) -> Text:
         """Render status bar"""
@@ -80,7 +94,17 @@ class StatusLine(Static):
         # Use frontier colors if available
         if FRONTIER_COLORS:
             status.append(" S: ", style=f"dim {STATUS_COLORS['time']}")
-            if ipc_status == "off":
+
+            # Show spinner when IPC is active, otherwise show count
+            if self.is_spinning:
+                frame = self.SPINNER_FRAMES[self.spinner_frame % len(self.SPINNER_FRAMES)]
+                if self.spinner_mode == "read":
+                    status.append(frame, style="#6B9E78")  # Frontier green/blue for read
+                elif self.spinner_mode == "write":
+                    status.append(frame, style="#9B86BD")  # Purple for write
+                else:
+                    status.append(frame, style="#89B8C2")  # Soft cyan default
+            elif ipc_status == "off":
                 status.append(f"{ipc_status}", style="#5C6773")  # Gray for off
             else:
                 status.append(f"{ipc_status}", style="#89B8C2")  # Soft cyan for active
@@ -109,6 +133,55 @@ class StatusLine(Static):
 
         return status
 
+    def start_spinner(self, mode: str = "idle") -> None:
+        """Start the IPC activity spinner
+
+        Args:
+            mode: "read" (blue), "write" (purple), or "idle" (cyan)
+        """
+        self.spinner_mode = mode
+        if not self.is_spinning:
+            self.is_spinning = True
+            if self._spin_task is None or self._spin_task.done():
+                self._spin_task = asyncio.create_task(self._spin())
+
+    def stop_spinner(self) -> None:
+        """Stop the IPC activity spinner"""
+        self.is_spinning = False
+        if self._spin_task and not self._spin_task.done():
+            try:
+                self._spin_task.cancel()
+            except Exception:
+                pass
+        self.spinner_frame = 0
+        self.spinner_mode = "idle"
+        self._spin_task = None
+        self.refresh()
+
+    async def _spin(self) -> None:
+        """Async task that updates the spinner"""
+        try:
+            while self.is_spinning:
+                self.spinner_frame = (self.spinner_frame + 1) % len(self.SPINNER_FRAMES)
+                self.refresh()
+                await asyncio.sleep(0.08)  # 80ms per frame
+        except asyncio.CancelledError:
+            pass
+
+    def watch_is_spinning(self, old_value: bool, new_value: bool) -> None:
+        """React to spinning state changes"""
+        if old_value != new_value:
+            self.refresh()
+
+    def watch_spinner_frame(self, old_value: int, new_value: int) -> None:
+        """React to frame changes - refresh already handled by _spin"""
+        pass
+
+    def watch_spinner_mode(self, old_value: str, new_value: str) -> None:
+        """React to mode changes"""
+        if old_value != new_value and self.is_spinning:
+            self.refresh()
+
 
 class OpenCLITUI(App):
     """Simple TUI with scrollable content and fixed prompt"""
@@ -119,27 +192,31 @@ class OpenCLITUI(App):
     CSS = """
     Screen {
         layout: vertical;
-        background: $background;
+        background: transparent;
+    }
+
+    Container {
+        background: transparent;
+        border: none;
     }
 
     #content {
         height: 1fr;
         border: none;
-        background: $background;
+        background: transparent;
         overflow-y: auto;
         scrollbar-size: 0 0;
     }
 
     VerticalScroll {
-        background: $background;
+        background: transparent;
         height: 100%;
         overflow-y: auto;
         scrollbar-size: 0 0;
     }
 
     #stream-display {
-        background: $background;
-        color: auto;
+        background: transparent;
         height: auto;
         min-height: 100%;
     }
@@ -147,7 +224,8 @@ class OpenCLITUI(App):
     #footer {
         height: auto;
         dock: bottom;
-        background: $background;
+        background: transparent;
+        border: none;
     }
 
     StatusLine {
@@ -161,12 +239,16 @@ class OpenCLITUI(App):
         height: auto;
         layout: horizontal;
         padding: 0 1;
-        background: $background;
+        background: transparent;
+        border: none;
     }
 
     #prompt-label {
         width: auto;
-        padding-right: 1;
+        height: 1;
+        padding: 0;
+        background: $background;
+        color: auto;
     }
 
     Input {
@@ -180,6 +262,22 @@ class OpenCLITUI(App):
 
     Input:focus {
         border: round #3E4B59;
+    }
+
+    MultiLineInput {
+        width: 1fr;
+        height: auto;
+        min-height: 3;
+        max-height: 10;
+        margin: 0;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
+    MultiLineInput:focus {
+        border: round #6B9E78;
     }
     """
 
@@ -279,11 +377,8 @@ class OpenCLITUI(App):
         with Container(id="footer"):
             yield StatusLine(self.session, self.config)
             with Container(id="prompt-container"):
-                # Use frontier prompt color
-                prompt_color = FRONTIER_COLORS.get('prompt_symbol', '#6B9E78') if FRONTIER_COLORS else 'green'
-                yield Static(f"[{prompt_color}]│ > [/{prompt_color}]", id="prompt-label")
-                # Use TextArea for multi-line input with wrapping
-                yield TextArea(id="prompt-input", language="markdown")
+                # Multi-line input with integrated spinner
+                yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
 
     def on_mount(self) -> None:
         """Initialize"""
@@ -337,7 +432,7 @@ Session: {self.session.session_id[:8]} | Ready
 """)
 
         # Focus input
-        self.query_one("#prompt-input", Input).focus()
+        self.query_one("#prompt-input", MultiLineInput).focus()
 
         # Process initial prompt if provided
         if self.initial_prompt and self.message_handler:
@@ -358,9 +453,10 @@ Session: {self.session.session_id[:8]} | Ready
         """Handle user input from Input widget"""
         await self._handle_user_message(event.value.strip(), event.input)
 
-    async def on_text_area_submitted(self, event: TextArea.Submitted) -> None:
-        """Handle user input from TextArea widget (Ctrl+J)"""
-        await self._handle_user_message(event.text_area.text.strip(), event.text_area)
+    async def on_multi_line_input_submitted(self, event: MultiLineInput.Submitted) -> None:
+        """Handle user input from MultiLineInput widget"""
+        widget = self.query_one("#prompt-input", MultiLineInput)
+        await self._handle_user_message(event.value.strip(), widget)
 
     async def _handle_user_message(self, user_input: str, widget) -> None:
         """Common handler for user messages"""
@@ -371,10 +467,17 @@ Session: {self.session.session_id[:8]} | Ready
         self._add_to_history(user_input)
 
         # Clear input
-        if isinstance(widget, TextArea):
-            widget.text = ""
+        if isinstance(widget, MultiLineInput):
+            widget.clear()
         else:
             widget.value = ""
+
+        # Start spinner in the input widget
+        try:
+            prompt = self.query_one("#prompt-input", MultiLineInput)
+            prompt.start_spinner()
+        except Exception:
+            pass
 
         # Get GitHub username if authenticated
         username = "You"
@@ -415,8 +518,9 @@ Session: {self.session.session_id[:8]} | Ready
                 elif self._history_index > 0:
                     self._history_index -= 1
 
-                if isinstance(prompt, TextArea):
-                    prompt.text = self._prompt_history[self._history_index]
+                if isinstance(prompt, MultiLineInput):
+                    prompt.value = self._prompt_history[self._history_index]
+                    prompt.cursor_position = len(prompt.value)
                 else:
                     prompt.value = self._prompt_history[self._history_index]
                 event.prevent_default()
@@ -427,15 +531,16 @@ Session: {self.session.session_id[:8]} | Ready
             if self._prompt_history and self._history_index >= 0:
                 if self._history_index < len(self._prompt_history) - 1:
                     self._history_index += 1
-                    if isinstance(prompt, TextArea):
-                        prompt.text = self._prompt_history[self._history_index]
+                    if isinstance(prompt, MultiLineInput):
+                        prompt.value = self._prompt_history[self._history_index]
+                        prompt.cursor_position = len(prompt.value)
                     else:
                         prompt.value = self._prompt_history[self._history_index]
                 else:
                     # At newest - clear input
                     self._history_index = -1
-                    if isinstance(prompt, TextArea):
-                        prompt.text = ""
+                    if isinstance(prompt, MultiLineInput):
+                        prompt.clear()
                     else:
                         prompt.value = ""
                 event.prevent_default()
@@ -534,6 +639,35 @@ Session: {self.session.session_id[:8]} | Ready
                 self._save_prompt_history()
         self._history_index = -1
 
+    def stop_spinner(self):
+        """Stop the activity spinner in input widget"""
+        try:
+            prompt = self.query_one("#prompt-input", MultiLineInput)
+            prompt.stop_spinner()
+        except Exception:
+            pass
+
+    def start_ipc_spinner(self, mode: str = "read"):
+        """Start the IPC activity spinner in status line
+
+        Args:
+            mode: "read" (green/blue) or "write" (purple)
+        """
+        try:
+            from textual.widgets import Static
+            status = self.query_one(StatusLine)
+            status.start_spinner(mode)
+        except Exception:
+            pass
+
+    def stop_ipc_spinner(self):
+        """Stop the IPC activity spinner in status line"""
+        try:
+            status = self.query_one(StatusLine)
+            status.stop_spinner()
+        except Exception:
+            pass
+
     def _resolve_content_widget(self):
         """Find the active output widget (StreamingDisplay or RichLog)."""
         if self._content_widget and not getattr(self._content_widget, "is_destroyed", False):
@@ -566,13 +700,24 @@ Session: {self.session.session_id[:8]} | Ready
             if StreamingDisplay is not None and isinstance(content_widget, StreamingDisplay):
                 for text, end in batch:
                     if text:
-                        content_widget.write_stream(text)
+                        # Use write_stream() ONLY if currently streaming (end is empty)
+                        # Otherwise use write() to preserve Rich markup
+                        if end == "":
+                            content_widget.write_stream(text)
+                        else:
+                            # Not streaming - write with markup support
+                            content_widget.write(text)
 
                     if end != "":
-                        content_widget.finish_stream()
+                        # Finish stream if we were streaming
+                        if self._streaming_active:
+                            content_widget.finish_stream()
 
-                        # Preserve any trailing characters after finishing the stream.
+                        # Write the end marker (newlines, etc)
                         if end.strip("\n"):
+                            content_widget.write(end)
+                        elif end:
+                            # Just newlines - add them
                             content_widget.write(end)
 
                 # Streaming is active only if the last batch item keeps the stream open
@@ -613,6 +758,15 @@ Session: {self.session.session_id[:8]} | Ready
         # Just queue it - background thread will process
         self._write_queue_threadsafe.put((text, end))
         # Returns immediately!
+
+    def finish_stream(self) -> None:
+        """Finish streaming and render markdown"""
+        try:
+            content = self._resolve_content_widget()
+            if content and hasattr(content, 'finish_stream'):
+                content.finish_stream()
+        except Exception as e:
+            pass  # Silently handle errors
 
     def update_status(self) -> None:
         """Refresh status"""

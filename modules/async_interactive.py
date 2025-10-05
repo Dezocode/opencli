@@ -975,7 +975,16 @@ async def interactive_async(config, session, initial_prompt=None):
                         # Thread-safe write to UI
                         app.write(delta, end="")
 
+                # Finish streaming to process markdown FIRST (before adding newlines)
+                if hasattr(app, 'finish_stream'):
+                    app.finish_stream()
+
+                # Then add spacing after rendered markdown
                 app.write("\n\n")
+
+                # Stop spinner - API response complete
+                if hasattr(app, 'stop_spinner'):
+                    app.stop_spinner()
 
                 # Save response
                 session.messages.append({

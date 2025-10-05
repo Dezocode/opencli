@@ -33,11 +33,10 @@ class StreamingDisplay(Static):
     content: reactive[RenderableType] = reactive("")
     can_focus = True
 
-    # CSS to ensure ANSI background
+    # CSS to ensure ANSI background with no color override
     DEFAULT_CSS = """
     StreamingDisplay {
         background: default;
-        color: auto;
     }
     """
 
@@ -62,14 +61,17 @@ class StreamingDisplay(Static):
         self._selecting = False
 
     def write_stream(self, text: str):
-        """Write streaming text with trailing laser wave effect"""
+        """Write streaming text with markdown rendering and optional laser effect"""
         self._streaming = True
         self._current_stream += text
 
-        # Build complete display with trailing wave effect
+        # Render the current stream as markdown IN REAL-TIME
+        rendered_stream = self._markdown_renderer.render(self._current_stream)
+
+        # Build complete display
         display_text = Text()
 
-        # Add completed lines in default color
+        # Add completed lines
         for line in self._lines:
             if isinstance(line, Text):
                 display_text.append_text(line)
@@ -77,45 +79,55 @@ class StreamingDisplay(Static):
                 display_text.append(str(line))
             display_text.append("\n")
 
-        # Add current streaming line with trailing wave effect
-        if self._laser_enabled and self._current_stream:
-            stream_len = len(self._current_stream)
+        # Add the rendered markdown (current stream)
+        # Apply laser effect to the trailing characters if enabled
+        if self._laser_enabled and rendered_stream:
+            # Get the plain text length for laser calculation
+            plain_text = rendered_stream.plain
+            stream_len = len(plain_text)
             trail_length = 20  # Characters in the laser trail
 
-            for i, char in enumerate(self._current_stream):
-                # Calculate distance from the "front" (most recent character)
-                distance_from_front = stream_len - i - 1
+            # Apply laser glow to trailing characters
+            # We'll rebuild with laser colors on the tail
+            for i, span in enumerate(rendered_stream._spans):
+                start, end, style = span.start, span.end, span.style
+                for pos in range(start, end):
+                    char = plain_text[pos] if pos < len(plain_text) else ''
+                    distance_from_front = stream_len - pos - 1
 
-                if distance_from_front < trail_length:
-                    # In the laser trail - apply gradient
-                    # 0 = hottest (newest), trail_length = coolest (oldest)
-                    intensity = 1.0 - (distance_from_front / trail_length)
-                    color_idx = int(intensity * (len(self._laser_colors) - 1))
-                    color_idx = min(color_idx, len(self._laser_colors) - 1)
-
-                    color = self._laser_colors[color_idx]
-                    # Use RGB color for foreground, no background (ANSI default shows through)
-                    display_text.append(char, style=Style(color=color, bold=True))
-                else:
-                    # Beyond the trail - default color
-                    display_text.append(char)
-
+                    if distance_from_front < trail_length:
+                        # In the laser trail - override with gradient
+                        intensity = 1.0 - (distance_from_front / trail_length)
+                        color_idx = int(intensity * (len(self._laser_colors) - 1))
+                        color_idx = min(color_idx, len(self._laser_colors) - 1)
+                        color = self._laser_colors[color_idx]
+                        display_text.append(char, style=Style(color=color, bold=True))
+                    else:
+                        # Beyond trail - use original markdown formatting
+                        display_text.append(char, style=style)
         else:
-            display_text.append(self._current_stream)
+            # No laser - just show rendered markdown
+            display_text.append_text(rendered_stream)
 
         self.update(display_text)
         self._scroll_to_bottom()
 
     def finish_stream(self):
-        """Finish streaming and revert to default color"""
+        """Finish streaming and render markdown - REPLACES streamed content"""
         if self._current_stream:
-            # Add current stream as completed line (default color)
-            # Parse markup if present
-            self._lines.append(Text.from_markup(self._current_stream))
+            # Render the streamed content as markdown (replaces the plain text stream)
+            rendered = self._markdown_renderer.render(self._current_stream)
+
+            # IMPORTANT: Replace the stream, don't append it
+            # Clear the current stream and add as rendered markdown
+            stream_content = self._current_stream
             self._current_stream = ""
             self._streaming = False
 
-            # Rebuild display with all lines in default color
+            # Add the rendered markdown to lines
+            self._lines.append(rendered)
+
+            # Rebuild display with all lines
             display_text = Text()
             for line in self._lines:
                 if isinstance(line, Text):
