@@ -1611,6 +1611,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             goal_tracker.record_tool_call(tc.function.name, args, result, sanity_check)
 
                         # Show tool result to user
+                        await asyncio.sleep(0)  # Yield BEFORE writing large result
                         app.write(f"[dim]{result}[/dim]\n")
                         await asyncio.sleep(0)  # CRITICAL: Yield after writing potentially large result
 
@@ -1836,13 +1837,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 except Exception as e:
                                     result = f"Tool execution error: {str(e)}"
 
+                                # Yield BEFORE writing large result
+                                await asyncio.sleep(0)
                                 app.write(f"[dim]{result}[/dim]\n")
                                 await asyncio.sleep(0)  # Yield after result write
     
                                 # Add tool result
                                 tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
                                 session.messages.append(tool_msg)
-    
+                                await asyncio.sleep(0)  # Yield after adding to messages
+
                             # Save and loop to make ANOTHER continuation call AUTOMATICALLY
                             await asyncio.to_thread(session.save)
     
