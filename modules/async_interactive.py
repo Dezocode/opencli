@@ -1492,6 +1492,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if app.should_exit:
                         break
 
+                    # Check for finish_reason and errors
+                    if chunk.choices and session.debug_mode:
+                        finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
+                        if finish_reason:
+                            app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
+
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if not delta:
                         continue
@@ -1519,6 +1525,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                    app.write(f"[dim]🐛 STREAM: Full response length: {len(full_response)} chars[/dim]\n")
 
                 # Check if we have tool calls
                 if tool_calls_dict:
@@ -1727,6 +1734,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                         if app.should_exit:
                             break
+
+                        # Check for finish_reason and errors
+                        if chunk.choices and session.debug_mode:
+                            finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
+                            if finish_reason:
+                                app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
+
                         delta = chunk.choices[0].delta if chunk.choices else None
                         if delta and delta.content:
                             full_response += delta.content
@@ -1736,6 +1750,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     if session.debug_mode:
                         app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                        app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
 
                     # Finish and save continuation
                     if session.debug_mode:
