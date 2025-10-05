@@ -4,7 +4,9 @@ Fully async architecture with Textual TUI integration
 """
 
 import os
+import json
 import asyncio
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from openai import AsyncOpenAI
@@ -17,6 +19,83 @@ except (ImportError, ValueError):
         from frontier_colors import FRONTIER_COLORS
     except ImportError:
         FRONTIER_COLORS = {}
+
+
+# Tool execution functions (from opencli.py)
+def execute_read(file_path):
+    try:
+        with open(file_path, 'r') as f:
+            return f.read()
+    except Exception as e:
+        return f"Error reading {file_path}: {str(e)}"
+
+def execute_write(file_path, content):
+    try:
+        with open(file_path, 'w') as f:
+            f.write(content)
+        return f"✓ Written to {file_path}"
+    except Exception as e:
+        return f"Error writing to {file_path}: {str(e)}"
+
+def execute_edit(file_path, old_string, new_string):
+    try:
+        with open(file_path, 'r') as f:
+            content = f.read()
+
+        if old_string not in content:
+            return f"Error: old_string not found in {file_path}"
+
+        new_content = content.replace(old_string, new_string, 1)
+
+        with open(file_path, 'w') as f:
+            f.write(new_content)
+
+        return f"✓ Edited {file_path}"
+    except Exception as e:
+        return f"Error editing {file_path}: {str(e)}"
+
+def execute_bash(command, description=None):
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        output = result.stdout + result.stderr
+        return output if output else f"✓ Command executed: {command}"
+    except subprocess.TimeoutExpired:
+        return f"Error: Command timed out after 30s"
+    except Exception as e:
+        return f"Error executing command: {str(e)}"
+
+def execute_glob(pattern):
+    from glob import glob
+    files = glob(pattern, recursive=True)
+    return "\n".join(files) if files else f"No files match pattern: {pattern}"
+
+def execute_grep(pattern):
+    try:
+        result = subprocess.run(
+            f'grep -r "{pattern}" .',
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        return result.stdout if result.stdout else f"No matches for: {pattern}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+def execute_tool(name, args, permission_manager=None, current_dir=None):
+    """Execute a tool with permission checking"""
+    # TODO: Add permission manager integration
+
+    tools = {
+        "Read": lambda: execute_read(args["file_path"]),
+        "Write": lambda: execute_write(args["file_path"], args["content"]),
+        "Edit": lambda: execute_edit(args["file_path"], args["old_string"], args["new_string"]),
+        "Bash": lambda: execute_bash(args["command"], args.get("description")),
+        "Glob": lambda: execute_glob(args["pattern"]),
+        "Grep": lambda: execute_grep(args["pattern"])
+    }
+
+    return tools.get(name, lambda: f"Unknown tool: {name}")()
 
 
 def prepare_messages_with_context(messages, config):
@@ -1039,16 +1118,113 @@ async def interactive_async(config, session, initial_prompt=None):
                 )
 
                 full_response = ""
+                tool_calls_dict = {}
+
                 async for chunk in response:
                     if app.should_exit:
                         break
 
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        full_response += delta
-                        # Thread-safe write to UI
-                        app.write(delta, end="")
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not delta:
+                        continue
 
+                    # Handle tool calls
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_calls_dict:
+                                tool_calls_dict[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
+                            if tc.function:
+                                if tc.function.name:
+                                    tool_calls_dict[idx]["name"] = tc.function.name
+                                if tc.function.arguments:
+                                    tool_calls_dict[idx]["arguments"] += tc.function.arguments
+
+                    # Handle content
+                    if delta.content:
+                        full_response += delta.content
+                        # Thread-safe write to UI
+                        app.write(delta.content, end="")
+
+                # Check if we have tool calls
+                if tool_calls_dict:
+                    # Finish any streaming content first
+                    if hasattr(app, 'finish_stream'):
+                        app.finish_stream()
+                    app.write("\n")
+
+                    # Build tool calls list
+                    from types import SimpleNamespace
+                    tool_calls = []
+                    for idx, tc_data in tool_calls_dict.items():
+                        tc_obj = SimpleNamespace(
+                            id=tc_data["id"],
+                            function=SimpleNamespace(name=tc_data["name"], arguments=tc_data["arguments"])
+                        )
+                        tool_calls.append(tc_obj)
+
+                    # Save assistant message with tool calls
+                    session.messages.append({
+                        "role": "assistant",
+                        "tool_calls": [{"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]
+                    })
+
+                    # Execute each tool
+                    for tc in tool_calls:
+                        app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                        args = json.loads(tc.function.arguments)
+                        result = execute_tool(tc.function.name, args)
+
+                        # Show tool result to user
+                        app.write(f"[dim]{result}[/dim]\n")
+
+                        # Add tool result to messages
+                        session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+                    # Save session with tool results
+                    session.save()
+
+                    # Continue conversation - make new API call with tool results
+                    app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
+
+                    # Recursive call to get AI's response to tool results
+                    messages_with_context = prepare_messages_with_context(session.messages, config)
+
+                    response = await client.chat.completions.create(
+                        model=session.model or config["model"],
+                        messages=messages_with_context,
+                        tools=TOOLS,
+                        stream=True
+                    )
+
+                    # Process the continuation response (could have more tool calls)
+                    full_response = ""
+                    async for chunk in response:
+                        if app.should_exit:
+                            break
+                        delta = chunk.choices[0].delta if chunk.choices else None
+                        if delta and delta.content:
+                            full_response += delta.content
+                            app.write(delta.content, end="")
+
+                    # Finish and save continuation
+                    if hasattr(app, 'finish_stream'):
+                        app.finish_stream()
+                    app.write("\n\n")
+
+                    if hasattr(app, 'stop_spinner'):
+                        app.stop_spinner()
+
+                    session.messages.append({
+                        "role": "assistant",
+                        "content": full_response
+                    })
+                    session.save()
+                    app.update_status()
+
+                    return  # Exit after tool continuation
+
+                # No tool calls - regular response
                 # Finish streaming to process markdown FIRST (before adding newlines)
                 if hasattr(app, 'finish_stream'):
                     app.finish_stream()
