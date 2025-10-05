@@ -1886,8 +1886,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 STALL DEBUG: Continuation save COMPLETED[/dim]\n")
                             app.update_status()
-    
-                    break  # Exit the continuation loop
+
+                        break  # Exit the continuation loop
 
                 # End of while loop - all continuation rounds complete
                 if session.debug_mode:
