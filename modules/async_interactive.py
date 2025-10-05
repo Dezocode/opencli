@@ -1889,15 +1889,15 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                         break  # Exit the continuation loop
 
-                # End of while loop - all continuation rounds complete
-                if session.debug_mode:
-                    app.write(f"[dim]🐛 LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
+                    # End of while loop - all continuation rounds complete
+                    if session.debug_mode:
+                        app.write(f"[dim]🐛 LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
 
-                # Warn if safety limit was hit
-                if continuation_round >= max_continuation_rounds:
-                    app.write(f"[yellow]⚠️ Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
+                    # Warn if safety limit was hit
+                    if continuation_round >= max_continuation_rounds:
+                        app.write(f"[yellow]⚠️ Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
 
-                return  # Exit after tool continuation
+                    return  # Exit after tool continuation
 
                 # No tool calls - regular response
                 # Finish streaming to process markdown FIRST (before adding newlines)
