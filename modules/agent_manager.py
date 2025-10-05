@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 try:
+    from tool_call_utils import normalize_tool_call_messages
+except ImportError:  # pragma: no cover - package layout fallback
+    from .tool_call_utils import normalize_tool_call_messages
+
+try:
     from context_builder import ContextBuilder
     HAS_CONTEXT_BUILDER = True
 except ImportError:
@@ -252,30 +257,34 @@ class AgentManager:
         if not agent:
             return messages
 
-        # Check if we already have a system message with context for this session/agent
+        # Always regenerate system message for each API call
+        # DISABLED CACHING - always rebuild to pick up constitution changes
         cache_key = f"{session_id}_{agent_name}" if session_id else agent_name
-        has_system_message = any(m.get('role') == 'system' for m in messages)
 
-        # Only build context if:
-        # 1. No system message exists yet
-        # 2. Context not cached for this session
-        # 3. Agent switched
-        if not has_system_message or cache_key not in self._context_cache:
+        # Always rebuild context (caching disabled for now)
+        if True:  # Was: if cache_key not in self._context_cache:
             if self.context_builder:
-                # Use optimized context builder with caching
+                # Force rebuild to always get fresh constitution
                 compiled_context, was_cached = self.context_builder.build_context(
                     agent_name,
                     agent.system_prompt,
-                    working_dir or os.getcwd()
+                    working_dir or os.getcwd(),
+                    force_rebuild=True  # ALWAYS rebuild - disable caching
                 )
 
                 if was_cached:
                     print(f"\033[2m[Using cached context]\033[0m")
             else:
                 # Fallback to old method
+                cwd = working_dir or os.getcwd()
+                constitution = self.load_constitution()
+
+                # Replace {cwd} placeholder in constitution
+                constitution = constitution.replace('{cwd}', cwd)
+
                 project_context = {
-                    'working_dir': working_dir or os.getcwd(),
-                    'constitution': self.load_constitution()  # Always include constitution
+                    'working_dir': cwd,
+                    'constitution': constitution
                 }
                 agents_md = self.find_agents_md(working_dir)
                 if agents_md:
@@ -286,18 +295,17 @@ class AgentManager:
             # Cache the compiled context for this session
             self._context_cache[cache_key] = compiled_context
 
-            # Build system message
-            system_message = {
-                'role': 'system',
-                'content': self._context_cache[cache_key]
-            }
+        # ALWAYS build fresh system message (even if using cached context)
+        system_message = {
+            'role': 'system',
+            'content': self._context_cache[cache_key]
+        }
 
-            # Remove old system messages and add new one
-            non_system = [m for m in messages if m.get('role') != 'system']
-            all_messages = [system_message] + non_system
-        else:
-            # System message already exists, don't re-inject
-            all_messages = messages
+        # Remove old system messages and add new one
+        non_system = normalize_tool_call_messages(
+            [m for m in messages if m.get('role') != 'system']
+        )
+        all_messages = [system_message] + non_system
 
         # Optimize tool results
         all_messages = self.context_manager.optimize_tool_results(all_messages)
@@ -309,7 +317,9 @@ class AgentManager:
             agent.context_strategy
         )
 
-        return compressed
+        # Apply normalization AGAIN after compression to ensure tool calls are still valid
+        final_normalized = normalize_tool_call_messages(compressed)
+        return final_normalized
 
     def get_agent_tools(self, agent_name: str, base_tools: List[Dict]) -> List[Dict]:
         """Get tools for specific agent (merge with base tools)"""

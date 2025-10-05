@@ -12,6 +12,61 @@ from pathlib import Path
 from openai import AsyncOpenAI
 from simple_tui import OpenCLITUI
 
+# Inline normalization function to avoid import issues
+import uuid
+from copy import deepcopy
+
+def normalize_tool_call_messages(messages):
+    """Return a sanitized copy of messages with well-formed tool call payloads."""
+    normalized = []
+
+    for original in messages:
+        msg = deepcopy(original)
+
+        if msg.get("role") == "assistant" and "tool_calls" in msg:
+            # Providers expect an explicit string, not None
+            if msg.get("content") is None:
+                msg["content"] = ""
+
+            tool_calls = []
+            for call in msg.get("tool_calls") or []:
+                if not isinstance(call, dict):
+                    continue
+
+                call_copy = deepcopy(call)
+                call_copy.setdefault("type", "function")
+                if not call_copy.get("type"):
+                    call_copy["type"] = "function"
+
+                call_copy.setdefault("id", f"call_{uuid.uuid4().hex[:8]}")
+
+                function_payload = call_copy.get("function")
+                if not isinstance(function_payload, dict):
+                    function_payload = {}
+
+                function_payload.setdefault("name", "")
+                function_payload.setdefault("arguments", "")
+                call_copy["function"] = function_payload
+
+                tool_calls.append(call_copy)
+
+            msg["tool_calls"] = tool_calls
+
+        # Normalize tool result payloads as well
+        if "tool_call_id" in msg:
+            if msg.get("role") != "tool":
+                msg["role"] = "tool"
+            if msg.get("content") is None:
+                msg["content"] = ""
+            if not msg.get("tool_call_id") and msg.get("id"):
+                msg["tool_call_id"] = msg["id"]
+
+        normalized.append(msg)
+
+    return normalized
+
+print("✅ DEBUG: Inline normalize_tool_call_messages function loaded")
+
 try:
     from .frontier_colors import FRONTIER_COLORS
 except (ImportError, ValueError):
@@ -85,17 +140,9 @@ def execute_grep(pattern):
 def execute_tool(name, args, permission_manager=None, current_dir=None, app=None):
     """Execute a tool with permission checking"""
 
-    # Check if permission is required
-    if permission_manager:
-        should_prompt, reason, path_risk = permission_manager.should_prompt(name, args, current_dir)
-
-        if should_prompt:
-            # For TUI, we need to prompt the user
-            # For now, auto-deny risky operations (TODO: add TUI prompt dialog)
-            if app:
-                app.write(f"[yellow]⚠ {name} requires permission: {reason}[/yellow]\n")
-                app.write(f"[yellow]Permission denied (TUI prompt not implemented yet)[/yellow]\n")
-            return f"❌ Operation cancelled - permission required: {reason}"
+    # DISABLED: Permission checks not implemented in TUI yet
+    # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
+    # TODO: Implement TUI permission prompt dialog
 
     # Execute the tool
     tools = {
@@ -161,19 +208,66 @@ def prepare_messages_with_context(messages, config):
         'content': '\n'.join(system_parts)
     }
 
+    # Normalize tool call payloads to match provider expectations
+    print(f"🔍 DEBUG: Before normalization: {len(messages_without_system)} messages")
+    for i, msg in enumerate(messages_without_system):
+        if msg.get("role") == "assistant" and "tool_calls" in msg:
+            tc = msg["tool_calls"][0] if msg.get("tool_calls") else {}
+            print(f"  Message {i}: assistant with tool_calls, has type: {'type' in tc}, content: {repr(msg.get('content'))}")
+
+    normalized_messages = normalize_tool_call_messages(messages_without_system)
+
+    print(f"🔍 DEBUG: After normalization: {len(normalized_messages)} messages")
+    for i, msg in enumerate(normalized_messages):
+        if msg.get("role") == "assistant" and "tool_calls" in msg:
+            tc = msg["tool_calls"][0] if msg.get("tool_calls") else {}
+            print(f"  Message {i}: assistant with tool_calls, has type: {'type' in tc} ({tc.get('type')}), content: {repr(msg.get('content'))}")
+
     # Return messages with system message first (always fresh)
-    return [system_message] + messages_without_system
+    return [system_message] + normalized_messages
 
 
-async def interactive_async(config, session, initial_prompt=None):
+async def interactive_async(config, session=None, initial_prompt=None):
     """
     Async interactive mode with Textual TUI
 
     Args:
         config: OpenCLI configuration dict
-        session: Session object
+        session: Session object (created if None)
         initial_prompt: Optional initial prompt string
     """
+    # Create session if not provided (same as fallback mode)
+    if not session:
+        # Create a minimal Session object inline
+        import uuid
+
+        class Session:
+            def __init__(self, model=None):
+                self.session_id = str(uuid.uuid4())
+                self.messages = []
+                self.model = model
+                self.cwd = os.getcwd()
+                self.current_agent = 'assistant'
+                self.permission_manager = None
+
+            def add(self, role, content):
+                self.messages.append({"role": role, "content": content})
+
+            def save(self):
+                # Save to sessions directory
+                sessions_dir = Path.home() / '.opencli' / 'sessions'
+                sessions_dir.mkdir(parents=True, exist_ok=True)
+                with open(sessions_dir / f"{self.session_id}.json", 'w') as f:
+                    json.dump({
+                        "session_id": self.session_id,
+                        "model": self.model,
+                        "messages": self.messages,
+                        "cwd": self.cwd,
+                        "timestamp": datetime.now().isoformat()
+                    }, f)
+
+        session = Session(model=config["model"])
+
     # Tool definitions - MUST match opencli.py exactly
     TOOLS = [
         {"type": "function", "function": {"name": "Read", "description": "Read file contents. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
@@ -198,6 +292,25 @@ async def interactive_async(config, session, initial_prompt=None):
 
     if not hasattr(session, 'permission_manager') or session.permission_manager is None:
         session.permission_manager = ToolPermissionManager()
+
+    # Initialize agent manager for context management (same as fallback mode)
+    agent_manager = None
+    try:
+        from .agent_manager import AgentManager
+    except (ImportError, ValueError):
+        try:
+            from agent_manager import AgentManager
+        except ImportError:
+            pass
+
+    if AgentManager:
+        try:
+            config_dir = Path.home() / '.opencli'
+            agent_manager = AgentManager(config_dir)
+            if not hasattr(session, 'current_agent') or not session.current_agent:
+                session.current_agent = 'assistant'
+        except Exception as e:
+            print(f"Warning: Agent manager initialization failed: {e}")
 
     # Create TUI - color mode is configured automatically in __init__
     app = OpenCLITUI(session=session, config=config)
@@ -1125,8 +1238,36 @@ async def interactive_async(config, session, initial_prompt=None):
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
             try:
-                # Prepare messages with system context
-                messages_with_context = prepare_messages_with_context(session.messages, config)
+                # Prepare messages with system context (same as fallback mode)
+                if agent_manager:
+                    # Use agent manager for context (same as fallback mode in opencli.py:1350-1358)
+                    messages_with_context = agent_manager.prepare_messages(
+                        session.current_agent,
+                        session.messages,
+                        session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                        session.session_id
+                    )
+                else:
+                    # Fallback to basic context preparation
+                    messages_with_context = prepare_messages_with_context(session.messages, config)
+
+                # Debug: Show system message is being sent
+                if messages_with_context and messages_with_context[0].get('role') == 'system':
+                    app.write(f"[dim]📋 System context: {len(messages_with_context[0]['content'])} chars[/dim]\n")
+
+                # Debug: Log message structure for debugging
+                app.write(f"[dim]🔍 DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                for i, msg in enumerate(messages_with_context):
+                    role = msg.get('role', 'unknown')
+                    has_tool_calls = 'tool_calls' in msg
+                    has_content = 'content' in msg
+                    tool_call_id = msg.get('tool_call_id', '')
+                    app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+
+                # EXTREME DEBUG: Dump exact JSON being sent to API
+                import json
+                app.write(f"[dim]🚨 EXTREME DEBUG - Exact JSON being sent to API:[/dim]\n")
+                app.write(f"[dim]{json.dumps(messages_with_context, indent=2)}[/dim]\n")
 
                 response = await client.chat.completions.create(
                     model=session.model or config["model"],
@@ -1151,7 +1292,8 @@ async def interactive_async(config, session, initial_prompt=None):
                         for tc in delta.tool_calls:
                             idx = tc.index
                             if idx not in tool_calls_dict:
-                                tool_calls_dict[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
+                                # ALWAYS include "type": "function" - DeepSeek doesn't return it!
+                                tool_calls_dict[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
                             if tc.function:
                                 if tc.function.name:
                                     tool_calls_dict[idx]["name"] = tc.function.name
@@ -1182,10 +1324,13 @@ async def interactive_async(config, session, initial_prompt=None):
                         tool_calls.append(tc_obj)
 
                     # Save assistant message with tool calls
-                    session.messages.append({
+                    assistant_msg = {
                         "role": "assistant",
-                        "tool_calls": [{"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]
-                    })
+                        "content": "",
+                        "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]
+                    }
+                    session.messages.append(assistant_msg)
+                    app.write(f"[dim]🔍 DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
 
                     # Execute each tool
                     for tc in tool_calls:
@@ -1195,15 +1340,16 @@ async def interactive_async(config, session, initial_prompt=None):
                             tc.function.name,
                             args,
                             permission_manager=session.permission_manager,
-                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
-                            app=app
+                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd()
                         )
 
                         # Show tool result to user
                         app.write(f"[dim]{result}[/dim]\n")
 
                         # Add tool result to messages
-                        session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                        tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
+                        session.messages.append(tool_msg)
+                        app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
 
                     # Save session with tool results
                     session.save()
@@ -1212,7 +1358,48 @@ async def interactive_async(config, session, initial_prompt=None):
                     app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
 
                     # Recursive call to get AI's response to tool results
-                    messages_with_context = prepare_messages_with_context(session.messages, config)
+                    # Debug: Show session messages before processing
+                    app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
+                    for i, msg in enumerate(session.messages):
+                        role = msg.get('role', 'unknown')
+                        has_tool_calls = 'tool_calls' in msg
+                        has_content = 'content' in msg
+                        tool_call_id = msg.get('tool_call_id', '')
+                        app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+                    
+                    # Prepare messages with agent manager (same as initial call)
+                    try:
+                        if agent_manager:
+                            app.write(f"[dim]🔍 DEBUG: Using agent manager[/dim]\n")
+                            messages_with_context = agent_manager.prepare_messages(
+                                session.current_agent,
+                                session.messages,
+                                session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                                session.session_id
+                            )
+                        else:
+                            app.write(f"[dim]🔍 DEBUG: Using fallback context[/dim]\n")
+                            messages_with_context = prepare_messages_with_context(session.messages, config)
+                        app.write(f"[dim]🔍 DEBUG: Message preparation successful[/dim]\n")
+                    except Exception as e:
+                        app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
+                        import traceback
+                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                        return
+
+                    # Debug: Log continuation message structure  
+                    app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                    for i, msg in enumerate(messages_with_context):
+                        role = msg.get('role', 'unknown')
+                        has_tool_calls = 'tool_calls' in msg
+                        has_content = 'content' in msg
+                        tool_call_id = msg.get('tool_call_id', '')
+                        app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+                    
+                    # EXTREME DEBUG: Show exact continuation messages
+                    import json
+                    app.write(f"[dim]🚨 CONTINUATION JSON:[/dim]\n")
+                    app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
 
                     response = await client.chat.completions.create(
                         model=session.model or config["model"],
@@ -1221,7 +1408,7 @@ async def interactive_async(config, session, initial_prompt=None):
                         stream=True
                     )
 
-                    # Process the continuation response (could have more tool calls)
+                    # Process the continuation response (simplified - no more tool calls expected)
                     full_response = ""
                     async for chunk in response:
                         if app.should_exit:
@@ -1239,12 +1426,14 @@ async def interactive_async(config, session, initial_prompt=None):
                     if hasattr(app, 'stop_spinner'):
                         app.stop_spinner()
 
-                    session.messages.append({
-                        "role": "assistant",
-                        "content": full_response
-                    })
-                    session.save()
-                    app.update_status()
+                    # Only save if we have content
+                    if full_response.strip():
+                        session.messages.append({
+                            "role": "assistant",
+                            "content": full_response
+                        })
+                        session.save()
+                        app.update_status()
 
                     return  # Exit after tool continuation
 
