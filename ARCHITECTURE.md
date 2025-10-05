@@ -389,3 +389,365 @@ opencli
 ```
 
 This ensures the AI is prepared and doesn't treat permission prompts as failures.
+
+---
+
+# Production-Ready Long-Running Agent System
+
+## Problem Statement
+Tool calls are freezing the chat UI, preventing users from seeing responses even though tokens are being sent to the API. The agent needs to work smoothly for long hours with highest frontier expectations, maintaining goal awareness and implementing robust error recovery.
+
+## Root Causes Identified
+
+### 1. Fire-and-Forget Async Pattern
+**Location**: `async_interactive.py:1483`
+```python
+asyncio.create_task(stream_ai_response())  # ❌ No error handling, no cancellation
+```
+
+### 2. Blocking Tool Execution
+**Location**: `async_interactive.py:1327-1346`
+- Synchronous tool execution in async event loop
+- No timeout on bash commands (can hang indefinitely)
+- No progress feedback during long operations
+
+### 3. Unbounded Continuation Flow
+**Location**: `async_interactive.py:1350-1437`
+- Recursive API calls without depth limits
+- Can create infinite loops if tools keep triggering
+- No backpressure on tool result sizes
+
+## Production-Ready Architecture
+
+### Phase 1: Streaming Reliability (IMMEDIATE)
+
+#### 1.1 Add Cancellation & Timeout System
+```python
+class StreamManager:
+    def __init__(self, timeout: int = 300):  # 5min default
+        self.timeout = timeout
+        self.cancel_token = asyncio.Event()
+
+    async def stream_with_timeout(self, coro):
+        try:
+            return await asyncio.wait_for(coro, timeout=self.timeout)
+        except asyncio.TimeoutError:
+            self.cancel_token.set()
+            raise StreamTimeoutError(f"Stream exceeded {self.timeout}s")
+```
+
+#### 1.2 Convert Blocking Tools to Async
+```python
+async def execute_bash_async(command, description=None, timeout=30):
+    """Non-blocking bash execution with timeout"""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=timeout
+        )
+        return stdout.decode() + stderr.decode()
+    except asyncio.TimeoutError:
+        proc.kill()
+        return f"⏱ Command timed out after {timeout}s"
+```
+
+#### 1.3 Add Heartbeat System
+```python
+async def heartbeat_monitor(app, interval=2.0):
+    """Detect frozen streams and alert user"""
+    last_activity = time.time()
+
+    while True:
+        await asyncio.sleep(interval)
+        if time.time() - last_activity > 30:
+            app.write("[yellow]⚠ Stream appears frozen. Press Ctrl+C to cancel.[/yellow]\n")
+```
+
+### Phase 2: Spec-Kit Integration (GOAL TRACKING)
+
+#### 2.1 Specification-Driven Commands
+```python
+SPEC_COMMANDS = {
+    '/constitution': 'Load project principles and governance',
+    '/specify': 'Define feature specification',
+    '/plan': 'Generate implementation plan',
+    '/tasks': 'Break down into actionable tasks',
+    '/implement': 'Execute implementation with tracking',
+    '/spec-check': 'Validate against specification'
+}
+```
+
+#### 2.2 Memory Artifact System
+```python
+class SpecMemory:
+    """Persistent goal and context tracking"""
+
+    def __init__(self, project_root: Path):
+        self.memory_dir = project_root / '.specify' / 'memory'
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_constitution(self, content: str):
+        """Save project principles"""
+        (self.memory_dir / 'constitution.md').write_text(content)
+
+    def save_feature_spec(self, feature_name: str, spec: str):
+        """Save feature specification"""
+        (self.memory_dir / f'{feature_name}.spec.md').write_text(spec)
+
+    def get_active_context(self) -> dict:
+        """Load all active specifications into context"""
+        context = {}
+        if (self.memory_dir / 'constitution.md').exists():
+            context['constitution'] = (self.memory_dir / 'constitution.md').read_text()
+
+        for spec_file in self.memory_dir.glob('*.spec.md'):
+            context[spec_file.stem] = spec_file.read_text()
+
+        return context
+```
+
+#### 2.3 Goal Tracking System
+```python
+class GoalTracker:
+    """Track agent goals across long sessions"""
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.current_goal = None
+        self.goal_history = []
+        self.checkpoints = []
+
+    def set_goal(self, goal: str, phase: str = 'planning'):
+        """Set current working goal"""
+        self.current_goal = {
+            'goal': goal,
+            'phase': phase,
+            'started_at': datetime.now().isoformat(),
+            'progress': []
+        }
+        self.goal_history.append(self.current_goal)
+
+    def add_progress(self, action: str, result: str):
+        """Track progress on current goal"""
+        if self.current_goal:
+            self.current_goal['progress'].append({
+                'action': action,
+                'result': result,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    def create_checkpoint(self):
+        """Create recovery checkpoint"""
+        checkpoint = {
+            'goal': self.current_goal,
+            'timestamp': datetime.now().isoformat(),
+            'messages_count': len(session.messages)
+        }
+        self.checkpoints.append(checkpoint)
+        return checkpoint
+```
+
+### Phase 3: Error Recovery & Resilience
+
+#### 3.1 Circuit Breaker for Tool Execution
+```python
+class ToolCircuitBreaker:
+    """Prevent cascading failures in tool execution"""
+
+    def __init__(self, failure_threshold=3, timeout=60):
+        self.failures = 0
+        self.threshold = failure_threshold
+        self.timeout = timeout
+        self.state = 'closed'  # closed, open, half_open
+        self.last_failure = None
+
+    async def execute(self, tool_func, *args, **kwargs):
+        if self.state == 'open':
+            if time.time() - self.last_failure > self.timeout:
+                self.state = 'half_open'
+            else:
+                raise CircuitOpenError("Tool execution circuit is open")
+
+        try:
+            result = await tool_func(*args, **kwargs)
+            if self.state == 'half_open':
+                self.state = 'closed'
+                self.failures = 0
+            return result
+        except Exception as e:
+            self.failures += 1
+            self.last_failure = time.time()
+            if self.failures >= self.threshold:
+                self.state = 'open'
+            raise
+```
+
+#### 3.2 Exponential Backoff for API Calls
+```python
+async def api_call_with_retry(client, **kwargs):
+    """Retry API calls with exponential backoff"""
+    max_retries = 3
+    base_delay = 1.0
+
+    for attempt in range(max_retries):
+        try:
+            return await client.chat.completions.create(**kwargs)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            delay = base_delay * (2 ** attempt)
+            await asyncio.sleep(delay)
+```
+
+### Phase 4: Verbose & Debug Modes
+
+#### 4.1 Multi-Level Logging
+```python
+class VerbosityManager:
+    LEVELS = {
+        'quiet': 0,      # Errors only
+        'normal': 1,     # User-facing messages
+        'verbose': 2,    # API timing, token counts
+        'debug': 3,      # Message structures
+        'trace': 4       # Full execution trace
+    }
+
+    def __init__(self, level='normal'):
+        self.level = self.LEVELS.get(level, 1)
+
+    def log(self, message: str, level: str = 'normal'):
+        if self.LEVELS.get(level, 1) <= self.level:
+            print(message)
+```
+
+#### 4.2 Performance Metrics
+```python
+class PerformanceMonitor:
+    """Track API and tool execution performance"""
+
+    def __init__(self):
+        self.metrics = []
+
+    @contextmanager
+    def measure(self, operation: str):
+        start = time.time()
+        try:
+            yield
+        finally:
+            duration = time.time() - start
+            self.metrics.append({
+                'operation': operation,
+                'duration': duration,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    def get_stats(self) -> dict:
+        if not self.metrics:
+            return {}
+        durations = [m['duration'] for m in self.metrics]
+        return {
+            'total_operations': len(self.metrics),
+            'avg_duration': sum(durations) / len(durations),
+            'max_duration': max(durations),
+            'min_duration': min(durations)
+        }
+```
+
+### Phase 5: Long-Running Workflow Support
+
+#### 5.1 Workflow State Machine
+```python
+class WorkflowStateMachine:
+    """Manage multi-phase long-running workflows"""
+
+    STATES = ['idle', 'planning', 'implementing', 'testing', 'refining', 'complete']
+
+    def __init__(self):
+        self.current_state = 'idle'
+        self.state_history = []
+
+    def transition(self, new_state: str):
+        if new_state not in self.STATES:
+            raise ValueError(f"Invalid state: {new_state}")
+
+        self.state_history.append({
+            'from': self.current_state,
+            'to': new_state,
+            'timestamp': datetime.now().isoformat()
+        })
+        self.current_state = new_state
+
+    def get_phase(self) -> str:
+        """Get current phase for context"""
+        return self.current_state
+```
+
+#### 5.2 Tool Execution Queue
+```python
+class ToolQueue:
+    """Priority queue for tool execution with async support"""
+
+    def __init__(self):
+        self.queue = asyncio.PriorityQueue()
+        self.results = {}
+
+    async def enqueue(self, tool_call, priority=1):
+        await self.queue.put((priority, tool_call))
+
+    async def process(self, executor):
+        """Process tools with progress callbacks"""
+        while not self.queue.empty():
+            priority, tool_call = await self.queue.get()
+
+            # Execute with progress feedback
+            result = await executor(tool_call)
+            self.results[tool_call['id']] = result
+
+    def get_result(self, tool_id: str):
+        return self.results.get(tool_id)
+```
+
+## Implementation Priority
+
+### Immediate (Week 1)
+1. ✅ Fix async streaming with cancellation tokens
+2. ✅ Add timeout wrappers to all API calls
+3. ✅ Convert blocking tools to async
+4. ✅ Implement heartbeat monitoring
+
+### Short-term (Week 2-3)
+1. ⏳ Integrate Spec-Kit commands (/constitution, /specify, /plan)
+2. ⏳ Build memory artifact system
+3. ⏳ Add goal tracking and checkpoints
+4. ⏳ Implement circuit breaker for tools
+
+### Medium-term (Month 1)
+1. 📋 Build workflow state machine
+2. 📋 Add performance monitoring
+3. 📋 Implement tool execution queue
+4. 📋 Create verbose/trace modes
+
+### Long-term (Quarter 1)
+1. 🔮 Multi-agent coordination
+2. 🔮 Distributed tool execution
+3. 🔮 Advanced error recovery with rollback
+4. 🔮 Auto-scaling for high-load scenarios
+
+## Success Metrics
+
+- **Zero UI Freezes**: All operations non-blocking
+- **< 100ms Response Time**: First token to user
+- **99.9% Reliability**: Tool execution success rate
+- **8+ Hour Sessions**: No degradation in long runs
+- **Full Context Retention**: Goals tracked across sessions
+
+## References
+
+- [GitHub Spec-Kit](https://github.com/github/spec-kit) - Specification-driven development
+- [Anthropic Best Practices](https://docs.anthropic.com/en/docs/build-with-claude/best-practices) - Long context handling
+- [AsyncIO Patterns](https://docs.python.org/3/library/asyncio.html) - Production async patterns

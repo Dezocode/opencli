@@ -65,7 +65,7 @@ def normalize_tool_call_messages(messages):
 
     return normalized
 
-print("✅ DEBUG: Inline normalize_tool_call_messages function loaded")
+# Debug function loaded (print statement removed - use /debug to enable debug mode)
 
 try:
     from .frontier_colors import FRONTIER_COLORS
@@ -109,7 +109,29 @@ def execute_edit(file_path, old_string, new_string):
     except Exception as e:
         return f"Error editing {file_path}: {str(e)}"
 
+async def execute_bash_async(command, description=None, timeout=30):
+    """Non-blocking async bash execution"""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            output = stdout.decode() + stderr.decode()
+            return output if output else f"✓ Command executed: {command}"
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return f"⏱ Command timed out after {timeout}s"
+
+    except Exception as e:
+        return f"Error executing command: {str(e)}"
+
 def execute_bash(command, description=None):
+    """Sync wrapper for bash - kept for compatibility"""
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
         output = result.stdout + result.stderr
@@ -124,7 +146,29 @@ def execute_glob(pattern):
     files = glob(pattern, recursive=True)
     return "\n".join(files) if files else f"No files match pattern: {pattern}"
 
+async def execute_grep_async(pattern, timeout=10):
+    """Non-blocking async grep execution"""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            f'grep -r "{pattern}" .',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            output = stdout.decode()
+            return output if output else f"No matches for: {pattern}"
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return f"⏱ Grep timed out after {timeout}s"
+
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 def execute_grep(pattern):
+    """Sync wrapper for grep - kept for compatibility"""
     try:
         result = subprocess.run(
             f'grep -r "{pattern}" .',
@@ -137,8 +181,47 @@ def execute_grep(pattern):
     except Exception as e:
         return f"Error: {str(e)}"
 
+async def execute_tool_async(name, args, permission_manager=None, current_dir=None, app=None):
+    """
+    Execute a tool asynchronously without blocking the event loop
+
+    Uses asyncio.to_thread for file I/O and subprocess for Bash/Grep
+    """
+    # DISABLED: Permission checks not implemented in TUI yet
+    # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
+    # TODO: Implement TUI permission prompt dialog
+
+    try:
+        if name == "Read":
+            # Run file I/O in thread pool to avoid blocking
+            return await asyncio.to_thread(execute_read, args["file_path"])
+
+        elif name == "Write":
+            return await asyncio.to_thread(execute_write, args["file_path"], args["content"])
+
+        elif name == "Edit":
+            return await asyncio.to_thread(execute_edit, args["file_path"], args["old_string"], args["new_string"])
+
+        elif name == "Bash":
+            # Use async subprocess for bash commands
+            return await execute_bash_async(args["command"], args.get("description"))
+
+        elif name == "Glob":
+            # Glob is fast, run in thread pool
+            return await asyncio.to_thread(execute_glob, args["pattern"])
+
+        elif name == "Grep":
+            # Use async subprocess for grep
+            return await execute_grep_async(args["pattern"])
+
+        else:
+            return f"Unknown tool: {name}"
+
+    except Exception as e:
+        return f"Error executing {name}: {str(e)}"
+
 def execute_tool(name, args, permission_manager=None, current_dir=None, app=None):
-    """Execute a tool with permission checking"""
+    """Synchronous tool execution - kept for non-async contexts"""
 
     # DISABLED: Permission checks not implemented in TUI yet
     # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
@@ -157,9 +240,9 @@ def execute_tool(name, args, permission_manager=None, current_dir=None, app=None
     return tools.get(name, lambda: f"Unknown tool: {name}")()
 
 
-def prepare_messages_with_context(messages, config):
+def prepare_messages_with_context(messages, config, spec_memory=None, goal_tracker=None):
     """
-    Prepare messages with system context (constitution + AGENTS.md + cwd)
+    Prepare messages with system context (constitution + AGENTS.md + cwd + GOAL CONTEXT)
     ALWAYS adds fresh system message - removes old one if exists
     """
     # Remove any existing system messages (we'll add a fresh one)
@@ -199,6 +282,17 @@ def prepare_messages_with_context(messages, config):
     if agents_md_content:
         system_parts.append(f"\n## Project Context\n{agents_md_content}")
 
+    # Add Spec-Kit context (constitution, goals, plans)
+    if spec_memory:
+        spec_context = spec_memory.format_context_for_system_message()
+        if spec_context:
+            system_parts.append(f"\n## Spec-Kit Context\n{spec_context}")
+
+    # Add current goal context
+    if goal_tracker and goal_tracker.current_goal:
+        goal_context = goal_tracker.get_context_for_system_message()
+        system_parts.append(goal_context)
+
     # Add working directory
     system_parts.append(f"\nWorking directory: {cwd}")
 
@@ -209,19 +303,7 @@ def prepare_messages_with_context(messages, config):
     }
 
     # Normalize tool call payloads to match provider expectations
-    print(f"🔍 DEBUG: Before normalization: {len(messages_without_system)} messages")
-    for i, msg in enumerate(messages_without_system):
-        if msg.get("role") == "assistant" and "tool_calls" in msg:
-            tc = msg["tool_calls"][0] if msg.get("tool_calls") else {}
-            print(f"  Message {i}: assistant with tool_calls, has type: {'type' in tc}, content: {repr(msg.get('content'))}")
-
     normalized_messages = normalize_tool_call_messages(messages_without_system)
-
-    print(f"🔍 DEBUG: After normalization: {len(normalized_messages)} messages")
-    for i, msg in enumerate(normalized_messages):
-        if msg.get("role") == "assistant" and "tool_calls" in msg:
-            tc = msg["tool_calls"][0] if msg.get("tool_calls") else {}
-            print(f"  Message {i}: assistant with tool_calls, has type: {'type' in tc} ({tc.get('type')}), content: {repr(msg.get('content'))}")
 
     # Return messages with system message first (always fresh)
     return [system_message] + normalized_messages
@@ -249,6 +331,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 self.cwd = os.getcwd()
                 self.current_agent = 'assistant'
                 self.permission_manager = None
+                self.debug_mode = False
 
             def add(self, role, content):
                 self.messages.append({"role": role, "content": content})
@@ -263,6 +346,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         "model": self.model,
                         "messages": self.messages,
                         "cwd": self.cwd,
+                        "debug_mode": getattr(self, 'debug_mode', False),
                         "timestamp": datetime.now().isoformat()
                     }, f)
 
@@ -311,6 +395,32 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 session.current_agent = 'assistant'
         except Exception as e:
             print(f"Warning: Agent manager initialization failed: {e}")
+
+    # Initialize Spec-Kit goal tracking system
+    spec_memory = None
+    goal_tracker = None
+    try:
+        from .spec_memory import SpecMemory
+        from .goal_tracker import GoalTracker
+    except (ImportError, ValueError):
+        try:
+            from spec_memory import SpecMemory
+            from goal_tracker import GoalTracker
+        except ImportError:
+            pass
+
+    if SpecMemory and GoalTracker:
+        try:
+            spec_memory = SpecMemory(project_root=Path(session.cwd if hasattr(session, 'cwd') else os.getcwd()))
+            goal_tracker = GoalTracker(
+                session_id=session.session_id,
+                spec_memory=spec_memory,
+                verbose=getattr(session, 'debug_mode', False)
+            )
+            session.spec_memory = spec_memory
+            session.goal_tracker = goal_tracker
+        except Exception as e:
+            print(f"Warning: Goal tracking initialization failed: {e}")
 
     # Create TUI - color mode is configured automatically in __init__
     app = OpenCLITUI(session=session, config=config)
@@ -1248,33 +1358,48 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         session.session_id
                     )
                 else:
-                    # Fallback to basic context preparation
-                    messages_with_context = prepare_messages_with_context(session.messages, config)
+                    # Fallback to basic context preparation WITH GOAL TRACKING
+                    messages_with_context = prepare_messages_with_context(
+                        session.messages,
+                        config,
+                        spec_memory=spec_memory,
+                        goal_tracker=goal_tracker
+                    )
 
-                # Debug: Show system message is being sent
-                if messages_with_context and messages_with_context[0].get('role') == 'system':
+                # Debug: Show system message is being sent (only in debug mode)
+                if session.debug_mode and messages_with_context and messages_with_context[0].get('role') == 'system':
                     app.write(f"[dim]📋 System context: {len(messages_with_context[0]['content'])} chars[/dim]\n")
 
-                # Debug: Log message structure for debugging
-                app.write(f"[dim]🔍 DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
-                for i, msg in enumerate(messages_with_context):
-                    role = msg.get('role', 'unknown')
-                    has_tool_calls = 'tool_calls' in msg
-                    has_content = 'content' in msg
-                    tool_call_id = msg.get('tool_call_id', '')
-                    app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+                # Debug: Log message structure for debugging (only if debug mode enabled)
+                if session.debug_mode:
+                    app.write(f"[dim]🔍 DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                    for i, msg in enumerate(messages_with_context):
+                        role = msg.get('role', 'unknown')
+                        has_tool_calls = 'tool_calls' in msg
+                        has_content = 'content' in msg
+                        tool_call_id = msg.get('tool_call_id', '')
+                        app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
 
-                # EXTREME DEBUG: Dump exact JSON being sent to API
-                import json
-                app.write(f"[dim]🚨 EXTREME DEBUG - Exact JSON being sent to API:[/dim]\n")
-                app.write(f"[dim]{json.dumps(messages_with_context, indent=2)}[/dim]\n")
+                    # EXTREME DEBUG: Dump exact JSON being sent to API
+                    app.write(f"[dim]🚨 EXTREME DEBUG - Exact JSON being sent to API:[/dim]\n")
+                    app.write(f"[dim]{json.dumps(messages_with_context, indent=2)}[/dim]\n")
 
-                response = await client.chat.completions.create(
-                    model=session.model or config["model"],
-                    messages=messages_with_context,
-                    tools=TOOLS,
-                    stream=True
-                )
+                # Add timeout protection to API call (5 minute default)
+                api_timeout = 300  # 5 minutes
+                try:
+                    response = await asyncio.wait_for(
+                        client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=messages_with_context,
+                            tools=TOOLS,
+                            stream=True
+                        ),
+                        timeout=api_timeout
+                    )
+                except asyncio.TimeoutError:
+                    app.write(f"[red]❌ API request timed out after {api_timeout}s[/red]\n")
+                    app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
+                    return
 
                 full_response = ""
                 tool_calls_dict = {}
@@ -1330,18 +1455,36 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]
                     }
                     session.messages.append(assistant_msg)
-                    app.write(f"[dim]🔍 DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
+                    if session.debug_mode:
+                        app.write(f"[dim]🔍 DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
 
-                    # Execute each tool
+                    # Execute each tool WITH GOAL SANITY VALIDATION (ASYNC - NO BLOCKING!)
                     for tc in tool_calls:
                         app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
                         args = json.loads(tc.function.arguments)
-                        result = execute_tool(
+
+                        # GOAL SANITY CHECK - validate tool call aligns with current goal
+                        sanity_check = (True, "No goal tracker")
+                        if goal_tracker:
+                            sanity_check = goal_tracker.validate_tool_call(tc.function.name, args)
+
+                            # Show sanity check result in verbose/debug mode
+                            if session.debug_mode or not sanity_check[0]:
+                                status = "✅" if sanity_check[0] else "⚠️"
+                                app.write(f"[dim]{status} Goal Check: {sanity_check[1]}[/dim]\n")
+
+                        # Execute tool ASYNCHRONOUSLY - no blocking!
+                        result = await execute_tool_async(
                             tc.function.name,
                             args,
                             permission_manager=session.permission_manager,
-                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
+                            app=app
                         )
+
+                        # Record tool execution in goal tracker
+                        if goal_tracker:
+                            goal_tracker.record_tool_call(tc.function.name, args, result, sanity_check)
 
                         # Show tool result to user
                         app.write(f"[dim]{result}[/dim]\n")
@@ -1349,7 +1492,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         # Add tool result to messages
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
                         session.messages.append(tool_msg)
-                        app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
+                        if session.debug_mode:
+                            app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
 
                     # Save session with tool results
                     session.save()
@@ -1358,19 +1502,21 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     app.write("\n[dim]Continuing with tool results...[/dim]\n\n")
 
                     # Recursive call to get AI's response to tool results
-                    # Debug: Show session messages before processing
-                    app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
-                    for i, msg in enumerate(session.messages):
-                        role = msg.get('role', 'unknown')
-                        has_tool_calls = 'tool_calls' in msg
-                        has_content = 'content' in msg
-                        tool_call_id = msg.get('tool_call_id', '')
-                        app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
+                    # Debug: Show session messages before processing (only if debug mode enabled)
+                    if session.debug_mode:
+                        app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
+                        for i, msg in enumerate(session.messages):
+                            role = msg.get('role', 'unknown')
+                            has_tool_calls = 'tool_calls' in msg
+                            has_content = 'content' in msg
+                            tool_call_id = msg.get('tool_call_id', '')
+                            app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
                     
                     # Prepare messages with agent manager (same as initial call)
                     try:
                         if agent_manager:
-                            app.write(f"[dim]🔍 DEBUG: Using agent manager[/dim]\n")
+                            if session.debug_mode:
+                                app.write(f"[dim]🔍 DEBUG: Using agent manager[/dim]\n")
                             messages_with_context = agent_manager.prepare_messages(
                                 session.current_agent,
                                 session.messages,
@@ -1378,35 +1524,52 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 session.session_id
                             )
                         else:
-                            app.write(f"[dim]🔍 DEBUG: Using fallback context[/dim]\n")
-                            messages_with_context = prepare_messages_with_context(session.messages, config)
-                        app.write(f"[dim]🔍 DEBUG: Message preparation successful[/dim]\n")
+                            if session.debug_mode:
+                                app.write(f"[dim]🔍 DEBUG: Using fallback context[/dim]\n")
+                            messages_with_context = prepare_messages_with_context(
+                                session.messages,
+                                config,
+                                spec_memory=spec_memory,
+                                goal_tracker=goal_tracker
+                            )
+                        if session.debug_mode:
+                            app.write(f"[dim]🔍 DEBUG: Message preparation successful[/dim]\n")
                     except Exception as e:
-                        app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
+                        if session.debug_mode:
+                            app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
                         import traceback
                         app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                         return
 
-                    # Debug: Log continuation message structure  
-                    app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
-                    for i, msg in enumerate(messages_with_context):
-                        role = msg.get('role', 'unknown')
-                        has_tool_calls = 'tool_calls' in msg
-                        has_content = 'content' in msg
-                        tool_call_id = msg.get('tool_call_id', '')
-                        app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
-                    
-                    # EXTREME DEBUG: Show exact continuation messages
-                    import json
-                    app.write(f"[dim]🚨 CONTINUATION JSON:[/dim]\n")
-                    app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
+                    # Debug: Log continuation message structure (only if debug mode enabled)
+                    if session.debug_mode:
+                        app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                        for i, msg in enumerate(messages_with_context):
+                            role = msg.get('role', 'unknown')
+                            has_tool_calls = 'tool_calls' in msg
+                            has_content = 'content' in msg
+                            tool_call_id = msg.get('tool_call_id', '')
+                            app.write(f"[dim]  {i}: {role} (tool_calls:{has_tool_calls}, content:{has_content}, tool_id:{tool_call_id})[/dim]\n")
 
-                    response = await client.chat.completions.create(
-                        model=session.model or config["model"],
-                        messages=messages_with_context,
-                        tools=TOOLS,
-                        stream=True
-                    )
+                        # EXTREME DEBUG: Show exact continuation messages
+                        app.write(f"[dim]🚨 CONTINUATION JSON:[/dim]\n")
+                        app.write(f"[dim]{json.dumps(messages_with_context, indent=1)}[/dim]\n")
+
+                    # Add timeout protection to continuation API call
+                    try:
+                        response = await asyncio.wait_for(
+                            client.chat.completions.create(
+                                model=session.model or config["model"],
+                                messages=messages_with_context,
+                                tools=TOOLS,
+                                stream=True
+                            ),
+                            timeout=api_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        app.write(f"[red]❌ Continuation API request timed out after {api_timeout}s[/red]\n")
+                        app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
+                        return
 
                     # Process the continuation response (simplified - no more tool calls expected)
                     full_response = ""
@@ -1478,10 +1641,30 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 app.update_status()
 
             except Exception as e:
-                app.write(f"[red]Error: {e}[/red]\n")
+                app.write(f"[red]❌ Streaming Error: {e}[/red]\n")
 
-        # Start streaming in background task
-        asyncio.create_task(stream_ai_response())
+                # Show traceback in debug mode
+                if session.debug_mode:
+                    import traceback
+                    tb = traceback.format_exc()
+                    app.write(f"[dim]{tb}[/dim]\n")
+
+                # Stop spinner on error
+                if hasattr(app, 'stop_spinner'):
+                    app.stop_spinner()
+
+        # Start streaming in background task with error handling wrapper
+        async def safe_stream_wrapper():
+            """Wrapper to catch unhandled errors from stream_ai_response"""
+            try:
+                await stream_ai_response()
+            except Exception as e:
+                app.write(f"[red]❌ Fatal streaming error: {e}[/red]\n")
+                if session.debug_mode:
+                    import traceback
+                    app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+
+        asyncio.create_task(safe_stream_wrapper())
 
     # Set message handler
     app.message_handler = handle_user_input

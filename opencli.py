@@ -9,6 +9,8 @@ from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
 
+from modules.tool_call_utils import normalize_tool_call_messages
+
 # Add modules directory to path for imports
 MODULES_DIR = Path.home() / ".opencli" / "modules"
 if MODULES_DIR.exists() and str(MODULES_DIR) not in sys.path:
@@ -66,6 +68,14 @@ try:
     API_SERVER = True
 except ImportError:
     API_SERVER = False
+
+# TUI imports (async interactive mode)
+try:
+    from async_interactive import interactive_async, run_interactive_async
+    ASYNC_TUI = True
+except ImportError as e:
+    ASYNC_TUI = False
+    print(f"\033[2mTUI not available, using fallback mode: {e}\033[0m")
 
 try:
     from prompt_toolkit import PromptSession
@@ -189,6 +199,63 @@ def load_config():
 
 def count_tokens(messages):
     return sum(len(json.dumps(m)) // 4 for m in messages)
+
+def prepare_messages_with_context(messages, config_dir=None):
+    """
+    Prepare messages with system context (constitution + AGENTS.md + cwd)
+    ALWAYS adds fresh system message - removes old one if exists
+    """
+    # Remove any existing system messages (we'll add a fresh one)
+    messages_without_system = [m for m in messages if m.get('role') != 'system']
+
+    # Load essential context
+    config_dir = config_dir or (Path.home() / '.opencli')
+    constitution_file = config_dir / 'agents' / 'system_prompts' / 'base' / 'constitution.md'
+    agents_template = config_dir / 'agents' / 'system_prompts' / 'base' / 'AGENTS.md'
+
+    # Build system message
+    system_parts = []
+
+    # Add constitution (tool guides)
+    if constitution_file.exists():
+        with open(constitution_file) as f:
+            system_parts.append(f.read())
+
+    # Add AGENTS.md (project context or template)
+    # First try to find project-specific AGENTS.md
+    cwd = os.getcwd()
+    current = Path(cwd)
+    agents_md_content = None
+
+    for parent in [current] + list(current.parents):
+        agents_file = parent / 'AGENTS.md'
+        if agents_file.exists():
+            with open(agents_file) as f:
+                agents_md_content = f.read()
+            break
+
+    # If no project AGENTS.md, use template
+    if not agents_md_content and agents_template.exists():
+        with open(agents_template) as f:
+            agents_md_content = f.read()
+
+    if agents_md_content:
+        system_parts.append(f"\n## Project Context\n{agents_md_content}")
+
+    # Add working directory
+    system_parts.append(f"\nWorking directory: {cwd}")
+
+    # Create system message
+    system_message = {
+        'role': 'system',
+        'content': '\n'.join(system_parts)
+    }
+
+    # Ensure assistant tool call payloads are well-formed before sending.
+    normalized_messages = normalize_tool_call_messages(messages_without_system)
+
+    # Return messages with system message first (always fresh)
+    return [system_message] + normalized_messages
 
 # Tool definitions
 # Note: Tools marked [REQUIRES PERMISSION] will prompt user before execution
@@ -331,6 +398,7 @@ class Session:
         self.cwd = os.getcwd()
         self.current_agent = 'assistant'
         self.permission_manager = None
+        self.debug_mode = False  # Debug toggle for verbose output
 
     def add(self, role, content):
         self.messages.append({"role": role, "content": content})
@@ -347,6 +415,7 @@ class Session:
                 "model": self.model,
                 "messages": self.messages,
                 "cwd": self.cwd,
+                "debug_mode": getattr(self, 'debug_mode', False),
                 "timestamp": datetime.now().isoformat()
             }, f)
 
@@ -359,6 +428,19 @@ class Session:
         s = cls(d["session_id"], d.get("model"))
         s.messages = d["messages"]
         s.cwd = d.get("cwd", os.getcwd())
+        s.debug_mode = d.get("debug_mode", False)
+
+        # Fix malformed tool calls from old sessions
+        for msg in s.messages:
+            if msg.get("role") == "assistant" and "tool_calls" in msg:
+                # Ensure content field exists
+                if "content" not in msg:
+                    msg["content"] = None
+                # Fix tool calls format
+                for tc in msg.get("tool_calls", []):
+                    if "type" not in tc:
+                        tc["type"] = "function"
+        
         return s
 
     @classmethod
@@ -429,6 +511,157 @@ def handle_slash_command(cmd, args, session, config, agent_manager=None, command
             print()
         else:
             print("\nNo background tasks\n")
+        return True
+
+    elif cmd == "/debug":
+        # Toggle debug mode
+        if not hasattr(session, 'debug_mode'):
+            session.debug_mode = False
+        session.debug_mode = not session.debug_mode
+        status = "enabled" if session.debug_mode else "disabled"
+        print(f"\n🔧 Debug mode {status}\n")
+        session.save()
+        return True
+
+    # Spec-Kit Commands - Goal-oriented workflows
+    elif cmd == "/goal":
+        """Set or view current goal"""
+        if not hasattr(session, 'goal_tracker') or not session.goal_tracker:
+            print("❌ Goal tracking not available (missing modules)\n")
+            return True
+
+        if args:
+            # Parse goal command: /goal set <description> or /goal <description>
+            parts = args.split(maxsplit=1)
+            if parts[0] == "set" and len(parts) > 1:
+                goal_desc = parts[1]
+            elif parts[0] == "complete":
+                if session.goal_tracker.current_goal:
+                    session.goal_tracker.complete_goal("User marked as complete")
+                    print("✅ Goal marked complete\n")
+                else:
+                    print("⚠️ No active goal to complete\n")
+                return True
+            elif parts[0] == "phase":
+                if len(parts) > 1 and session.goal_tracker.current_goal:
+                    session.goal_tracker.update_phase(parts[1])
+                    print(f"📊 Phase updated to: {parts[1]}\n")
+                else:
+                    print("⚠️ Usage: /goal phase <planning|implementing|testing|refining>\n")
+                return True
+            elif parts[0] == "stats":
+                stats = session.goal_tracker.get_statistics()
+                print("\n📊 Goal Tracking Statistics:\n")
+                print(f"  Total Goals: {stats['total_goals']}")
+                print(f"  Completed: {stats['completed_goals']}")
+                print(f"  Active: {stats['active_goals']}")
+                print(f"  Tool Calls: {stats['total_tool_calls']}")
+                print(f"  Failed Sanity Checks: {stats['failed_sanity_checks']}")
+                print(f"  Sanity Failure Rate: {stats['sanity_failure_rate']:.1%}\n")
+                return True
+            else:
+                goal_desc = args
+
+            # Set new goal
+            goal_id = session.goal_tracker.set_goal(goal_desc, phase='planning')
+            print(f"🎯 Goal set: {goal_desc}")
+            print(f"   ID: {goal_id}")
+            print(f"   Phase: planning\n")
+        else:
+            # Show current goal
+            if session.goal_tracker.current_goal:
+                summary = session.goal_tracker.get_goal_summary()
+                print(f"\n{summary}\n")
+            else:
+                print("⚠️ No active goal\n")
+                print("Usage: /goal <description> or /goal set <description>\n")
+
+        return True
+
+    elif cmd == "/constitution":
+        """Save or view project constitution"""
+        if not hasattr(session, 'spec_memory') or not session.spec_memory:
+            print("❌ Spec memory not available\n")
+            return True
+
+        if args:
+            # Save constitution
+            path = session.spec_memory.save_constitution(args)
+            print(f"📜 Constitution saved to: {path}\n")
+        else:
+            # View constitution
+            constitution = session.spec_memory.load_constitution()
+            if constitution:
+                print(f"\n📜 Project Constitution:\n\n{constitution}\n")
+            else:
+                print("⚠️ No constitution defined\n")
+                print("Usage: /constitution <markdown content>\n")
+
+        return True
+
+    elif cmd == "/specify":
+        """Define feature specification"""
+        if not hasattr(session, 'spec_memory') or not session.spec_memory:
+            print("❌ Spec memory not available\n")
+            return True
+
+        if args:
+            # Parse: /specify <feature-name> <spec>
+            parts = args.split(maxsplit=1)
+            if len(parts) < 2:
+                print("Usage: /specify <feature-name> <specification>\n")
+                return True
+
+            feature_name, spec = parts
+            path = session.spec_memory.save_feature_spec(feature_name, spec)
+            print(f"📝 Spec saved: {feature_name}")
+            print(f"   Path: {path}\n")
+        else:
+            print("Usage: /specify <feature-name> <specification>\n")
+
+        return True
+
+    elif cmd == "/plan":
+        """Create implementation plan"""
+        if not hasattr(session, 'spec_memory') or not session.spec_memory:
+            print("❌ Spec memory not available\n")
+            return True
+
+        if args:
+            print("📋 Plan creation - Use natural language to describe plan to the AI\n")
+            print("   The AI will create a structured plan with phases and tasks.\n")
+            # Return False to let AI process this
+            return False
+        else:
+            # List plans
+            context = session.spec_memory.get_active_context()
+            plans = context.get('plans', [])
+            if plans:
+                print("\n📋 Active Plans:\n")
+                for plan in plans:
+                    print(f"  • {plan.get('name', 'Unnamed')}")
+                    print(f"    Phase: {plan.get('current_phase', 0) + 1}/{len(plan.get('phases', []))}")
+                print()
+            else:
+                print("⚠️ No active plans\n")
+
+        return True
+
+    elif cmd == "/tasks":
+        """View implementation tasks"""
+        if not hasattr(session, 'goal_tracker') or not session.goal_tracker:
+            print("❌ Goal tracking not available\n")
+            return True
+
+        if session.goal_tracker.current_goal:
+            progress = session.goal_tracker.current_goal.get('progress', [])
+            print(f"\n✅ Tasks Completed: {len(progress)}\n")
+            for i, task in enumerate(progress[-10:], 1):  # Last 10
+                print(f"{i}. {task['action']}: {task['result'][:60]}")
+            print()
+        else:
+            print("⚠️ No active goal to show tasks for\n")
+
         return True
 
     elif cmd == "/upgrade":
@@ -1303,9 +1536,9 @@ def interactive(config, session=None, initial=None):
                         session.session_id  # Pass session ID for caching
                     )
                 else:
-                    # Fallback to basic context compaction
+                    # Fallback: use prepare_messages_with_context() to inject constitution + AGENTS.md
                     session.compact_context(config.get("contextWindow", 128000))
-                    prepared_messages = session.messages
+                    prepared_messages = prepare_messages_with_context(session.messages, CONFIG_DIR)
 
                 # Use prepared messages for API call
                 stream = client.chat.completions.create(
@@ -1350,7 +1583,7 @@ def interactive(config, session=None, initial=None):
                         )
                         tool_calls.append(tc_obj)
 
-                    session.messages.append({"role": "assistant", "tool_calls": [{"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
+                    session.messages.append({"role": "assistant", "content": "", "tool_calls": [{"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tool_calls]})
 
                     for tc in tool_calls:
                         print(f"\033[2m⚙ {tc.function.name}\033[0m")
@@ -1389,6 +1622,7 @@ def main():
     p.add_argument('--model')
     p.add_argument('--setup', action='store_true', help='Setup API key')
     p.add_argument('--rollback', action='store_true', help='Emergency rollback to previous version')
+    p.add_argument('--fallback', action='store_true', help='Use fallback mode (disable TUI)')
     p.add_argument('-h', '--help', action='store_true')
     args = p.parse_args()
 
@@ -1416,6 +1650,7 @@ def main():
         print("  --model         Set model")
         print("  --setup         Setup API key")
         print("  --rollback      Emergency rollback (use if CLI is broken)")
+        print("  --fallback      Use fallback mode (disable TUI)")
         return
 
     config = load_config()
@@ -1437,8 +1672,16 @@ def main():
         r = client.chat.completions.create(model=config["model"], messages=[{"role": "user", "content": prompt}])
         print(r.choices[0].message.content)
     else:
+        # Use TUI by default, fallback to old interactive mode if requested or unavailable
+        use_fallback = args.fallback or not ASYNC_TUI
+
         try:
-            interactive(config, session, prompt)
+            if use_fallback:
+                # Fallback mode (old interactive)
+                interactive(config, session, prompt)
+            else:
+                # TUI mode (async interactive with Textual)
+                run_interactive_async(config, session, prompt)
         finally:
             # Cleanup: Unregister session on exit
             if API_SERVER and session:
