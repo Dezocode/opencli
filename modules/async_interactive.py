@@ -1718,8 +1718,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
                         return
 
-                    # Process the continuation response (simplified - no more tool calls expected)
+                    # Process the continuation response - CAN have more tool calls!
                     full_response = ""
+                    tool_calls_dict_continuation = {}
                     chunk_count = 0
                     last_chunk_time = asyncio.get_event_loop().time()
 
@@ -1742,7 +1743,23 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
 
                         delta = chunk.choices[0].delta if chunk.choices else None
-                        if delta and delta.content:
+                        if not delta:
+                            continue
+
+                        # Handle tool calls in continuation too!
+                        if delta.tool_calls:
+                            for tc in delta.tool_calls:
+                                idx = tc.index
+                                if idx not in tool_calls_dict_continuation:
+                                    tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
+                                if tc.function:
+                                    if tc.function.name:
+                                        tool_calls_dict_continuation[idx]["name"] = tc.function.name
+                                    if tc.function.arguments:
+                                        tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
+
+                        # Handle content
+                        if delta.content:
                             full_response += delta.content
                             app.write(delta.content, end="")
                             # Yield to event loop after writing
@@ -1751,8 +1768,27 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                         app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
+                        app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
 
-                    # Finish and save continuation
+                    # Check if continuation has MORE tool calls
+                    if tool_calls_dict_continuation:
+                        app.write("\n[yellow]⚠️  API wants to call MORE tools - this will cause infinite loops![/yellow]\n")
+                        app.write("[yellow]For now, stopping here. This needs recursive tool call handling.[/yellow]\n\n")
+
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 BUG: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
+                            for idx, tc_data in tool_calls_dict_continuation.items():
+                                app.write(f"[dim]  Tool #{idx}: {tc_data['name']}[/dim]\n")
+
+                        # For now, just save what we have and warn
+                        if full_response.strip():
+                            session.messages.append({
+                                "role": "assistant",
+                                "content": full_response
+                            })
+                        return
+
+                    # Finish and save continuation (text response only)
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
                     if hasattr(app, 'finish_stream'):
