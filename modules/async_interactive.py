@@ -1611,8 +1611,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             goal_tracker.record_tool_call(tc.function.name, args, result, sanity_check)
 
                         # Show tool result to user
+                        result_size = len(str(result))
+                        app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
                         await asyncio.sleep(0)  # Yield BEFORE writing large result
-                        app.write(f"[dim]{result}[/dim]\n")
+
+                        # Truncate extremely large results
+                        if result_size > 50000:
+                            app.write(f"[yellow]⚠️ Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
+                            result_display = str(result)[:50000] + f"\n\n... [TRUNCATED {result_size - 50000:,} chars]"
+                        else:
+                            result_display = result
+
+                        app.write(f"[dim]{result_display}[/dim]\n")
                         await asyncio.sleep(0)  # CRITICAL: Yield after writing potentially large result
 
                         # Add tool result to messages
@@ -1837,9 +1847,19 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 except Exception as e:
                                     result = f"Tool execution error: {str(e)}"
 
-                                # Yield BEFORE writing large result
-                                await asyncio.sleep(0)
-                                app.write(f"[dim]{result}[/dim]\n")
+                                # Show result size and truncate if needed
+                                result_size = len(str(result))
+                                app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
+                                await asyncio.sleep(0)  # Yield BEFORE writing large result
+
+                                # Truncate extremely large results
+                                if result_size > 50000:
+                                    app.write(f"[yellow]⚠️ Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
+                                    result_display = str(result)[:50000] + f"\n\n... [TRUNCATED {result_size - 50000:,} chars]"
+                                else:
+                                    result_display = result
+
+                                app.write(f"[dim]{result_display}[/dim]\n")
                                 await asyncio.sleep(0)  # Yield after result write
     
                                 # Add tool result
