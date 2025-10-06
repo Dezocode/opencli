@@ -579,6 +579,15 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_key(self, event) -> None:
         """Handle key presses for history navigation and permission prompts"""
+        # ESC - Cancel streaming API call
+        if event.key == "escape":
+            if hasattr(self, '_streaming_task') and self._streaming_task and not self._streaming_task.done():
+                self._streaming_task.cancel()
+                self.write("[yellow]⚠️  API call interrupted by user (ESC)[/yellow]\n")
+                event.prevent_default()
+                event.stop()
+                return
+
         # Check if there's an active permission prompt
         if hasattr(self, 'permission_handler') and self.permission_handler:
             # Check if we have an active permission prompt

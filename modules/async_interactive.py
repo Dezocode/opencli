@@ -2398,7 +2398,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # GUARANTEED UI restoration
                 restore_ui_state(f"Fatal streaming error: {e}")
 
-        asyncio.create_task(safe_stream_wrapper())
+        # Store the streaming task so it can be cancelled with ESC
+        app._streaming_task = asyncio.create_task(safe_stream_wrapper())
 
     # Set message handler
     app.message_handler = handle_user_input
