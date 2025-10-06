@@ -77,6 +77,12 @@ This will:
 - Set up configuration directories
 - Configure your API key interactively
 
+📖 **New to OpenCLI?** See **[SETUP.md](SETUP.md)** for complete setup guide including:
+- How to get API keys from OpenRouter
+- Model selection with `/model` command
+- GitHub CLI secure authentication
+- Troubleshooting and best practices
+
 ### Manual Install
 
 ```bash
