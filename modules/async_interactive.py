@@ -258,6 +258,10 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
     """
     debug_mode = hasattr(app, 'session') and hasattr(app.session, 'debug_mode') and app.session.debug_mode if app else False
 
+    # ALWAYS log tool execution entry
+    if app:
+        app.write(f"[cyan]🔧 TOOL EXEC: {name} (permission_manager: {permission_manager is not None})[/cyan]\n")
+
     # Check permissions if handler is available
     if permission_manager:
         from modules.async_permissions import get_global_handler
@@ -290,6 +294,10 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
         else:
             if app:
                 app.write(f"[yellow]⚠️ No permission handler - tool {name} executing without check[/yellow]\n")
+    else:
+        # No permission manager - log this critical issue
+        if app:
+            app.write(f"[red]❌ CRITICAL: No permission_manager for {name} - executing without safety checks![/red]\n")
 
     try:
         if debug_mode and app:
