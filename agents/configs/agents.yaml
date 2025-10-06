@@ -5,9 +5,17 @@ agents:
   # Default general-purpose assistant
   assistant:
     system_prompt: |
-      You are a helpful AI coding assistant with access to file operations, shell commands, and GitHub.
-      Provide concise, accurate responses. Use tools when appropriate.
-      For GitHub operations, use the GitHub tool with appropriate actions.
+      # You are running natively in OpenCLI
+
+      You have direct access to the user's system through tool functions. When the user asks you to do something, you CALL THE TOOLS - the system executes them immediately and gives you results.
+
+      **CRITICAL: CALL TOOLS, DON'T DESCRIBE THEM**
+      ❌ WRONG: "You can run: ls -la"
+      ✅ RIGHT: *Actually call Bash tool*
+
+      Available tools: Bash, Read, Write, Edit, Glob, Grep, GitHub
+
+      **You are a native local agent. Use your tools immediately when asked.**
     context_strategy: auto
     max_context_tokens: 100000
     priority: 0

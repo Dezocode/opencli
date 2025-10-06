@@ -44,10 +44,17 @@ class AsyncPermissionHandler:
             tool_name, args, current_dir
         )
 
+        # Debug logging
+        if self.app:
+            self.app.write(f"[dim]🔒 should_prompt({tool_name}): {should_prompt}, reason: {reason}, risk: {risk_level.value}[/dim]\n")
+
         if not should_prompt:
             return True, reason
 
         # Need to prompt user - show permission UI
+        if self.app:
+            self.app.write(f"[yellow]🔒 Showing permission prompt for {tool_name}...[/yellow]\n")
+
         return await self._show_permission_prompt(tool_name, args, risk_level, current_dir)
 
     async def _show_permission_prompt(

@@ -263,21 +263,33 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
         from modules.async_permissions import get_global_handler
 
         handler = get_global_handler()
+
+        # Always log permission check attempt
+        if app:
+            app.write(f"[dim]🔒 Permission check for {name} (handler: {handler is not None})[/dim]\n")
+
         if handler:
             try:
                 allowed, reason = await handler.check_and_prompt(name, args, current_dir)
 
-                if debug_mode and app:
-                    app.write(f"[dim]🔒 PERMISSION: {name} - {reason} (allowed: {allowed})[/dim]\n")
+                # Always show permission result
+                if app:
+                    status = "✅ ALLOWED" if allowed else "⛔ DENIED"
+                    app.write(f"[dim]🔒 {status}: {name} - {reason}[/dim]\n")
 
                 if not allowed:
                     return f"⛔ Permission denied: {reason}"
 
             except Exception as e:
-                if debug_mode and app:
-                    app.write(f"[dim]🔒 PERMISSION ERROR: {str(e)}[/dim]\n")
-                # On permission check error, log but continue (fail open for now)
-                pass
+                if app:
+                    app.write(f"[red]🔒 PERMISSION ERROR: {str(e)}[/red]\n")
+                    import traceback
+                    app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                # On permission check error, deny by default for safety
+                return f"⛔ Permission check failed: {str(e)}"
+        else:
+            if app:
+                app.write(f"[yellow]⚠️ No permission handler - tool {name} executing without check[/yellow]\n")
 
     try:
         if debug_mode and app:
