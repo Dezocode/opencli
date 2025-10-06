@@ -7,6 +7,7 @@ import psutil
 import threading
 import time
 import sys
+import traceback
 from collections import deque
 from datetime import datetime
 
@@ -25,6 +26,7 @@ class PerformanceMonitor:
         self.memory_mb = 0.0
         self.thread_count = 0
         self.hotspot_function = "idle"
+        self.hotspot_location = ""  # file:line of hotspot
         self.tokens_per_sec = 0.0
 
         # Token tracking for streaming performance
@@ -33,6 +35,9 @@ class PerformanceMonitor:
 
         # CPU history for trend detection
         self.cpu_history = deque(maxlen=60)  # Last 60 seconds
+
+        # CPU spike logging
+        self.cpu_spikes = deque(maxlen=100)  # Last 100 spikes
 
     def start(self):
         """Start background monitoring thread"""
@@ -52,12 +57,21 @@ class PerformanceMonitor:
             self.monitor_thread.join(timeout=2)
 
     def _monitor_loop(self):
-        """Background thread that updates metrics every second"""
+        """Background thread - LIGHTWEIGHT metrics only"""
         while not self.stop_flag.is_set():
             try:
-                # Update CPU (1 second interval for accuracy)
-                self.cpu_percent = self.process.cpu_percent(interval=1)
+                # Update CPU (2 second interval to reduce overhead)
+                self.cpu_percent = self.process.cpu_percent(interval=2)
                 self.cpu_history.append(self.cpu_percent)
+
+                # Log CPU spikes (>11%)
+                if self.cpu_percent > 11:
+                    spike_info = {
+                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        'cpu': self.cpu_percent,
+                        'location': ""  # Don't profile - too expensive
+                    }
+                    self.cpu_spikes.append(spike_info)
 
                 # Update memory
                 mem_info = self.process.memory_info()
@@ -69,8 +83,17 @@ class PerformanceMonitor:
                 # Calculate tokens/sec from recent history
                 self._calculate_token_rate()
 
-                # Detect hotspot (simplified - checks thread names)
-                self._detect_hotspot()
+                # NO PROFILING - it's too expensive and causes the problem!
+                # Just show generic status
+                if self.cpu_percent > 50:
+                    self.hotspot_function = "high_load"
+                    self.hotspot_location = ""
+                elif self.cpu_percent > 11:
+                    self.hotspot_function = "elevated"
+                    self.hotspot_location = ""
+                else:
+                    self.hotspot_function = "idle"
+                    self.hotspot_location = ""
 
             except Exception as e:
                 # Don't crash monitor on errors
@@ -96,24 +119,53 @@ class PerformanceMonitor:
             self.tokens_per_sec = 0.0
 
     def _detect_hotspot(self):
-        """Detect which component is using most CPU (simplified)"""
-        # This is a simplified version - in production would use profiling
+        """AGGRESSIVE thread profiling - ALL threads, FULL stacks, ALL files"""
         try:
-            threads = self.process.threads()
-            if len(threads) > 1:
-                # Multiple threads - likely async operations
-                if self.cpu_percent > 50:
-                    self.hotspot_function = "async_write"  # Common bottleneck
-                elif self.cpu_percent > 30:
-                    self.hotspot_function = "markdown_render"
-                elif self.tokens_per_sec < 10 and self.tokens_per_sec > 0:
-                    self.hotspot_function = "slow_streaming"
-                else:
-                    self.hotspot_function = "normal"
-            else:
-                self.hotspot_function = "idle"
-        except:
-            self.hotspot_function = "unknown"
+            # Get ALL thread frames
+            frames = sys._current_frames()
+
+            # Profile EVERY thread with FULL stack traces
+            candidates = []
+
+            for thread_id, frame in frames.items():
+                try:
+                    # FULL stack trace - NO LIMIT
+                    # We need to see EVERYTHING to fix the performance issue
+                    stack = traceback.extract_stack(frame)
+                except:
+                    continue
+
+                # Check ALL frames in stack
+                for s in stack:
+                    filename = s.filename.split('/')[-1]
+                    location = f"{filename}:{s.lineno}"
+                    function = s.name
+
+                    # Priority 1: OpenCLI code
+                    if '/opencli/' in s.filename or '/.opencli/' in s.filename:
+                        candidates.append((1, function, location, s.filename))
+                    # Priority 2: Python stdlib
+                    elif '/lib/python' in s.filename or 'site-packages' in s.filename:
+                        candidates.append((2, function, location, s.filename))
+                    # Priority 3: Everything else
+                    elif s.filename != '<string>':
+                        candidates.append((3, function, location, s.filename))
+
+            # Pick highest priority candidate (lowest number = most relevant)
+            if candidates:
+                candidates.sort(key=lambda x: x[0])
+                _, function, location, full_path = candidates[0]
+                self.hotspot_function = function
+                self.hotspot_location = location
+                return
+
+            # Fallback: no frames found
+            self.hotspot_function = f"no_code_found"
+            self.hotspot_location = f"threads:{len(frames)}"
+
+        except Exception as e:
+            self.hotspot_function = f"profiler_error"
+            self.hotspot_location = f"{str(e)[:25]}"
 
     def record_token(self):
         """Call this when a token is received/displayed"""
@@ -143,51 +195,56 @@ class PerformanceMonitor:
         if not self.enabled:
             return ""
 
-        # Color based on CPU usage
-        if self.cpu_percent > 80:
-            cpu_color = "red"
-            indicator = "🔴"
-        elif self.cpu_percent > 50:
-            cpu_color = "yellow"
-            indicator = "🟡"
+        # Frontier colors (subtle like top statusline)
+        # Color based on CPU usage - using frontier palette
+        if self.cpu_percent > 50:
+            cpu_color = "#E27878"  # Frontier red (subtle)
+            indicator = "⏺"
+        elif self.cpu_percent > 11:
+            cpu_color = "#E2A478"  # Frontier orange (subtle)
+            indicator = "⏺"
         else:
-            cpu_color = "green"
-            indicator = "🟢"
+            cpu_color = "#6B9E78"  # Frontier green (subtle)
+            indicator = "⏺"
 
         # Trend arrow
         trend = self.get_cpu_trend()
         if trend == "rising":
-            trend_arrow = "↗️"
+            trend_arrow = "↗"
         elif trend == "falling":
-            trend_arrow = "↘️"
+            trend_arrow = "↘"
         else:
             trend_arrow = "→"
 
-        # Token rate color
+        # Token rate color (frontier palette)
         if self.tokens_per_sec < 5 and self.tokens_per_sec > 0:
-            token_color = "red"
+            token_color = "#E27878"  # Frontier red
         elif self.tokens_per_sec < 15:
-            token_color = "yellow"
+            token_color = "#E2A478"  # Frontier orange
         else:
-            token_color = "green"
+            token_color = "#6B9E78"  # Frontier green
 
-        # Build status line
+        # Build status line with dim style like top bar
+        dim_color = "#5C6773"  # Frontier gray (dim)
         parts = [
-            f"{indicator}",
-            f"CPU: [{cpu_color}]{self.cpu_percent:.1f}%[/{cpu_color}] {trend_arrow}",
-            f"MEM: {self.memory_mb:.0f}MB",
-            f"Threads: {self.thread_count}",
+            f"[{dim_color}]{indicator}[/{dim_color}]",
+            f"[{dim_color}]CPU:[/{dim_color}] [{cpu_color}]{self.cpu_percent:.1f}%[/{cpu_color}] [{dim_color}]{trend_arrow}[/{dim_color}]",
+            f"[{dim_color}]MEM:[/{dim_color}] [{cpu_color}]{self.memory_mb:.0f}MB[/{cpu_color}]",
+            f"[{dim_color}]Threads:[/{dim_color}] [{cpu_color}]{self.thread_count}[/{cpu_color}]",
         ]
 
         # Add token rate if streaming
         if self.tokens_per_sec > 0:
-            parts.append(f"Speed: [{token_color}]{self.tokens_per_sec:.1f} tok/s[/{token_color}]")
+            parts.append(f"[{dim_color}]Speed:[/{dim_color}] [{token_color}]{self.tokens_per_sec:.1f} tok/s[/{token_color}]")
 
-        # Add hotspot if significant
-        if self.hotspot_function not in ["idle", "normal", "unknown"]:
-            parts.append(f"Bottleneck: [red]{self.hotspot_function}[/red]")
+        # ALWAYS show hotspot if available (even at low CPU for transparency)
+        if self.hotspot_location:
+            parts.append(f"[{dim_color}]Hotspot:[/{dim_color}] [#E27878]{self.hotspot_location}[/#E27878]")
+        elif self.cpu_percent > 11:
+            # Show function even if no location
+            parts.append(f"[{dim_color}]Running:[/{dim_color}] [{cpu_color}]{self.hotspot_function}[/{cpu_color}]")
 
-        return " | ".join(parts)
+        return f" [{dim_color}]│[/{dim_color}] ".join(parts)
 
     def get_detailed_report(self):
         """Generate detailed performance report"""
@@ -214,6 +271,26 @@ class PerformanceMonitor:
         lines.extend([
             "",
             f"Current Bottleneck: {self.hotspot_function}",
+        ])
+
+        if self.hotspot_location:
+            lines.append(f"Hotspot Location: {self.hotspot_location}")
+
+        # CPU Spike Log
+        lines.extend([
+            "",
+            "🔥 CPU Spikes (>11%):",
+        ])
+
+        if self.cpu_spikes:
+            # Show last 20 spikes
+            for spike in list(self.cpu_spikes)[-20:]:
+                location_str = f" at {spike['location']}" if spike['location'] else ""
+                lines.append(f"  {spike['timestamp']} - {spike['cpu']:.1f}%{location_str}")
+        else:
+            lines.append("  No spikes detected")
+
+        lines.extend([
             "",
             "💡 Optimization Tips:",
         ])
@@ -228,7 +305,7 @@ class PerformanceMonitor:
         if self.memory_mb > 500:
             lines.append("  • High memory usage - check for large result caching")
 
-        if self.cpu_percent < 30 and self.tokens_per_sec > 20:
+        if self.cpu_percent < 11 and self.tokens_per_sec > 20:
             lines.append("  • ✅ Performance is optimal!")
 
         lines.append("")

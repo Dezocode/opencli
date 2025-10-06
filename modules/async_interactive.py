@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from openai import AsyncOpenAI
 from simple_tui import OpenCLITUI
+from stream_buffer import StreamBuffer, BufferStatusDisplay
 
 # Inline normalization function to avoid import issues
 import uuid
@@ -21,10 +22,51 @@ from copy import deepcopy
 
 # CRITICAL: Async wrapper for app.write() to prevent UI blocking
 async def async_write(app, text, end="\n"):
-    """Write to app in a thread to prevent blocking UI"""
-    def _write():
-        app.write(text, end=end)
-    await asyncio.to_thread(_write)
+    """Write to app - direct queue + ALWAYS yield for responsiveness"""
+    # app.write() already queues writes in background thread (simple_tui.py:756)
+    # Call directly - no extra threading needed
+    app.write(text, end=end)
+
+    # CRITICAL: ALWAYS yield to keep UI responsive during fast streaming
+    # The queue batching (simple_tui.py:660) handles write efficiency
+    # This yield ensures UI can update between chunks
+    await asyncio.sleep(0)
+
+
+async def write_markdown_response(app, markdown_text):
+    """Write a complete markdown response (replaces plain text streaming)"""
+    # Get the content widget and use its markdown renderer
+    content = app._resolve_content_widget()
+    if content and hasattr(content, '_markdown_renderer'):
+        # Render markdown ONCE (not incrementally)
+        rendered = content._markdown_renderer.render(markdown_text)
+
+        # Add to content display
+        if hasattr(content, '_lines'):
+            content._lines.append(rendered)
+
+            # Rebuild display with all lines
+            from rich.text import Text
+            display_text = Text()
+            for line in content._lines:
+                if isinstance(line, Text):
+                    display_text.append_text(line)
+                else:
+                    display_text.append(str(line))
+
+                # Add newline if not present
+                if isinstance(line, Text):
+                    if not line.plain.endswith("\n"):
+                        display_text.append("\n")
+                elif not line.endswith("\n"):
+                    display_text.append("\n")
+
+            content.update(display_text)
+    else:
+        # Fallback: write as plain text
+        await async_write(app, markdown_text)
+
+    await asyncio.sleep(0)  # Yield for UI update
 
 def normalize_tool_call_messages(messages):
     """Return a sanitized copy of messages with well-formed tool call payloads."""
@@ -692,20 +734,30 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write("[dim]Markdown rendering restored\n\n")
                     return
 
-                # Toggle monitoring
-                if perf_monitor.enabled:
-                    perf_monitor.stop()
-                    app.write("[yellow]📊 Performance monitoring disabled[/yellow]\n\n")
-                else:
-                    perf_monitor.start()
-                    app.write("[green]📊 Performance monitoring enabled[/green]\n\n")
-                    app.write("[dim]Statusline will appear beneath prompt showing:\n")
-                    app.write("  • 🟢 CPU usage and trend\n")
-                    app.write("  • 💾 Memory usage\n")
-                    app.write("  • 🧵 Thread count\n")
-                    app.write("  • ⚡ Token streaming speed\n")
-                    app.write("  • 🔴 Current bottlenecks\n\n")
-                    app.write("Use [cyan]/performance report[/cyan] for detailed analysis\n\n")
+                # Toggle monitoring via statusline widget
+                try:
+                    from .simple_tui import PerformanceStatusLine
+                except (ImportError, ValueError):
+                    from simple_tui import PerformanceStatusLine
+
+                try:
+                    perf_statusline = app.query_one(PerformanceStatusLine)
+                    is_enabled = perf_statusline.toggle()
+
+                    if is_enabled:
+                        app.write("[green]📊 Performance monitoring enabled[/green]\n\n")
+                        app.write("[dim]Live statusline active beneath prompt showing:\n")
+                        app.write("  • 🟢 CPU usage and trend (↗️↘️→)\n")
+                        app.write("  • 💾 Memory usage (MB)\n")
+                        app.write("  • 🧵 Thread count\n")
+                        app.write("  • ⚡ Token streaming speed (tok/s)\n")
+                        app.write("  • 🔴 Current bottlenecks (if any)\n\n")
+                        app.write("Use [cyan]/performance report[/cyan] for detailed analysis\n")
+                        app.write("Use [cyan]/performance fast[/cyan] to toggle fast mode\n\n")
+                    else:
+                        app.write("[yellow]📊 Performance monitoring disabled[/yellow]\n\n")
+                except Exception as e:
+                    app.write(f"[red]Error: Could not toggle performance monitor: {e}[/red]\n\n")
 
                 return
 
@@ -1565,7 +1617,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 chunk_count = 0
                 last_chunk_time = asyncio.get_event_loop().time()
 
+                # Create stream buffer and status display
+                stream_buffer = StreamBuffer(chars_per_batch=20, batch_delay_ms=50)
+                status_display = BufferStatusDisplay(app, stream_buffer)
+
+                # Start buffer and status animation
+                stream_buffer.start()
+                await status_display.start()
+
                 async for chunk in response:
+                    # CRITICAL: Yield at start of each chunk to keep UI responsive
+                    await asyncio.sleep(0)
+
                     chunk_count += 1
                     current_time = asyncio.get_event_loop().time()
 
@@ -1575,6 +1638,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         last_chunk_time = current_time
 
                     if app.should_exit:
+                        stream_buffer.interrupt()
                         break
 
                     # Check for finish_reason and errors
@@ -1603,22 +1667,22 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Handle content
                     if delta.content:
                         full_response += delta.content
+                        # Buffer the content instead of writing immediately
+                        await stream_buffer.add_chunk(delta.content)
 
-                        # Record token for performance monitoring
-                        try:
-                            from .performance_monitor import get_monitor
-                            monitor = get_monitor()
-                            if monitor.enabled:
-                                monitor.record_token()
-                        except:
-                            pass
-
-                        # CRITICAL: Write in thread to prevent blocking UI
-                        await async_write(app, delta.content, end="")
+                # Finish receiving and stop status
+                stream_buffer.finish_receiving()
+                await status_display.stop()
+                status_display.write_final_status()
 
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                     app.write(f"[dim]🐛 STREAM: Full response length: {len(full_response)} chars[/dim]\n")
+
+                # Render markdown ONCE from complete response (no incremental rendering)
+                if full_response and not tool_calls_dict:
+                    await write_markdown_response(app, full_response)
+                    app.write("\n")
 
                 # Check if we have tool calls
                 if tool_calls_dict:
@@ -1626,7 +1690,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
                     if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
-                    app.finish_stream()
+                        app.finish_stream()
                     if session.debug_mode:
                         app.write(f"[dim]🐛 POST-STREAM: finish_stream done (tool path)[/dim]\n")
                     app.write("\n")
@@ -1849,15 +1913,38 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
                                 restore_ui_state()
                                 return
-        
+                            except Exception as api_error:
+                                # CRITICAL: Catch ALL API errors (422, network, etc.)
+                                app.write(f"\n[red]❌ API Error (continuation round {continuation_round}):[/red]\n")
+                                app.write(f"[red]{str(api_error)}[/red]\n\n")
+
+                                if session.debug_mode:
+                                    import traceback
+                                    app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+
+                                app.write("[yellow]⚠️ API rejected the tool results. Check message format.[/yellow]\n")
+                                restore_ui_state()
+                                return
+
                             # Process the continuation response - CAN have more tool calls!
                             full_response = ""
                             tool_calls_dict_continuation = {}
                             finish_reason_continuation = None
                             chunk_count = 0
                             last_chunk_time = asyncio.get_event_loop().time()
-        
+
+                            # Create stream buffer and status display for continuation
+                            stream_buffer_cont = StreamBuffer(chars_per_batch=20, batch_delay_ms=50)
+                            status_display_cont = BufferStatusDisplay(app, stream_buffer_cont)
+
+                            # Start buffer and status animation
+                            stream_buffer_cont.start()
+                            await status_display_cont.start()
+
                             async for chunk in response:
+                                # CRITICAL: Yield at start of each chunk to keep UI responsive
+                                await asyncio.sleep(0)
+
                                 try:
                                     chunk_count += 1
                                     current_time = asyncio.get_event_loop().time()
@@ -1868,6 +1955,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         last_chunk_time = current_time
 
                                     if app.should_exit:
+                                        stream_buffer_cont.interrupt()
                                         break
 
                                     # Capture finish_reason (CRITICAL for knowing when to stop!)
@@ -1879,7 +1967,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     delta = chunk.choices[0].delta if chunk.choices else None
                                     if not delta:
                                         continue
-        
+
                                     # Handle tool calls in continuation too!
                                     if delta.tool_calls:
                                         for tc in delta.tool_calls:
@@ -1891,22 +1979,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                                     tool_calls_dict_continuation[idx]["name"] = tc.function.name
                                                 if tc.function.arguments:
                                                     tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
-            
-                                        # Handle content
-                                        if delta.content:
-                                            full_response += delta.content
 
-                                            # Record token for performance monitoring
-                                            try:
-                                                from .performance_monitor import get_monitor
-                                                monitor = get_monitor()
-                                                if monitor.enabled:
-                                                    monitor.record_token()
-                                            except:
-                                                pass
-
-                                            # CRITICAL: Write in thread to prevent blocking UI
-                                            await async_write(app, delta.content, end="")
+                                    # Handle content
+                                    if delta.content:
+                                        full_response += delta.content
+                                        # Buffer the content instead of writing immediately
+                                        await stream_buffer_cont.add_chunk(delta.content)
 
                                 except Exception as chunk_error:
                                     # CRITICAL: Don't let chunk errors kill the entire stream
@@ -1917,11 +1995,21 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     # Continue processing next chunk
                                     await asyncio.sleep(0)
 
+                            # Finish receiving and stop status
+                            stream_buffer_cont.finish_receiving()
+                            await status_display_cont.stop()
+                            status_display_cont.write_final_status()
+
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
-        
+
+                            # Render markdown ONCE from complete response (no incremental rendering)
+                            if full_response and not tool_calls_dict_continuation:
+                                await write_markdown_response(app, full_response)
+                                app.write("\n")
+
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                             if tool_calls_dict_continuation:
                                 if session.debug_mode:
@@ -2033,7 +2121,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
                             if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
-                    app.finish_stream()
+                                app.finish_stream()
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
                             app.write("\n\n")
