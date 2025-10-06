@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"/></a>
-  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.2.1-green.svg" alt="Version"/></a>
+  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.4.0-green.svg" alt="Version"/></a>
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
 ## Features
 
 ### Core Features
-- 🚀 **Fast streaming responses** - Token-by-token display for instant feedback
+- 🚀 **Buffered streaming** - Smooth token display with inline progress indicator (v1.4.0+)
 - 🤖 **Smart agent system** - Auto-switching agents based on task type (debug, review, test, etc.)
 - 🔧 **Full tool support** - Read, Write, Edit, Bash, Glob, Grep
 - 🐙 **GitHub integration** - Manage issues, PRs, workflows via gh CLI
@@ -45,14 +45,16 @@
 - 🛡️ **Safe upgrades** - Automatic backups and rollback on failure
 - 📦 **Version archiving** - Complete version history preservation
 
-### Advanced TUI Interface
-- 🎨 **Modern terminal UI** - Textual-based interface with Frontier design system
+### Advanced TUI Interface (v1.4.0+)
+- 🎨 **Modern terminal UI** - Non-blocking interface with Frontier design system
+- ✨ **Inline buffer status** - Animated spinner with token count and tips while streaming
 - ✍️ **Multi-line input** - Smooth text wrapping with cursor positioning
-- 📝 **Live markdown rendering** - Real-time markdown formatting during streaming
-- ⚡ **Integrated spinner** - Visual feedback for API activity and IPC operations
-- 🎯 **Status line** - Real-time session info, IPC status, and git integration
+- 📝 **Single markdown render** - Buffer tokens, render once (eliminates lag)
+- ⚡ **Always responsive** - Scroll and type during AI responses
+- 📊 **Performance monitor** - Live CPU/memory tracking with `/performance` command
+- 🎯 **Enhanced statusline** - Real-time session info, IPC status, and performance metrics
 - 🖥️ **Terminal background** - Uses native terminal background (transparent mode)
-- 🎭 **Rich color support** - Full RGB foreground with ANSI background compatibility
+- 🎭 **Frontier colors** - Professional muted palette throughout
 
 ### IPC System
 - 🔗 **Claude Code bridge** - Bidirectional communication with Claude Code

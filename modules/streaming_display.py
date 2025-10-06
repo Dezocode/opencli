@@ -356,3 +356,76 @@ class StreamingDisplay(Static):
 
         except Exception:
             pass
+
+    # Buffer Status Methods (for inline streaming progress display)
+    def add_buffer_status(self, tokens: int = 0, elapsed: int = 0) -> None:
+        """
+        Add inline buffer status display showing streaming progress
+        Uses Frontier colors for consistency
+        """
+        from rich.style import Style
+
+        # Create buffer status text with Frontier colors
+        buffer_text = Text()
+        buffer_text.append("⠋ Synthesizing… ", style=Style(color=FRONTIER_COLORS["info"], bold=True))
+        buffer_text.append(f"(esc to interrupt · {elapsed}s · ↓ {tokens} tokens)\n", style=Style(color=FRONTIER_COLORS["info"]))
+        buffer_text.append("  ⎿  Tip: ", style=Style(color=FRONTIER_COLORS["text_secondary"], dim=True))
+        buffer_text.append("Press ESC to interrupt long-running responses.", style=Style(color=FRONTIER_COLORS["text_dim"]))
+
+        # Add to lines with special marker
+        self._lines.append(("__BUFFER_STATUS__", buffer_text))
+
+        # Rebuild display
+        self._rebuild_display()
+
+    def update_buffer_status(self, tokens: int, elapsed: int, spinner_frame: str = "⠋") -> None:
+        """Update the buffer status with new progress"""
+        from rich.style import Style
+
+        # Find and update buffer status line
+        for i, line in enumerate(self._lines):
+            if isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__":
+                # Update the buffer text
+                buffer_text = Text()
+                buffer_text.append(f"{spinner_frame} Synthesizing… ", style=Style(color=FRONTIER_COLORS["info"], bold=True))
+                buffer_text.append(f"(esc to interrupt · {elapsed}s · ↓ {tokens} tokens)\n", style=Style(color=FRONTIER_COLORS["info"]))
+                buffer_text.append("  ⎿  Tip: ", style=Style(color=FRONTIER_COLORS["text_secondary"], dim=True))
+                buffer_text.append("Press ESC to interrupt long-running responses.", style=Style(color=FRONTIER_COLORS["text_dim"]))
+
+                self._lines[i] = ("__BUFFER_STATUS__", buffer_text)
+                self._rebuild_display()
+                break
+
+    def remove_buffer_status(self) -> None:
+        """Remove the buffer status line"""
+        # Filter out buffer status
+        self._lines = [line for line in self._lines if not (isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__")]
+        self._rebuild_display()
+
+    def _rebuild_display(self) -> None:
+        """Rebuild the complete display from _lines"""
+        display_text = Text()
+
+        for line in self._lines:
+            # Handle buffer status tuples
+            if isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__":
+                display_text.append_text(line[1])
+                display_text.append("\n")
+            # Handle regular Text objects
+            elif isinstance(line, Text):
+                display_text.append_text(line)
+                if not line.plain.endswith("\n"):
+                    display_text.append("\n")
+            # Handle strings
+            else:
+                display_text.append(str(line))
+                if not str(line).endswith("\n"):
+                    display_text.append("\n")
+
+        # Add current stream if any
+        if self._current_stream:
+            rendered_stream = self._markdown_renderer.render(self._current_stream)
+            display_text.append_text(rendered_stream)
+
+        self.update(display_text)
+        self._scroll_to_bottom()

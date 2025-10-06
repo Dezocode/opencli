@@ -49,6 +49,66 @@ except (ImportError, ValueError) as e:
         print(f"Warning: Custom TUI widgets not available: {e2}")
 
 
+class PerformanceStatusLine(Static):
+    """Live performance monitoring statusline (bottom of screen)"""
+
+    enabled = reactive(False)
+
+    def __init__(self, session):
+        super().__init__()
+        self.session = session
+        self._update_interval = None
+        self.perf_monitor = None
+
+    def on_mount(self) -> None:
+        """Initialize performance monitor when mounted"""
+        # Import performance monitor
+        try:
+            from .performance_monitor import get_monitor
+        except (ImportError, ValueError):
+            from performance_monitor import get_monitor
+
+        self.perf_monitor = get_monitor()
+
+        # Lightweight: Update every 2 seconds to minimize overhead
+        self._update_interval = self.set_interval(2.0, self._update_display)
+
+    def _update_display(self) -> None:
+        """Periodic update callback - lightweight (2 sec)"""
+        if self.enabled and self.perf_monitor and self.perf_monitor.enabled:
+            self.refresh()
+
+    def render(self) -> Text:
+        """Render performance statusline"""
+        if not self.enabled or not self.perf_monitor or not self.perf_monitor.enabled:
+            return Text("")  # Hidden when disabled
+
+        # Get statusline from performance monitor
+        status_str = self.perf_monitor.get_status_line()
+
+        if not status_str:
+            return Text("")
+
+        # Convert Rich markup to Text
+        try:
+            return Text.from_markup(status_str)
+        except:
+            return Text(status_str)
+
+    def toggle(self) -> bool:
+        """Toggle performance monitoring on/off, returns new state"""
+        if self.perf_monitor:
+            if self.perf_monitor.enabled:
+                self.perf_monitor.stop()
+                self.enabled = False
+            else:
+                self.perf_monitor.start()
+                self.enabled = True
+            self.refresh()
+            return self.enabled
+        return False
+
+
 class StatusLine(Static):
     """Fixed status line showing session info with IPC activity spinner"""
 
@@ -235,6 +295,13 @@ class OpenCLITUI(App):
         color: auto;
     }
 
+    PerformanceStatusLine {
+        height: 1;
+        padding: 0 1;
+        background: $background;
+        color: auto;
+    }
+
     #prompt-container {
         height: auto;
         layout: horizontal;
@@ -379,6 +446,7 @@ class OpenCLITUI(App):
             with Container(id="prompt-container"):
                 # Multi-line input with integrated spinner
                 yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
+            yield PerformanceStatusLine(self.session)
 
     def on_mount(self) -> None:
         """Initialize"""
@@ -578,18 +646,19 @@ Session: {self.session.session_id[:8]} | Ready
 
             while not self._stop_queue_thread.is_set():
                 try:
-                    # Get item from queue with timeout
-                    text, end = self._write_queue_threadsafe.get(timeout=0.02)
+                    # Blocking get with longer timeout to reduce idle CPU usage
+                    # Returns immediately when data arrives, sleeps when queue empty
+                    text, end = self._write_queue_threadsafe.get(timeout=0.5)
                     batch.append((text, end))
 
                     # Flush batch if:
-                    # 1. We have 10+ items OR
-                    # 2. It's been 50ms since last flush OR
+                    # 1. We have 50+ items OR
+                    # 2. It's been 100ms since last flush OR
                     # 3. This is an end-of-stream marker
                     now = time.time()
                     should_flush = (
-                        len(batch) >= 10 or
-                        (now - last_flush) >= 0.05 or
+                        len(batch) >= 50 or
+                        (now - last_flush) >= 0.1 or
                         end != ""
                     )
 

@@ -53,6 +53,16 @@ class ContextBuilder:
             except:
                 pass
 
+        # Final fallback to the default template shipped with the agent system
+        default_agents_md = self.config_dir / 'agents' / 'system_prompts' / 'base' / 'AGENTS.md'
+        if default_agents_md.exists():
+            try:
+                with open(default_agents_md) as f:
+                    content = f.read()
+                return content, str(default_agents_md)
+            except:
+                pass
+
         return None
 
     def get_agents_md_hash(self, content: str) -> str:
