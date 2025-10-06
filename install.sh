@@ -151,6 +151,9 @@ MISSING_DEPS=""
 check_dependency "openai"
 check_dependency "prompt_toolkit"
 check_dependency "yaml"
+check_dependency "textual"
+check_dependency "rich"
+check_dependency "psutil"
 
 if [ -n "$MISSING_DEPS" ]; then
     echo ""
@@ -172,7 +175,7 @@ if [ -n "$MISSING_DEPS" ]; then
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         pip3 install$MISSING_DEPS || {
             echo -e "${RED}Failed to install dependencies${NC}"
-            echo "Try manually: pip3 install openai prompt_toolkit pyyaml"
+            echo "Try manually: pip3 install openai prompt_toolkit pyyaml textual rich psutil"
             exit 1
         }
         echo -e "${GREEN}✓ Dependencies installed${NC}"
