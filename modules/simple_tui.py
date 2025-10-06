@@ -413,6 +413,9 @@ class OpenCLITUI(App):
         self._history_index = -1
         self._load_prompt_history()
 
+        # Permission prompt state
+        self._permission_selected_option = 0
+
         # Always disable dark mode for ANSI background mode
         self.dark = False
 
@@ -575,7 +578,22 @@ Session: {self.session.session_id[:8]} | Ready
             self.input_future.set_result(user_input)
 
     def on_key(self, event) -> None:
-        """Handle key presses for history navigation"""
+        """Handle key presses for history navigation and permission prompts"""
+        # Check if there's an active permission prompt
+        if hasattr(self, 'permission_handler') and self.permission_handler:
+            # Check if we have an active permission prompt
+            try:
+                stream_display = self.query_one("#stream-display")
+                if stream_display and hasattr(stream_display, '_lines') and stream_display._lines:
+                    # Check for active permission prompt
+                    for i, line in enumerate(stream_display._lines):
+                        if isinstance(line, tuple) and line[0] == "__PERMISSION_PROMPT__":
+                            # Permission prompt is active - handle its keyboard events
+                            self._handle_permission_key(event, i, line[2])  # line[2] is prompt_data
+                            return
+            except Exception:
+                pass  # Stream display not available yet
+
         prompt = self.query_one("#prompt-input")
 
         # Up arrow - previous in history
@@ -613,6 +631,98 @@ Session: {self.session.session_id[:8]} | Ready
                         prompt.value = ""
                 event.prevent_default()
                 event.stop()
+
+    def _handle_permission_key(self, event, line_index: int, prompt_data: dict) -> None:
+        """Handle keyboard input for permission prompts"""
+        from modules.permission_prompt import PermissionResponse, PermissionPrompt
+
+        options = prompt_data.get('options', [])
+        if not options:
+            return
+
+        # Handle key events
+        if event.key == "up":
+            # Move selection up
+            if self._permission_selected_option > 0:
+                self._permission_selected_option -= 1
+                self._update_permission_prompt_display(line_index, prompt_data)
+            event.prevent_default()
+            event.stop()
+
+        elif event.key == "down":
+            # Move selection down
+            if self._permission_selected_option < len(options) - 1:
+                self._permission_selected_option += 1
+                self._update_permission_prompt_display(line_index, prompt_data)
+            event.prevent_default()
+            event.stop()
+
+        elif event.key == "enter":
+            # Confirm selection
+            selected = options[self._permission_selected_option]
+            response = {
+                'response': selected['response'],
+                'data': selected.get('data', {})
+            }
+            # Send response to permission handler
+            if self.permission_handler:
+                self.permission_handler.handle_response(response)
+            self._permission_selected_option = 0  # Reset for next prompt
+            event.prevent_default()
+            event.stop()
+
+        elif event.key == "escape":
+            # Cancel
+            response = {
+                'response': PermissionResponse.CANCEL,
+                'data': {}
+            }
+            if self.permission_handler:
+                self.permission_handler.handle_response(response)
+            self._permission_selected_option = 0  # Reset for next prompt
+            event.prevent_default()
+            event.stop()
+
+        # Number key shortcuts (1-9)
+        elif event.character and event.character.isdigit():
+            num = int(event.character)
+            if 1 <= num <= len(options):
+                selected = options[num - 1]
+                response = {
+                    'response': selected['response'],
+                    'data': selected.get('data', {})
+                }
+                if self.permission_handler:
+                    self.permission_handler.handle_response(response)
+                self._permission_selected_option = 0  # Reset for next prompt
+                event.prevent_default()
+                event.stop()
+
+    def _update_permission_prompt_display(self, line_index: int, prompt_data: dict) -> None:
+        """Update the permission prompt display with new selection"""
+        from modules.permission_prompt import PermissionPrompt
+
+        # Create updated prompt with new selection
+        prompt = PermissionPrompt(
+            title=prompt_data.get('title', 'Permission'),
+            message=prompt_data.get('message', ''),
+            options=prompt_data.get('options', []),
+            details=prompt_data.get('details', {})
+        )
+        prompt.is_active = True
+        prompt.selected_option = self._permission_selected_option
+
+        # Render the updated prompt
+        prompt_text = prompt.render()
+
+        # Update the line in stream display
+        try:
+            stream_display = self.query_one("#stream-display")
+            if stream_display and hasattr(stream_display, '_lines'):
+                stream_display._lines[line_index] = ("__PERMISSION_PROMPT__", prompt_text, prompt_data)
+                stream_display._rebuild_display()
+        except Exception:
+            pass
 
     def action_quit_app(self) -> None:
         """Quit and persist IPC server"""

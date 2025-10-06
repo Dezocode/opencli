@@ -254,12 +254,30 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
     Execute a tool asynchronously without blocking the event loop
 
     Uses asyncio.to_thread for file I/O and subprocess for Bash/Grep
+    Includes permission checks with buffered UI prompts
     """
-    # DISABLED: Permission checks not implemented in TUI yet
-    # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
-    # TODO: Implement TUI permission prompt dialog
-
     debug_mode = hasattr(app, 'session') and hasattr(app.session, 'debug_mode') and app.session.debug_mode if app else False
+
+    # Check permissions if handler is available
+    if permission_manager:
+        from modules.async_permissions import get_global_handler
+
+        handler = get_global_handler()
+        if handler:
+            try:
+                allowed, reason = await handler.check_and_prompt(name, args, current_dir)
+
+                if debug_mode and app:
+                    app.write(f"[dim]🔒 PERMISSION: {name} - {reason} (allowed: {allowed})[/dim]\n")
+
+                if not allowed:
+                    return f"⛔ Permission denied: {reason}"
+
+            except Exception as e:
+                if debug_mode and app:
+                    app.write(f"[dim]🔒 PERMISSION ERROR: {str(e)}[/dim]\n")
+                # On permission check error, log but continue (fail open for now)
+                pass
 
     try:
         if debug_mode and app:
@@ -451,11 +469,21 @@ async def interactive_async(config, session=None, initial_prompt=None):
     # Initialize permission manager
     try:
         from .tool_permissions import ToolPermissionManager
+        from .async_permissions import AsyncPermissionHandler, set_global_handler
     except (ImportError, ValueError):
         from tool_permissions import ToolPermissionManager
+        from async_permissions import AsyncPermissionHandler, set_global_handler
 
     if not hasattr(session, 'permission_manager') or session.permission_manager is None:
         session.permission_manager = ToolPermissionManager()
+
+    # Initialize async permission handler for TUI
+    permission_handler = AsyncPermissionHandler(session.permission_manager, app)
+    set_global_handler(permission_handler)
+
+    # Store handler in app for permission prompt responses
+    if app:
+        app.permission_handler = permission_handler
 
     # Initialize agent manager for context management (same as fallback mode)
     agent_manager = None

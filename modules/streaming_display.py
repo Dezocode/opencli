@@ -402,6 +402,39 @@ class StreamingDisplay(Static):
         self._lines = [line for line in self._lines if not (isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__")]
         self._rebuild_display()
 
+    def add_permission_prompt(self, prompt_data: dict) -> None:
+        """
+        Add a permission prompt to the display
+
+        Args:
+            prompt_data: Dict with 'title', 'message', 'options', 'details'
+        """
+        from .permission_prompt import PermissionPrompt
+
+        # Create the permission prompt widget text
+        prompt = PermissionPrompt(
+            title=prompt_data.get('title', 'Permission'),
+            message=prompt_data.get('message', ''),
+            options=prompt_data.get('options', []),
+            details=prompt_data.get('details', {})
+        )
+        prompt.is_active = True
+
+        # Render the prompt
+        prompt_text = prompt.render()
+
+        # Add to lines with special marker
+        self._lines.append(("__PERMISSION_PROMPT__", prompt_text, prompt_data))
+
+        # Rebuild display
+        self._rebuild_display()
+
+    def remove_permission_prompt(self) -> None:
+        """Remove the permission prompt from display"""
+        # Filter out permission prompts
+        self._lines = [line for line in self._lines if not (isinstance(line, tuple) and line[0] == "__PERMISSION_PROMPT__")]
+        self._rebuild_display()
+
     def _rebuild_display(self) -> None:
         """Rebuild the complete display from _lines"""
         display_text = Text()
@@ -409,6 +442,10 @@ class StreamingDisplay(Static):
         for line in self._lines:
             # Handle buffer status tuples
             if isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__":
+                display_text.append_text(line[1])
+                display_text.append("\n")
+            # Handle permission prompt tuples
+            elif isinstance(line, tuple) and line[0] == "__PERMISSION_PROMPT__":
                 display_text.append_text(line[1])
                 display_text.append("\n")
             # Handle regular Text objects
