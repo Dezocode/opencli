@@ -1805,6 +1805,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
 
+                        # ALWAYS VISIBLE - prove we reach this line
+                        app.write(f"[red]>>> CHECKPOINT BEFORE PERMISSION CHECK: {tc.function.name} <<<[/red]\n")
+
                         # PERMISSION CHECK - Show prompt and wait for user response
                         import sys
                         sys.stderr.write(f"\n🔒🔒🔒 PERMISSION CHECK CODE BLOCK REACHED for {tc.function.name}\n")
@@ -1854,6 +1857,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     app.write(f"[red]{result}[/red]\n")
                                     session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                                     continue  # Skip to next tool call
+                        else:
+                            app.write(f"[yellow]⚠️ No handler or permission_manager - executing without check[/yellow]\n")
+
+                        # ALWAYS VISIBLE - prove we reach tool execution
+                        app.write(f"[red]>>> CHECKPOINT BEFORE TOOL EXECUTION: {tc.function.name} <<<[/red]\n")
 
                         # Execute tool ASYNCHRONOUSLY - no blocking!
                         try:
