@@ -1805,18 +1805,38 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
 
-                        # CRITICAL DEBUG - Print BEFORE calling execute_tool_async
-                        import sys
-                        sys.stderr.write(f"\n🎯 ABOUT TO CALL execute_tool_async for {tc.function.name}\n")
-                        sys.stderr.flush()
-                        app.write(f"[yellow]🎯 CALLING execute_tool_async({tc.function.name})[/yellow]\n")
+                        # PERMISSION CHECK - Show prompt and wait for user response
+                        from modules.async_permissions import get_global_handler
+                        from modules.permission_prompt import PermissionTemplates
+
+                        handler = get_global_handler()
+                        if handler and session.permission_manager:
+                            # Check if we need permission
+                            should_prompt, reason, risk_level = session.permission_manager.should_prompt(
+                                tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                            )
+
+                            if should_prompt:
+                                app.write(f"[yellow]🔒 Permission required for {tc.function.name}[/yellow]\n")
+
+                                # Show permission prompt and wait
+                                allowed, perm_reason = await handler.check_and_prompt(
+                                    tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                )
+
+                                if not allowed:
+                                    # Permission denied - skip tool execution
+                                    result = f"⛔ Permission denied: {perm_reason}"
+                                    app.write(f"[red]{result}[/red]\n")
+                                    session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                                    continue  # Skip to next tool call
 
                         # Execute tool ASYNCHRONOUSLY - no blocking!
                         try:
                             result = await execute_tool_async(
                                 tc.function.name,
                                 args,
-                                permission_manager=session.permission_manager,
+                                permission_manager=None,  # Already checked above
                                 current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                 app=app
                             )
@@ -2117,13 +2137,38 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
                                     app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
                                     args = json.loads(tc.function.arguments)
-        
+
+                                    # PERMISSION CHECK - Show prompt and wait for user response
+                                    from modules.async_permissions import get_global_handler
+
+                                    handler = get_global_handler()
+                                    if handler and session.permission_manager:
+                                        # Check if we need permission
+                                        should_prompt, reason, risk_level = session.permission_manager.should_prompt(
+                                            tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                        )
+
+                                        if should_prompt:
+                                            app.write(f"[yellow]🔒 Permission required for {tc.function.name}[/yellow]\n")
+
+                                            # Show permission prompt and wait
+                                            allowed, perm_reason = await handler.check_and_prompt(
+                                                tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                            )
+
+                                            if not allowed:
+                                                # Permission denied - skip tool execution
+                                                result = f"⛔ Permission denied: {perm_reason}"
+                                                app.write(f"[red]{result}[/red]\n")
+                                                session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                                                continue  # Skip to next tool call
+
                                     # Execute tool
                                     try:
                                         result = await execute_tool_async(
                                             tc.function.name,
                                             args,
-                                            permission_manager=session.permission_manager,
+                                            permission_manager=None,  # Already checked above
                                             current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                             app=app
                                         )
