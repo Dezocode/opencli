@@ -1806,12 +1806,25 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
 
                         # PERMISSION CHECK - Show prompt and wait for user response
-                        from modules.async_permissions import get_global_handler
-                        from modules.permission_prompt import PermissionTemplates
+                        import sys
+                        sys.stderr.write(f"\n🔒🔒🔒 PERMISSION CHECK CODE BLOCK REACHED for {tc.function.name}\n")
+                        sys.stderr.flush()
+
+                        try:
+                            from modules.async_permissions import get_global_handler
+                            from modules.permission_prompt import PermissionTemplates
+                            sys.stderr.write("✅ Imports successful\n")
+                            sys.stderr.flush()
+                        except Exception as import_err:
+                            sys.stderr.write(f"❌ IMPORT ERROR: {import_err}\n")
+                            sys.stderr.flush()
+                            raise
 
                         handler = get_global_handler()
 
                         # DEBUG - Always show permission check status
+                        sys.stderr.write(f"Handler exists: {handler is not None}, PermMgr exists: {session.permission_manager is not None}\n")
+                        sys.stderr.flush()
                         app.write(f"[cyan]🔒 Permission check: handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/cyan]\n")
 
                         if handler and session.permission_manager:
@@ -1821,9 +1834,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             )
 
                             # DEBUG - Show decision
+                            sys.stderr.write(f"should_prompt={should_prompt}, reason={reason}, risk={risk_level.value}\n")
+                            sys.stderr.flush()
                             app.write(f"[cyan]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}, risk={risk_level.value}[/cyan]\n")
 
                             if should_prompt:
+                                sys.stderr.write(f"⚠️⚠️⚠️ SHOWING PERMISSION PROMPT FOR {tc.function.name}\n")
+                                sys.stderr.flush()
                                 app.write(f"[yellow]🔒 Permission required for {tc.function.name}[/yellow]\n")
 
                                 # Show permission prompt and wait
