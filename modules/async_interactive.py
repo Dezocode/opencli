@@ -351,11 +351,16 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
 def execute_tool(name, args, permission_manager=None, current_dir=None, app=None):
     """Synchronous tool execution - kept for non-async contexts"""
 
-    # DISABLED: Permission checks not implemented in TUI yet
-    # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
-    # TODO: Implement TUI permission prompt dialog
+    # CRITICAL DEBUG - This should NOT be called in TUI mode!
+    import sys
+    sys.stderr.write(f"\n⚠️⚠️⚠️ SYNC execute_tool CALLED (WRONG!): {name}\n")
+    sys.stderr.write(f"This is the OLD synchronous version - TUI should use execute_tool_async!\n")
+    sys.stderr.flush()
 
-    # Execute the tool
+    if app:
+        app.write(f"[red]⚠️ SYNC execute_tool called for {name} - should use async version![/red]\n")
+
+    # Execute the tool (no permission checks in sync version - TUI should use async!)
     tools = {
         "Read": lambda: execute_read(args["file_path"]),
         "Write": lambda: execute_write(args["file_path"], args["content"]),
