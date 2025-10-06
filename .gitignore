@@ -56,3 +56,9 @@ archive/version-*.json
 
 # Upgrade backups
 upgrade_backups/
+
+# Debug and test files (temporary development files)
+debug_*.py
+test_*.py
+fix_*.py
+MERGE_*.md
