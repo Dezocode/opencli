@@ -1810,11 +1810,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         from modules.permission_prompt import PermissionTemplates
 
                         handler = get_global_handler()
+
+                        # DEBUG - Always show permission check status
+                        app.write(f"[cyan]🔒 Permission check: handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/cyan]\n")
+
                         if handler and session.permission_manager:
                             # Check if we need permission
                             should_prompt, reason, risk_level = session.permission_manager.should_prompt(
                                 tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
                             )
+
+                            # DEBUG - Show decision
+                            app.write(f"[cyan]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}, risk={risk_level.value}[/cyan]\n")
 
                             if should_prompt:
                                 app.write(f"[yellow]🔒 Permission required for {tc.function.name}[/yellow]\n")
@@ -2142,11 +2149,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     from modules.async_permissions import get_global_handler
 
                                     handler = get_global_handler()
+
+                                    # DEBUG - Always show permission check status
+                                    app.write(f"[cyan]🔒 Permission check (continuation): handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/cyan]\n")
+
                                     if handler and session.permission_manager:
                                         # Check if we need permission
                                         should_prompt, reason, risk_level = session.permission_manager.should_prompt(
                                             tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
                                         )
+
+                                        # DEBUG - Show decision
+                                        app.write(f"[cyan]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}, risk={risk_level.value}[/cyan]\n")
 
                                         if should_prompt:
                                             app.write(f"[yellow]🔒 Permission required for {tc.function.name}[/yellow]\n")
