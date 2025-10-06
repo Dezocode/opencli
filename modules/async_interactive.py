@@ -1805,6 +1805,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
 
+                        # CRITICAL DEBUG - Print BEFORE calling execute_tool_async
+                        import sys
+                        sys.stderr.write(f"\n🎯 ABOUT TO CALL execute_tool_async for {tc.function.name}\n")
+                        sys.stderr.flush()
+                        app.write(f"[yellow]🎯 CALLING execute_tool_async({tc.function.name})[/yellow]\n")
+
                         # Execute tool ASYNCHRONOUSLY - no blocking!
                         try:
                             result = await execute_tool_async(
@@ -1814,6 +1820,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                 app=app
                             )
+                            # DEBUG - Log after execute_tool_async returns
+                            import sys
+                            sys.stderr.write(f"✅ execute_tool_async returned for {tc.function.name}\n")
+                            sys.stderr.flush()
+
                             # ALWAYS show tool completion
                             app.write(f"[dim]✓ Tool {tc.function.name} completed[/dim]\n")
                             await asyncio.sleep(0)  # Yield to UI
