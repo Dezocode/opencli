@@ -256,11 +256,21 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
     Uses asyncio.to_thread for file I/O and subprocess for Bash/Grep
     Includes permission checks with buffered UI prompts
     """
+    # CRITICAL DEBUG - Print to terminal too in case app.write is broken
+    import sys
+    sys.stderr.write(f"\n🔧🔧🔧 EXECUTE_TOOL_ASYNC CALLED: {name}\n")
+    sys.stderr.flush()
+
     debug_mode = hasattr(app, 'session') and hasattr(app.session, 'debug_mode') and app.session.debug_mode if app else False
 
     # ALWAYS log tool execution entry
     if app:
         app.write(f"[cyan]🔧 TOOL EXEC: {name} (permission_manager: {permission_manager is not None})[/cyan]\n")
+        sys.stderr.write(f"✓ app.write succeeded for {name}\n")
+        sys.stderr.flush()
+    else:
+        sys.stderr.write(f"❌ app is None for {name}\n")
+        sys.stderr.flush()
 
     # Check permissions if handler is available
     if permission_manager:
