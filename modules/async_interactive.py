@@ -512,14 +512,6 @@ async def interactive_async(config, session=None, initial_prompt=None):
     if not hasattr(session, 'permission_manager') or session.permission_manager is None:
         session.permission_manager = ToolPermissionManager()
 
-    # Initialize async permission handler for TUI
-    permission_handler = AsyncPermissionHandler(session.permission_manager, app)
-    set_global_handler(permission_handler)
-
-    # Store handler in app for permission prompt responses
-    if app:
-        app.permission_handler = permission_handler
-
     # Initialize agent manager for context management (same as fallback mode)
     agent_manager = None
     try:
@@ -567,6 +559,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
     # Create TUI - color mode is configured automatically in __init__
     app = OpenCLITUI(session=session, config=config)
+
+    # Initialize async permission handler for TUI (AFTER app is created)
+    try:
+        from .async_permissions import AsyncPermissionHandler, set_global_handler
+    except (ImportError, ValueError):
+        from async_permissions import AsyncPermissionHandler, set_global_handler
+
+    permission_handler = AsyncPermissionHandler(session.permission_manager, app)
+    set_global_handler(permission_handler)
+    app.permission_handler = permission_handler
 
     # Store initial prompt for processing after TUI starts
     app.initial_prompt = initial_prompt
