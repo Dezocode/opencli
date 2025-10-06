@@ -1782,6 +1782,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     # Execute each tool WITH GOAL SANITY VALIDATION (ASYNC - NO BLOCKING!)
                     for tc in tool_calls:
+                        # RED CHECKPOINT - FIRST LINE IN LOOP
+                        import sys
+                        sys.stderr.write(f"\n🚨🚨🚨 LOOP START FOR {tc.function.name}\n")
+                        sys.stderr.flush()
+                        app.write(f"[red]🚨 LOOP START: {tc.function.name}[/red]\n")
+
                         if session.debug_mode:
                             app.write(f"[dim]🐛 STALL DEBUG: Starting tool execution: {tc.function.name}[/dim]\n")
                         app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
@@ -2165,6 +2171,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
         
                                 # Execute each continuation tool
                                 for tc in tool_calls_continuation:
+                                    # RED CHECKPOINT - FIRST LINE IN CONTINUATION LOOP
+                                    import sys
+                                    sys.stderr.write(f"\n🚨🚨🚨 CONTINUATION LOOP START FOR {tc.function.name}\n")
+                                    sys.stderr.flush()
+                                    app.write(f"[red]🚨 CONTINUATION LOOP START: {tc.function.name}[/red]\n")
+
                                     if session.debug_mode:
                                         app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
                                     app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
