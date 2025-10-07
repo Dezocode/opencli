@@ -1546,12 +1546,28 @@ def interactive(config, session=None, initial=None):
                     prepared_messages = prepare_messages_with_context(session.messages, CONFIG_DIR)
 
                 # Use prepared messages for API call
-                # NO tools parameter - tools are in system message context
-                stream = client.chat.completions.create(
-                    model=session.model or config["model"],
-                    messages=prepared_messages,
-                    stream=True
-                )
+                # Try with tools parameter first, fallback to context-only if data policy error
+                try:
+                    stream = client.chat.completions.create(
+                        model=session.model or config["model"],
+                        messages=prepared_messages,
+                        tools=TOOLS,
+                        stream=True
+                    )
+                except Exception as e:
+                    error_msg = str(e)
+                    # Check for data policy errors
+                    if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
+                        print("\033[93m⚠️  Model doesn't support tools parameter - using context-only mode\033[0m")
+                        # Retry without tools parameter
+                        stream = client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=prepared_messages,
+                            stream=True
+                        )
+                    else:
+                        # Re-raise other errors
+                        raise
 
                 full_content = ""
                 tool_calls_dict = {}
