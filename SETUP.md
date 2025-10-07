@@ -572,6 +572,23 @@ opencli
 ⏺ │ CPU: 3.2% → │ MEM: 127MB │ Threads: 8
 ```
 
+**Example 4: Permission System (Dangerous Operations)**
+```
+> Write a test script to test.py
+
+Bash Command Permission
+
+Claude wants to execute: Write
+File: test.py
+Content: #!/bin/bash\necho "test"
+
+▸ Yes, allow this operation
+  Yes, and don't ask again for Write
+  No, skip this operation (esc)
+
+[Use Up/Down arrows to select, Enter to confirm, ESC to cancel]
+```
+
 ### Common First Commands
 
 ```bash

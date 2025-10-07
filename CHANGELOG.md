@@ -5,6 +5,47 @@ All notable changes to OpenCLI will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2025-10-07
+
+### Added
+
+#### 🔒 Permission System
+- **Interactive permission prompts** for dangerous tool operations
+  - Inline prompts render inside prompt box with auto-flex height
+  - Keyboard navigation: Up/Down to select, Enter to confirm, ESC to cancel
+  - Risk-based classification: SAFE / RISKY / DANGEROUS / CRITICAL
+  - Persistent settings saved to `~/.opencli/tool_permissions.json`
+- **ToolPermissionManager**: Risk assessment and permission tracking
+  - Path-based risk detection (parent dirs, system paths)
+  - Per-tool permission persistence
+  - Fail-open design (errors don't block execution)
+- **AsyncPermissionHandler**: Non-blocking permission UI integration
+  - 5-minute timeout with automatic denial
+  - Tool-specific prompt templates (Bash, Write, Edit, WebFetch)
+  - Response handling with allow-once/allow-always options
+
+#### ⏸️ ESC Interrupt
+- **Press ESC to cancel streaming API calls**
+  - Interrupts long-running responses immediately
+  - Clean cancellation with user notification
+  - Non-blocking implementation
+
+### Changed
+
+#### 🎨 UI Integration
+- **MultiLineInput permission rendering**
+  - Permission prompts displayed directly in input widget
+  - Prompt box flexes to accommodate full permission content (max-height: 20)
+  - Clean Frontier color styling without extra borders
+- **Removed debug spam** from tool execution loop
+  - Silent permission checks with fail-open fallback
+  - Clean stderr output for production use
+
+### Fixed
+- Import fallback patterns for permission modules
+- Permission handler initialization timing issues
+- Widget mounting conflicts in TUI layout
+
 ## [1.4.0] - 2025-10-05
 
 ### Added

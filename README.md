@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"/></a>
-  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.4.0-green.svg" alt="Version"/></a>
+  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.5.0-green.svg" alt="Version"/></a>
 </p>
 
 <p align="center">
@@ -55,6 +55,8 @@
 - 🎯 **Enhanced statusline** - Real-time session info, IPC status, and performance metrics
 - 🖥️ **Terminal background** - Uses native terminal background (transparent mode)
 - 🎭 **Frontier colors** - Professional muted palette throughout
+- 🔒 **Permission system** - Interactive prompts for dangerous operations (Bash, Write, Edit)
+- ⏸️ **ESC interrupt** - Press ESC to cancel long-running API calls
 
 ### IPC System
 - 🔗 **Claude Code bridge** - Bidirectional communication with Claude Code
@@ -230,6 +232,33 @@ OpenCLI includes GitHub tool integration via `gh` CLI:
 - `workflow_list`, `workflow_run` - GitHub Actions
 - `run_list` - View workflow runs
 - `gist_create` - Create gists
+
+### Permission System
+
+OpenCLI includes an intelligent permission system that protects against accidental destructive operations:
+
+**How it works:**
+- 🔒 Prompts appear **inline in the prompt box** before executing dangerous tools
+- ⚡ **Keyboard navigation**: Up/Down arrows to select, Enter to confirm, ESC to cancel
+- 📊 **Risk classification**: SAFE (Read, Glob, Grep) vs RISKY (Edit, Write) vs DANGEROUS (Bash)
+- 💾 **Persistent settings**: Save "allow always" choices to `~/.opencli/tool_permissions.json`
+
+**Permission prompt example:**
+```
+╭─────────────────────────────────────╮
+│ Bash Command Permission             │
+├─────────────────────────────────────┤
+│ Claude wants to run: rm -rf temp/   │
+├─────────────────────────────────────┤
+│ ▸ Yes, allow this command           │
+│   Yes, and don't ask again for Bash │
+│   No, skip this command (esc)       │
+╰─────────────────────────────────────╯
+```
+
+**ESC interrupt:**
+- Press **ESC** during API streaming to cancel long-running responses
+- Useful for stopping unintended lengthy outputs or runaway tool executions
 
 ### Session Management
 
