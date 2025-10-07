@@ -1616,46 +1616,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
 
-                    # Create the API call - NO tools parameter
+                    # Create the API call - COMPLETELY CLEAN
+                    # NO tools parameter, NO extra_body, NOTHING
                     # Tools are in system message context - AI responds naturally
-                    # Try with provider fallbacks enabled for better compatibility
-                    try:
-                        api_call = client.chat.completions.create(
-                            model=session.model or config["model"],
-                            messages=messages_with_context,
-                            stream=True,
-                            extra_body={"provider": {"allow_fallbacks": True}}
-                        )
-                    except Exception as api_error:
-                        error_msg = str(api_error)
-                        # Detect data policy errors and show ACTUAL requirement from API
-                        if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                            app.write(f"\n[red]❌ API Error: Data Policy Mismatch[/red]\n\n")
-                            app.write(f"[yellow]Model: {session.model or config['model']}[/yellow]\n\n")
-
-                            # Show the ACTUAL error message from OpenRouter
-                            app.write("[cyan]OpenRouter says:[/cyan]\n")
-                            app.write(f"[dim]{error_msg}[/dim]\n\n")
-
-                            # Parse and suggest based on actual error
-                            app.write("[cyan]Possible solutions:[/cyan]\n")
-                            if "ZDR" in error_msg or "zero data retention" in error_msg.lower():
-                                app.write("  1. Enable 'ZDR Endpoints Only' at https://openrouter.ai/settings/privacy\n")
-                            else:
-                                app.write("  1. Check your OpenRouter privacy settings\n")
-                                app.write("  2. Visit https://openrouter.ai/settings/privacy\n")
-                                app.write("  3. Try a different model with /model\n")
-
-                            app.write("\n[dim]After changing settings, restart with /new[/dim]\n")
-                            restore_ui_state()
-                            return
-                        else:
-                            # Try without extra_body as fallback
-                            api_call = client.chat.completions.create(
-                                model=session.model or config["model"],
-                                messages=messages_with_context,
-                                stream=True
-                            )
+                    api_call = client.chat.completions.create(
+                        model=session.model or config["model"],
+                        messages=messages_with_context,
+                        stream=True
+                    )
 
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
@@ -1987,46 +1955,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 if session.debug_mode:
                                     app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
         
-                                # Create the API call - NO tools parameter
+                                # Create the API call - COMPLETELY CLEAN
+                                # NO tools parameter, NO extra_body, NOTHING
                                 # Tools are in system message context - AI responds naturally
-                                # Try with provider fallbacks enabled for better compatibility
-                                try:
-                                    api_call = client.chat.completions.create(
-                                        model=session.model or config["model"],
-                                        messages=messages_with_context,
-                                        stream=True,
-                                        extra_body={"provider": {"allow_fallbacks": True}}
-                                    )
-                                except Exception as api_error:
-                                    error_msg = str(api_error)
-                                    # Detect data policy errors and show ACTUAL requirement from API
-                                    if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                                        app.write(f"\n[red]❌ API Error: Data Policy Mismatch[/red]\n\n")
-                                        app.write(f"[yellow]Model: {session.model or config['model']}[/yellow]\n\n")
-
-                                        # Show the ACTUAL error message from OpenRouter
-                                        app.write("[cyan]OpenRouter says:[/cyan]\n")
-                                        app.write(f"[dim]{error_msg}[/dim]\n\n")
-
-                                        # Parse and suggest based on actual error
-                                        app.write("[cyan]Possible solutions:[/cyan]\n")
-                                        if "ZDR" in error_msg or "zero data retention" in error_msg.lower():
-                                            app.write("  1. Enable 'ZDR Endpoints Only' at https://openrouter.ai/settings/privacy\n")
-                                        else:
-                                            app.write("  1. Check your OpenRouter privacy settings\n")
-                                            app.write("  2. Visit https://openrouter.ai/settings/privacy\n")
-                                            app.write("  3. Try a different model with /model\n")
-
-                                        app.write("\n[dim]After changing settings, restart with /new[/dim]\n")
-                                        restore_ui_state()
-                                        return
-                                    else:
-                                        # Try without extra_body as fallback
-                                        api_call = client.chat.completions.create(
-                                            model=session.model or config["model"],
-                                            messages=messages_with_context,
-                                            stream=True
-                                        )
+                                api_call = client.chat.completions.create(
+                                    model=session.model or config["model"],
+                                    messages=messages_with_context,
+                                    stream=True
+                                )
         
                                 if session.debug_mode:
                                     app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")

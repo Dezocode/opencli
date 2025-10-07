@@ -1545,45 +1545,14 @@ def interactive(config, session=None, initial=None):
                     session.compact_context(config.get("contextWindow", 128000))
                     prepared_messages = prepare_messages_with_context(session.messages, CONFIG_DIR)
 
-                # Use prepared messages for API call
-                # NO tools parameter - tools are in system message context
-                # Try with provider fallbacks enabled for better compatibility
-                try:
-                    stream = client.chat.completions.create(
-                        model=session.model or config["model"],
-                        messages=prepared_messages,
-                        stream=True,
-                        extra_body={"provider": {"allow_fallbacks": True}}
-                    )
-                except Exception as api_error:
-                    error_msg = str(api_error)
-                    # Detect data policy errors and show ACTUAL requirement from API
-                    if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                        print(f"\n\033[91m❌ API Error: Data Policy Mismatch\033[0m\n")
-                        print(f"\033[93mModel: {session.model or config['model']}\033[0m\n")
-
-                        # Show the ACTUAL error message from OpenRouter
-                        print("\033[96mOpenRouter says:\033[0m")
-                        print(f"\033[2m{error_msg}\033[0m\n")
-
-                        # Parse and suggest based on actual error
-                        print("\033[96mPossible solutions:\033[0m")
-                        if "ZDR" in error_msg or "zero data retention" in error_msg.lower():
-                            print("  1. Enable 'ZDR Endpoints Only' at https://openrouter.ai/settings/privacy")
-                        else:
-                            print("  1. Check your OpenRouter privacy settings")
-                            print("  2. Visit https://openrouter.ai/settings/privacy")
-                            print("  3. Try a different model with /model")
-
-                        print("\n\033[2mAfter changing settings, restart with /new\033[0m\n")
-                        return
-                    else:
-                        # Try without extra_body as fallback
-                        stream = client.chat.completions.create(
-                            model=session.model or config["model"],
-                            messages=prepared_messages,
-                            stream=True
-                        )
+                # Use prepared messages for API call - COMPLETELY CLEAN
+                # NO tools parameter, NO extra_body, NOTHING
+                # Tools are in system message context
+                stream = client.chat.completions.create(
+                    model=session.model or config["model"],
+                    messages=prepared_messages,
+                    stream=True
+                )
 
                 full_content = ""
                 tool_calls_dict = {}
