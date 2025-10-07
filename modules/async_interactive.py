@@ -254,30 +254,10 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
     Execute a tool asynchronously without blocking the event loop
 
     Uses asyncio.to_thread for file I/O and subprocess for Bash/Grep
-    Includes permission checks with buffered UI prompts
+
+    NOTE: Permission checks should be done BEFORE calling this function
     """
     debug_mode = hasattr(app, 'session') and hasattr(app.session, 'debug_mode') and app.session.debug_mode if app else False
-
-    # Check permissions if handler is available
-    if permission_manager:
-        from modules.async_permissions import get_global_handler
-
-        handler = get_global_handler()
-        if handler:
-            try:
-                allowed, reason = await handler.check_and_prompt(name, args, current_dir)
-
-                if debug_mode and app:
-                    app.write(f"[dim]🔒 PERMISSION: {name} - {reason} (allowed: {allowed})[/dim]\n")
-
-                if not allowed:
-                    return f"⛔ Permission denied: {reason}"
-
-            except Exception as e:
-                if debug_mode and app:
-                    app.write(f"[dim]🔒 PERMISSION ERROR: {str(e)}[/dim]\n")
-                # On permission check error, log but continue (fail open for now)
-                pass
 
     try:
         if debug_mode and app:
@@ -321,11 +301,16 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
 def execute_tool(name, args, permission_manager=None, current_dir=None, app=None):
     """Synchronous tool execution - kept for non-async contexts"""
 
-    # DISABLED: Permission checks not implemented in TUI yet
-    # For now, allow all tools in TUI mode (same as fallback mode's auto-accept behavior)
-    # TODO: Implement TUI permission prompt dialog
+    # CRITICAL DEBUG - This should NOT be called in TUI mode!
+    import sys
+    sys.stderr.write(f"\n⚠️⚠️⚠️ SYNC execute_tool CALLED (WRONG!): {name}\n")
+    sys.stderr.write(f"This is the OLD synchronous version - TUI should use execute_tool_async!\n")
+    sys.stderr.flush()
 
-    # Execute the tool
+    if app:
+        app.write(f"[red]⚠️ SYNC execute_tool called for {name} - should use async version![/red]\n")
+
+    # Execute the tool (no permission checks in sync version - TUI should use async!)
     tools = {
         "Read": lambda: execute_read(args["file_path"]),
         "Write": lambda: execute_write(args["file_path"], args["content"]),
@@ -466,24 +451,26 @@ async def interactive_async(config, session=None, initial_prompt=None):
         api_key=config["apiKey"]
     )
 
-    # Initialize permission manager
+    # Initialize permission manager (same as fallback mode)
+    TOOL_PERMISSIONS = False
     try:
         from .tool_permissions import ToolPermissionManager
         from .async_permissions import AsyncPermissionHandler, set_global_handler
+        TOOL_PERMISSIONS = True
     except (ImportError, ValueError):
-        from tool_permissions import ToolPermissionManager
-        from async_permissions import AsyncPermissionHandler, set_global_handler
+        try:
+            from tool_permissions import ToolPermissionManager
+            from async_permissions import AsyncPermissionHandler, set_global_handler
+            TOOL_PERMISSIONS = True
+        except ImportError:
+            pass
 
-    if not hasattr(session, 'permission_manager') or session.permission_manager is None:
-        session.permission_manager = ToolPermissionManager()
+    if TOOL_PERMISSIONS and (not hasattr(session, 'permission_manager') or session.permission_manager is None):
+        config_dir = Path.home() / '.opencli'
+        session.permission_manager = ToolPermissionManager(config_dir)
 
-    # Initialize async permission handler for TUI
-    permission_handler = AsyncPermissionHandler(session.permission_manager, app)
-    set_global_handler(permission_handler)
-
-    # Store handler in app for permission prompt responses
-    if app:
-        app.permission_handler = permission_handler
+    # Store flag on session for use in tool execution loop
+    session.tool_permissions_enabled = TOOL_PERMISSIONS
 
     # Initialize agent manager for context management (same as fallback mode)
     agent_manager = None
@@ -532,6 +519,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
     # Create TUI - color mode is configured automatically in __init__
     app = OpenCLITUI(session=session, config=config)
+
+    # Initialize async permission handler for TUI (AFTER app is created)
+    try:
+        from .async_permissions import AsyncPermissionHandler, set_global_handler
+    except (ImportError, ValueError):
+        from async_permissions import AsyncPermissionHandler, set_global_handler
+
+    permission_handler = AsyncPermissionHandler(session.permission_manager, app)
+    set_global_handler(permission_handler)
+    app.permission_handler = permission_handler
 
     # Store initial prompt for processing after TUI starts
     app.initial_prompt = initial_prompt
@@ -1748,14 +1745,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Execute each tool WITH GOAL SANITY VALIDATION (ASYNC - NO BLOCKING!)
                     for tc in tool_calls:
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Starting tool execution: {tc.function.name}[/dim]\n")
+                            app.write(f"[dim]🐛 Starting tool execution: {tc.function.name}[/dim]\n")
                         app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
 
-                        if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Parsing arguments JSON...[/dim]\n")
                         args = json.loads(tc.function.arguments)
-                        if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Arguments parsed: {args}[/dim]\n")
 
                         # GOAL SANITY CHECK - validate tool call aligns with current goal
                         sanity_check = (True, "No goal tracker")
@@ -1767,37 +1760,82 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 status = "✅" if sanity_check[0] else "⚠️"
                                 app.write(f"[dim]{status} Goal Check: {sanity_check[1]}[/dim]\n")
 
-                        if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: About to execute tool {tc.function.name}...[/dim]\n")
+                        # PERMISSION CHECK - Non-blocking, fail-open if errors
+                        if hasattr(session, 'tool_permissions_enabled') and session.tool_permissions_enabled:
+                            try:
+                                # Import handler - try both import styles
+                                get_global_handler = None
+                                try:
+                                    from async_permissions import get_global_handler
+                                except ImportError:
+                                    pass
+
+                                if not get_global_handler:
+                                    try:
+                                        import sys
+                                        import importlib
+                                        async_perms = importlib.import_module('async_permissions')
+                                        get_global_handler = async_perms.get_global_handler
+                                    except:
+                                        pass
+
+                                if get_global_handler:
+                                    handler = get_global_handler()
+
+                                    if handler and session.permission_manager:
+                                        should_prompt, reason, risk_level = session.permission_manager.should_prompt(
+                                            tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                        )
+
+                                        # TEMP DEBUG: Show permission decision
+                                        if session.debug_mode or True:  # Always show for now
+                                            app.write(f"[dim]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}[/dim]\n")
+
+                                        if should_prompt:
+                                            # Show permission prompt and wait for user response
+                                            allowed, perm_reason = await handler.check_and_prompt(
+                                                tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                            )
+
+                                            if not allowed:
+                                                # Permission denied - skip tool execution
+                                                result = f"❌ Operation cancelled by user"
+                                                session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                                                continue  # Skip to next tool call
+                                    else:
+                                        app.write(f"[yellow]⚠️ handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
+                                else:
+                                    app.write(f"[yellow]⚠️ Could not import get_global_handler[/yellow]\n")
+                            except Exception as e:
+                                # Permission check failed - show error for now
+                                app.write(f"[red]⚠️ Permission check error: {e}[/red]\n")
+                                pass
 
                         # Execute tool ASYNCHRONOUSLY - no blocking!
                         try:
                             result = await execute_tool_async(
                                 tc.function.name,
                                 args,
-                                permission_manager=session.permission_manager,
+                                permission_manager=None,  # Already checked above
                                 current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                 app=app
                             )
-                            # ALWAYS show tool completion
-                            app.write(f"[dim]✓ Tool {tc.function.name} completed[/dim]\n")
-                            await asyncio.sleep(0)  # Yield to UI
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} COMPLETED with result length: {len(str(result))}[/dim]\n")
+                                app.write(f"[dim]✓ {tc.function.name} completed[/dim]\n")
+                            await asyncio.sleep(0)  # Yield to UI
                         except Exception as e:
                             result = f"Tool execution error: {str(e)}"
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: Tool {tc.function.name} FAILED: {e}[/dim]\n")
-                                import traceback
-                                app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                                app.write(f"[dim]⚠️ {tc.function.name} failed: {e}[/dim]\n")
 
                         # Record tool execution in goal tracker
                         if goal_tracker:
                             goal_tracker.record_tool_call(tc.function.name, args, result, sanity_check)
 
-                        # Show tool result to user
+                        # Check result size and truncate if needed
                         result_size = len(str(result))
-                        app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
+                        if session.debug_mode:
+                            app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
                         await asyncio.sleep(0)  # Yield BEFORE writing large result
 
                         # Truncate extremely large results
@@ -1807,13 +1845,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         else:
                             result_display = result
 
-                        # CRITICAL: Write in chunks to prevent blocking on large results
-                        chunk_size = 5000
-                        result_str = f"[dim]{result_display}[/dim]\n"
-                        for i in range(0, len(result_str), chunk_size):
-                            chunk = result_str[i:i+chunk_size]
-                            # Write in thread to prevent blocking UI
-                            await async_write(app, chunk, end="")
+                        # Write result to display
+                        app.write(f"[dim]{result_display}[/dim]\n")
 
                         # Add tool result to messages
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -1977,11 +2010,6 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     chunk_count += 1
                                     current_time = asyncio.get_event_loop().time()
 
-                                    if session.debug_mode and chunk_count % 10 == 0:
-                                        elapsed = current_time - last_chunk_time
-                                        app.write(f"[dim]🐛 CONTINUATION STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
-                                        last_chunk_time = current_time
-
                                     if app.should_exit:
                                         stream_buffer_cont.interrupt()
                                         break
@@ -2071,13 +2099,64 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
                                     app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
                                     args = json.loads(tc.function.arguments)
-        
+
+                                    # PERMISSION CHECK - Non-blocking, fail-open if errors
+                                    if hasattr(session, 'tool_permissions_enabled') and session.tool_permissions_enabled:
+                                        try:
+                                            # Import handler - try both import styles
+                                            get_global_handler = None
+                                            try:
+                                                from async_permissions import get_global_handler
+                                            except ImportError:
+                                                pass
+
+                                            if not get_global_handler:
+                                                try:
+                                                    import sys
+                                                    import importlib
+                                                    async_perms = importlib.import_module('async_permissions')
+                                                    get_global_handler = async_perms.get_global_handler
+                                                except:
+                                                    pass
+
+                                            if get_global_handler:
+                                                handler = get_global_handler()
+
+                                                if handler and session.permission_manager:
+                                                    should_prompt, reason, risk_level = session.permission_manager.should_prompt(
+                                                        tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                                    )
+
+                                                    # TEMP DEBUG: Show permission decision
+                                                    if session.debug_mode or True:  # Always show for now
+                                                        app.write(f"[dim]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}[/dim]\n")
+
+                                                    if should_prompt:
+                                                        # Show permission prompt and wait for user response
+                                                        allowed, perm_reason = await handler.check_and_prompt(
+                                                            tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                                                        )
+
+                                                        if not allowed:
+                                                            # Permission denied - skip tool execution
+                                                            result = f"❌ Operation cancelled by user"
+                                                            session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                                                            continue  # Skip to next tool call
+                                                else:
+                                                    app.write(f"[yellow]⚠️ handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
+                                            else:
+                                                app.write(f"[yellow]⚠️ Could not import get_global_handler[/yellow]\n")
+                                        except Exception as e:
+                                            # Permission check failed - show error for now
+                                            app.write(f"[red]⚠️ Permission check error: {e}[/red]\n")
+                                            pass
+
                                     # Execute tool
                                     try:
                                         result = await execute_tool_async(
                                             tc.function.name,
                                             args,
-                                            permission_manager=session.permission_manager,
+                                            permission_manager=None,  # Already checked above
                                             current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd(),
                                             app=app
                                         )
@@ -2276,7 +2355,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # GUARANTEED UI restoration
                 restore_ui_state(f"Fatal streaming error: {e}")
 
-        asyncio.create_task(safe_stream_wrapper())
+        # Store the streaming task so it can be cancelled with ESC
+        app._streaming_task = asyncio.create_task(safe_stream_wrapper())
 
     # Set message handler
     app.message_handler = handle_user_input

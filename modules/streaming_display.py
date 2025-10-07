@@ -409,31 +409,53 @@ class StreamingDisplay(Static):
         Args:
             prompt_data: Dict with 'title', 'message', 'options', 'details'
         """
-        from .permission_prompt import PermissionPrompt
+        # DON'T add to _lines - that's for chat content
+        # Instead, notify the app to show the permission widget in the footer
+        import sys
+        sys.stderr.write(f"\n🔒 add_permission_prompt called - notifying app\n")
+        sys.stderr.flush()
 
-        # Create the permission prompt widget text
-        prompt = PermissionPrompt(
-            title=prompt_data.get('title', 'Permission'),
-            message=prompt_data.get('message', ''),
-            options=prompt_data.get('options', []),
-            details=prompt_data.get('details', {})
-        )
-        prompt.is_active = True
+        # Get the app instance and show permission prompt
+        try:
+            app = self.app
+            if not app:
+                # Try to get app from parent hierarchy
+                parent = self.parent
+                while parent:
+                    if hasattr(parent, 'app'):
+                        app = parent.app
+                        break
+                    parent = getattr(parent, 'parent', None)
 
-        # Render the prompt
-        prompt_text = prompt.render()
-
-        # Add to lines with special marker
-        self._lines.append(("__PERMISSION_PROMPT__", prompt_text, prompt_data))
-
-        # Rebuild display
-        self._rebuild_display()
+            if app and hasattr(app, '_show_permission_prompt'):
+                app._show_permission_prompt(prompt_data)
+            else:
+                sys.stderr.write(f"⚠️ Cannot show prompt: app={app is not None}\n")
+                sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"⚠️ Error showing prompt: {e}\n")
+            import traceback
+            sys.stderr.write(traceback.format_exc())
+            sys.stderr.flush()
 
     def remove_permission_prompt(self) -> None:
         """Remove the permission prompt from display"""
-        # Filter out permission prompts
-        self._lines = [line for line in self._lines if not (isinstance(line, tuple) and line[0] == "__PERMISSION_PROMPT__")]
-        self._rebuild_display()
+        # Call app to hide the permission widget
+        try:
+            app = self.app
+            if not app:
+                # Try to get app from parent hierarchy
+                parent = self.parent
+                while parent:
+                    if hasattr(parent, 'app'):
+                        app = parent.app
+                        break
+                    parent = getattr(parent, 'parent', None)
+
+            if app and hasattr(app, '_hide_permission_prompt'):
+                app._hide_permission_prompt()
+        except Exception:
+            pass
 
     def _rebuild_display(self) -> None:
         """Rebuild the complete display from _lines"""
