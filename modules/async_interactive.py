@@ -1618,11 +1618,36 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     # Create the API call - NO tools parameter
                     # Tools are in system message context - AI responds naturally
-                    api_call = client.chat.completions.create(
-                        model=session.model or config["model"],
-                        messages=messages_with_context,
-                        stream=True
-                    )
+                    # Try with provider fallbacks enabled for better compatibility
+                    try:
+                        api_call = client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=messages_with_context,
+                            stream=True,
+                            extra_body={"provider": {"allow_fallbacks": True}}
+                        )
+                    except Exception as api_error:
+                        error_msg = str(api_error)
+                        # Detect data policy errors
+                        if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
+                            app.write(f"\n[yellow]⚠️  Data Policy Configuration Required[/yellow]\n")
+                            app.write(f"[yellow]Model: {session.model or config['model']}[/yellow]\n\n")
+                            app.write("[cyan]This model requires specific OpenRouter privacy settings.[/cyan]\n")
+                            app.write("[cyan]Please enable the following at https://openrouter.ai/settings/privacy:[/cyan]\n\n")
+                            if ":free" in (session.model or config["model"]):
+                                app.write("  • [green]Enable free endpoints that may train on inputs[/green]\n")
+                            else:
+                                app.write("  • [green]Enable paid endpoints that may train on inputs[/green]\n")
+                            app.write("\n[dim]After enabling, restart your session with /new[/dim]\n")
+                            restore_ui_state()
+                            return
+                        else:
+                            # Try without extra_body as fallback
+                            api_call = client.chat.completions.create(
+                                model=session.model or config["model"],
+                                messages=messages_with_context,
+                                stream=True
+                            )
 
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
@@ -1956,11 +1981,36 @@ async def interactive_async(config, session=None, initial_prompt=None):
         
                                 # Create the API call - NO tools parameter
                                 # Tools are in system message context - AI responds naturally
-                                api_call = client.chat.completions.create(
-                                    model=session.model or config["model"],
-                                    messages=messages_with_context,
-                                    stream=True
-                                )
+                                # Try with provider fallbacks enabled for better compatibility
+                                try:
+                                    api_call = client.chat.completions.create(
+                                        model=session.model or config["model"],
+                                        messages=messages_with_context,
+                                        stream=True,
+                                        extra_body={"provider": {"allow_fallbacks": True}}
+                                    )
+                                except Exception as api_error:
+                                    error_msg = str(api_error)
+                                    # Detect data policy errors
+                                    if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
+                                        app.write(f"\n[yellow]⚠️  Data Policy Configuration Required[/yellow]\n")
+                                        app.write(f"[yellow]Model: {session.model or config['model']}[/yellow]\n\n")
+                                        app.write("[cyan]This model requires specific OpenRouter privacy settings.[/cyan]\n")
+                                        app.write("[cyan]Please enable at https://openrouter.ai/settings/privacy:[/cyan]\n\n")
+                                        if ":free" in (session.model or config["model"]):
+                                            app.write("  • [green]Enable free endpoints that may train on inputs[/green]\n")
+                                        else:
+                                            app.write("  • [green]Enable paid endpoints that may train on inputs[/green]\n")
+                                        app.write("\n[dim]After enabling, restart your session with /new[/dim]\n")
+                                        restore_ui_state()
+                                        return
+                                    else:
+                                        # Try without extra_body as fallback
+                                        api_call = client.chat.completions.create(
+                                            model=session.model or config["model"],
+                                            messages=messages_with_context,
+                                            stream=True
+                                        )
         
                                 if session.debug_mode:
                                     app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")

@@ -1547,11 +1547,35 @@ def interactive(config, session=None, initial=None):
 
                 # Use prepared messages for API call
                 # NO tools parameter - tools are in system message context
-                stream = client.chat.completions.create(
-                    model=session.model or config["model"],
-                    messages=prepared_messages,
-                    stream=True
-                )
+                # Try with provider fallbacks enabled for better compatibility
+                try:
+                    stream = client.chat.completions.create(
+                        model=session.model or config["model"],
+                        messages=prepared_messages,
+                        stream=True,
+                        extra_body={"provider": {"allow_fallbacks": True}}
+                    )
+                except Exception as api_error:
+                    error_msg = str(api_error)
+                    # Detect data policy errors
+                    if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
+                        print(f"\n\033[93m⚠️  Data Policy Configuration Required\033[0m")
+                        print(f"\033[93mModel: {session.model or config['model']}\033[0m\n")
+                        print("\033[96mThis model requires specific OpenRouter privacy settings.\033[0m")
+                        print("\033[96mPlease enable at https://openrouter.ai/settings/privacy:\033[0m\n")
+                        if ":free" in (session.model or config["model"]):
+                            print("  • \033[92mEnable free endpoints that may train on inputs\033[0m")
+                        else:
+                            print("  • \033[92mEnable paid endpoints that may train on inputs\033[0m")
+                        print("\n\033[2mAfter enabling, restart your session with /new\033[0m\n")
+                        return
+                    else:
+                        # Try without extra_body as fallback
+                        stream = client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=prepared_messages,
+                            stream=True
+                        )
 
                 full_content = ""
                 tool_calls_dict = {}
