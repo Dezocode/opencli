@@ -1616,29 +1616,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
 
-                    # Create the API call - this might block during request setup
-                    # Try with tools parameter first, fallback to context-only if data policy error
-                    try:
-                        api_call = client.chat.completions.create(
-                            model=session.model or config["model"],
-                            messages=messages_with_context,
-                            tools=TOOLS,
-                            stream=True
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        # Check for data policy errors
-                        if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                            app.write(f"[yellow]⚠️  Model doesn't support tools parameter - using context-only mode[/yellow]\n")
-                            # Retry without tools parameter
-                            api_call = client.chat.completions.create(
-                                model=session.model or config["model"],
-                                messages=messages_with_context,
-                                stream=True
-                            )
-                        else:
-                            # Re-raise other errors
-                            raise
+                    # Create the API call - NO tools parameter
+                    # Tools are in system message context - AI responds naturally
+                    api_call = client.chat.completions.create(
+                        model=session.model or config["model"],
+                        messages=messages_with_context,
+                        stream=True
+                    )
 
                     if session.debug_mode:
                         app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
@@ -1970,29 +1954,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 if session.debug_mode:
                                     app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
         
-                                # Create the API call - this might block during request setup
-                                # Try with tools parameter first, fallback to context-only if data policy error
-                                try:
-                                    api_call = client.chat.completions.create(
-                                        model=session.model or config["model"],
-                                        messages=messages_with_context,
-                                        tools=TOOLS,
-                                        stream=True
-                                    )
-                                except Exception as e:
-                                    error_msg = str(e)
-                                    # Check for data policy errors
-                                    if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                                        app.write(f"[yellow]⚠️  Model doesn't support tools parameter - using context-only mode[/yellow]\n")
-                                        # Retry without tools parameter
-                                        api_call = client.chat.completions.create(
-                                            model=session.model or config["model"],
-                                            messages=messages_with_context,
-                                            stream=True
-                                        )
-                                    else:
-                                        # Re-raise other errors
-                                        raise
+                                # Create the API call - NO tools parameter
+                                # Tools are in system message context - AI responds naturally
+                                api_call = client.chat.completions.create(
+                                    model=session.model or config["model"],
+                                    messages=messages_with_context,
+                                    stream=True
+                                )
         
                                 if session.debug_mode:
                                     app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")
