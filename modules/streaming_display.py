@@ -411,11 +411,6 @@ class StreamingDisplay(Static):
         """
         # DON'T add to _lines - that's for chat content
         # Instead, notify the app to show the permission widget in the footer
-        import sys
-        sys.stderr.write(f"\n🔒 add_permission_prompt called - notifying app\n")
-        sys.stderr.flush()
-
-        # Get the app instance and show permission prompt
         try:
             app = self.app
             if not app:
@@ -429,14 +424,8 @@ class StreamingDisplay(Static):
 
             if app and hasattr(app, '_show_permission_prompt'):
                 app._show_permission_prompt(prompt_data)
-            else:
-                sys.stderr.write(f"⚠️ Cannot show prompt: app={app is not None}\n")
-                sys.stderr.flush()
-        except Exception as e:
-            sys.stderr.write(f"⚠️ Error showing prompt: {e}\n")
-            import traceback
-            sys.stderr.write(traceback.format_exc())
-            sys.stderr.flush()
+        except Exception:
+            pass  # Silently fail if can't show permission prompt
 
     def remove_permission_prompt(self) -> None:
         """Remove the permission prompt from display"""

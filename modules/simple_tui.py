@@ -532,10 +532,6 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
-        import sys
-        sys.stderr.write(f"\n🔒 Permission response received: {event.option}\n")
-        sys.stderr.flush()
-
         # Get the async permission handler
         try:
             from async_permissions import get_global_handler
@@ -545,8 +541,6 @@ Session: {self.session.session_id[:8]} | Ready
                 async_perms = importlib.import_module('async_permissions')
                 get_global_handler = async_perms.get_global_handler
             except:
-                sys.stderr.write(f"⚠️ Cannot import async_permissions\n")
-                sys.stderr.flush()
                 return
 
         handler = get_global_handler()
@@ -557,16 +551,9 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': event.option.get('data', {})
             }
             handler.handle_response(response_data)
-        else:
-            sys.stderr.write(f"⚠️ No global handler found\n")
-            sys.stderr.flush()
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
-        import sys
-        sys.stderr.write(f"\n🔒 Permission cancelled\n")
-        sys.stderr.flush()
-
         # Get the async permission handler
         try:
             from async_permissions import get_global_handler
@@ -798,46 +785,24 @@ Session: {self.session.session_id[:8]} | Ready
     def _show_permission_prompt(self, prompt_data: dict) -> None:
         """Show permission prompt inside MultiLineInput"""
         try:
-            import sys
-            sys.stderr.write(f"\n🔒 _show_permission_prompt: Setting data on MultiLineInput\n")
-            sys.stderr.flush()
-
             # Get the MultiLineInput and set permission data on it
             prompt_input = self.query_one("#prompt-input")
             prompt_input.permission_prompt_data = prompt_data
             prompt_input.permission_selected_option = 0
             prompt_input.refresh()
-
-            sys.stderr.write(f"🔒 Permission prompt data set on input\n")
-            sys.stderr.flush()
-
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"⚠️ Error in _show_permission_prompt: {e}\n")
-            import traceback
-            sys.stderr.write(traceback.format_exc())
-            sys.stderr.flush()
+        except Exception:
+            pass  # Silently fail if permission prompt can't be shown
 
     def _hide_permission_prompt(self) -> None:
         """Clear permission prompt from MultiLineInput"""
         try:
-            import sys
-            sys.stderr.write(f"\n🔒 _hide_permission_prompt: Clearing data from MultiLineInput\n")
-            sys.stderr.flush()
-
             # Clear permission data from MultiLineInput
             prompt_input = self.query_one("#prompt-input")
             prompt_input.permission_prompt_data = None
             prompt_input.permission_selected_option = 0
             prompt_input.refresh()
-
-            sys.stderr.write(f"🔒 Permission prompt cleared, input restored\n")
-            sys.stderr.flush()
-
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"⚠️ Error clearing permission prompt: {e}\n")
-            sys.stderr.flush()
+        except Exception:
+            pass  # Silently fail if permission prompt can't be cleared
 
     def action_quit_app(self) -> None:
         """Quit and persist IPC server"""

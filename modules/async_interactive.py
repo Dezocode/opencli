@@ -19,6 +19,24 @@ from stream_buffer import StreamBuffer, BufferStatusDisplay
 import uuid
 from copy import deepcopy
 
+# Patch AsyncOpenAI to accept and ignore opentools= parameter
+# This prevents OpenRouter from routing to tool-enabled endpoints
+# Tools are passed as context in system message instead
+from openai.resources.chat import AsyncCompletions
+
+_original_async_create = AsyncCompletions.create
+
+async def _patched_async_create(self, **kwargs):
+    """Patched create that strips opentools= to prevent provider routing"""
+    if 'opentools' in kwargs:
+        # Remove opentools - don't send to API
+        # Tools are in system message context instead
+        kwargs.pop('opentools')
+    return await _original_async_create(self, **kwargs)
+
+# Apply the patch
+AsyncCompletions.create = _patched_async_create
+
 
 # CRITICAL: Async wrapper for app.write() to prevent UI blocking
 async def async_write(app, text, end="\n"):
@@ -378,6 +396,11 @@ async def prepare_messages_with_context(messages, config, spec_memory=None, goal
 
     # Add working directory
     system_parts.append(f"\nWorking directory: {cwd}")
+
+    # Add available tools as context (prevents OpenRouter provider routing)
+    import json
+    tools_json = json.dumps(TOOLS, indent=2)
+    system_parts.append(f"\n## Available Tools\nYou have access to these tools. Respond with tool_calls in your message when you want to use them:\n```json\n{tools_json}\n```")
 
     # Create system message
     system_message = {
@@ -1612,6 +1635,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
 
                     # Create the API call - this might block during request setup
+                    # Use opentools= to prevent OpenRouter from routing to tool-enabled endpoints
+                    # OpenCLI handles tool execution client-side
                     api_call = client.chat.completions.create(
                         model=session.model or config["model"],
                         messages=messages_with_context,
@@ -1787,8 +1812,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                             tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
                                         )
 
-                                        # TEMP DEBUG: Show permission decision
-                                        if session.debug_mode or True:  # Always show for now
+                                        # Show permission decision in debug mode only
+                                        if session.debug_mode:
                                             app.write(f"[dim]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}[/dim]\n")
 
                                         if should_prompt:
@@ -1950,6 +1975,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
         
                                 # Create the API call - this might block during request setup
+                                # Use opentools= to prevent OpenRouter from routing to tool-enabled endpoints
+                                # OpenCLI handles tool execution client-side
                                 api_call = client.chat.completions.create(
                                     model=session.model or config["model"],
                                     messages=messages_with_context,
@@ -2127,8 +2154,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                                         tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
                                                     )
 
-                                                    # TEMP DEBUG: Show permission decision
-                                                    if session.debug_mode or True:  # Always show for now
+                                                    # Show permission decision in debug mode only
+                                                    if session.debug_mode:
                                                         app.write(f"[dim]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}[/dim]\n")
 
                                                     if should_prompt:

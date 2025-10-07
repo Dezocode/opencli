@@ -76,16 +76,7 @@ class AsyncPermissionHandler:
 
         # Show prompt in UI
         if self.app and hasattr(self.app, 'stream_display'):
-            import sys
-            sys.stderr.write(f"\n🔒 Calling add_permission_prompt for {tool_name}...\n")
-            sys.stderr.flush()
             self.app.stream_display.add_permission_prompt(prompt_data)
-            sys.stderr.write(f"🔒 add_permission_prompt returned\n")
-            sys.stderr.flush()
-        else:
-            import sys
-            sys.stderr.write(f"\n⚠️ Cannot show prompt: app={self.app is not None}, has_stream_display={hasattr(self.app, 'stream_display') if self.app else False}\n")
-            sys.stderr.flush()
 
         # Wait for user response (with timeout)
         try:
