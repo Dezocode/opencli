@@ -1615,7 +1615,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     api_call = client.chat.completions.create(
                         model=session.model or config["model"],
                         messages=messages_with_context,
-                        tools=TOOLS,
+                        opentools=TOOLS,
                         stream=True
                     )
 
@@ -1953,7 +1953,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 api_call = client.chat.completions.create(
                                     model=session.model or config["model"],
                                     messages=messages_with_context,
-                                    tools=TOOLS,
+                                    opentools=TOOLS,
                                     stream=True
                                 )
         
