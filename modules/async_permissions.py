@@ -44,17 +44,10 @@ class AsyncPermissionHandler:
             tool_name, args, current_dir
         )
 
-        # Debug logging
-        if self.app:
-            self.app.write(f"[dim]🔒 should_prompt({tool_name}): {should_prompt}, reason: {reason}, risk: {risk_level.value}[/dim]\n")
-
         if not should_prompt:
             return True, reason
 
-        # Need to prompt user - show permission UI
-        if self.app:
-            self.app.write(f"[yellow]🔒 Showing permission prompt for {tool_name}...[/yellow]\n")
-
+        # Show permission prompt (silently - no debug messages)
         return await self._show_permission_prompt(tool_name, args, risk_level, current_dir)
 
     async def _show_permission_prompt(
@@ -83,7 +76,16 @@ class AsyncPermissionHandler:
 
         # Show prompt in UI
         if self.app and hasattr(self.app, 'stream_display'):
+            import sys
+            sys.stderr.write(f"\n🔒 Calling add_permission_prompt for {tool_name}...\n")
+            sys.stderr.flush()
             self.app.stream_display.add_permission_prompt(prompt_data)
+            sys.stderr.write(f"🔒 add_permission_prompt returned\n")
+            sys.stderr.flush()
+        else:
+            import sys
+            sys.stderr.write(f"\n⚠️ Cannot show prompt: app={self.app is not None}, has_stream_display={hasattr(self.app, 'stream_display') if self.app else False}\n")
+            sys.stderr.flush()
 
         # Wait for user response (with timeout)
         try:

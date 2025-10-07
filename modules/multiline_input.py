@@ -8,18 +8,28 @@ from textual.message import Message
 from textual.reactive import reactive
 from rich.text import Text
 from rich.console import Console
+from rich.style import Style
 import asyncio
+
+# Import Frontier colors
+try:
+    from .frontier_colors import FRONTIER_COLORS
+except (ImportError, ValueError):
+    from frontier_colors import FRONTIER_COLORS
 
 
 class MultiLineInput(Widget):
     """
     Custom multi-line input that wraps at edge and supports history
+    Can also display permission prompts inline
     """
 
     value = reactive("", layout=True)
     cursor_position = reactive(0)
     is_spinning = reactive(False)
     spinner_frame = reactive(0)
+    permission_prompt_data = reactive(None)
+    permission_selected_option = reactive(0)
 
     # Spinner frames
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -29,6 +39,16 @@ class MultiLineInput(Widget):
         def __init__(self, value: str) -> None:
             self.value = value
             super().__init__()
+
+    class PermissionResponse(Message):
+        """Posted when user selects a permission option"""
+        def __init__(self, option: dict) -> None:
+            self.option = option
+            super().__init__()
+
+    class PermissionCancelled(Message):
+        """Posted when user cancels permission prompt"""
+        pass
 
     def __init__(self, placeholder: str = "", **kwargs):
         super().__init__(**kwargs)
@@ -40,7 +60,12 @@ class MultiLineInput(Widget):
         self._spin_task = None
 
     def render(self) -> Text:
-        """Render the current input with cursor"""
+        """Render the current input with cursor or permission prompt"""
+
+        # PRIORITY: Show permission prompt if active
+        if self.permission_prompt_data:
+            return self._render_permission_prompt()
+
         # Build display
         display = Text()
 
@@ -88,6 +113,48 @@ class MultiLineInput(Widget):
 
         return display
 
+    def _render_permission_prompt(self) -> Text:
+        """Render permission prompt with Frontier colors (no extra borders - prompt box is the border)"""
+        prompt_data = self.permission_prompt_data
+
+        output = Text()
+
+        # Get data
+        title = prompt_data.get('title', 'Permission')
+        message = prompt_data.get('message', '')
+        options = prompt_data.get('options', [])
+
+        # Frontier colors
+        title_color = FRONTIER_COLORS.get("warning", "#E2A478")
+        text_color = FRONTIER_COLORS.get("text_primary", "#B3B1AD")
+        selected_color = FRONTIER_COLORS.get("success", "#6B9E78")
+        dim_color = FRONTIER_COLORS.get("text_dim", "#5C6773")
+
+        # Title
+        output.append(f"{title}\n", style=Style(color=title_color, bold=True))
+        output.append("\n")
+
+        # Message (wrapped)
+        for line in message.split('\n'):
+            if line.strip():
+                output.append(line + "\n", style=Style(color=text_color))
+
+        output.append("\n")
+
+        # Options
+        for i, option in enumerate(options):
+            option_text = option.get('text', '')
+            if i == self.permission_selected_option:
+                # Selected - highlighted with arrow
+                output.append("▸ ", style=Style(color=selected_color, bold=True))
+                output.append(option_text + "\n", style=Style(color=selected_color, bold=True))
+            else:
+                # Not selected
+                output.append("  ", style=Style(color=dim_color))
+                output.append(option_text + "\n", style=Style(color=text_color))
+
+        return output
+
     def _wrap_text(self, text: str, width: int = None) -> list[str]:
         """Wrap text to fit width"""
         if width is None:
@@ -117,6 +184,33 @@ class MultiLineInput(Widget):
     def on_key(self, event) -> None:
         """Handle key presses"""
         key = event.key
+
+        # PRIORITY: Handle permission prompt navigation if active
+        if self.permission_prompt_data:
+            options = self.permission_prompt_data.get('options', [])
+            if key == "up":
+                if self.permission_selected_option > 0:
+                    self.permission_selected_option -= 1
+                    self.refresh()
+                event.prevent_default()
+                return
+            elif key == "down":
+                if self.permission_selected_option < len(options) - 1:
+                    self.permission_selected_option += 1
+                    self.refresh()
+                event.prevent_default()
+                return
+            elif key == "enter":
+                # Confirm selection
+                selected = options[self.permission_selected_option]
+                self.post_message(self.PermissionResponse(selected))
+                event.prevent_default()
+                return
+            elif key == "escape":
+                # Cancel
+                self.post_message(self.PermissionCancelled())
+                event.prevent_default()
+                return
 
         # Don't handle up/down - let parent handle for history
         if key in ("up", "down"):
@@ -243,3 +337,8 @@ class MultiLineInput(Widget):
     def watch_spinner_frame(self, old_value: int, new_value: int) -> None:
         """React to frame changes - refresh already handled by _spin"""
         pass
+
+    def watch_permission_prompt_data(self, old_value, new_value) -> None:
+        """React to permission prompt data changes - trigger layout update"""
+        if old_value != new_value:
+            self.refresh(layout=True)  # Force layout recalculation to adjust height

@@ -304,7 +304,7 @@ class OpenCLITUI(App):
 
     #prompt-container {
         height: auto;
-        layout: horizontal;
+        layout: vertical;
         padding: 0 1;
         background: transparent;
         border: none;
@@ -335,7 +335,7 @@ class OpenCLITUI(App):
         width: 1fr;
         height: auto;
         min-height: 3;
-        max-height: 10;
+        max-height: 20;
         margin: 0;
         background: #151A21;
         border: round #3E4B59;
@@ -472,6 +472,7 @@ class OpenCLITUI(App):
         # Configure if it's StreamingDisplay
         if stream_display is not None:
             self._content_widget = stream_display
+            self.stream_display = stream_display  # For permission handler access
             stream_display.set_laser_colors(self._laser_colors)
             stream_display.set_laser_enabled(self._laser_mode)
 
@@ -529,6 +530,73 @@ Session: {self.session.session_id[:8]} | Ready
         widget = self.query_one("#prompt-input", MultiLineInput)
         await self._handle_user_message(event.value.strip(), widget)
 
+    def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
+        """Handle permission response from MultiLineInput"""
+        import sys
+        sys.stderr.write(f"\n🔒 Permission response received: {event.option}\n")
+        sys.stderr.flush()
+
+        # Get the async permission handler
+        try:
+            from async_permissions import get_global_handler
+        except ImportError:
+            try:
+                import importlib
+                async_perms = importlib.import_module('async_permissions')
+                get_global_handler = async_perms.get_global_handler
+            except:
+                sys.stderr.write(f"⚠️ Cannot import async_permissions\n")
+                sys.stderr.flush()
+                return
+
+        handler = get_global_handler()
+        if handler:
+            # Build response dict
+            response_data = {
+                'response': event.option.get('response'),
+                'data': event.option.get('data', {})
+            }
+            handler.handle_response(response_data)
+        else:
+            sys.stderr.write(f"⚠️ No global handler found\n")
+            sys.stderr.flush()
+
+    def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
+        """Handle permission cancellation from MultiLineInput"""
+        import sys
+        sys.stderr.write(f"\n🔒 Permission cancelled\n")
+        sys.stderr.flush()
+
+        # Get the async permission handler
+        try:
+            from async_permissions import get_global_handler
+        except ImportError:
+            try:
+                import importlib
+                async_perms = importlib.import_module('async_permissions')
+                get_global_handler = async_perms.get_global_handler
+            except:
+                return
+
+        handler = get_global_handler()
+        if handler:
+            # Import PermissionResponse enum
+            try:
+                from permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            response_data = {
+                'response': PermissionResponse.CANCEL,
+                'data': {}
+            }
+            handler.handle_response(response_data)
+
     async def _handle_user_message(self, user_input: str, widget) -> None:
         """Common handler for user messages"""
         if not user_input:
@@ -578,8 +646,11 @@ Session: {self.session.session_id[:8]} | Ready
             self.input_future.set_result(user_input)
 
     def on_key(self, event) -> None:
-        """Handle key presses for history navigation and permission prompts"""
-        # ESC - Cancel streaming API call
+        """Handle key presses for history navigation and ESC interrupt"""
+        # Note: Permission prompts are handled by MultiLineInput itself
+        # When permission_prompt_data is set, MultiLineInput handles up/down/enter/esc
+
+        # PRIORITY 1: ESC - Cancel streaming API call
         if event.key == "escape":
             if hasattr(self, '_streaming_task') and self._streaming_task and not self._streaming_task.done():
                 self._streaming_task.cancel()
@@ -587,21 +658,6 @@ Session: {self.session.session_id[:8]} | Ready
                 event.prevent_default()
                 event.stop()
                 return
-
-        # Check if there's an active permission prompt
-        if hasattr(self, 'permission_handler') and self.permission_handler:
-            # Check if we have an active permission prompt
-            try:
-                stream_display = self.query_one("#stream-display")
-                if stream_display and hasattr(stream_display, '_lines') and stream_display._lines:
-                    # Check for active permission prompt
-                    for i, line in enumerate(stream_display._lines):
-                        if isinstance(line, tuple) and line[0] == "__PERMISSION_PROMPT__":
-                            # Permission prompt is active - handle its keyboard events
-                            self._handle_permission_key(event, i, line[2])  # line[2] is prompt_data
-                            return
-            except Exception:
-                pass  # Stream display not available yet
 
         prompt = self.query_one("#prompt-input")
 
@@ -643,7 +699,10 @@ Session: {self.session.session_id[:8]} | Ready
 
     def _handle_permission_key(self, event, line_index: int, prompt_data: dict) -> None:
         """Handle keyboard input for permission prompts"""
-        from modules.permission_prompt import PermissionResponse, PermissionPrompt
+        try:
+            from modules.permission_prompt import PermissionResponse, PermissionPrompt
+        except ImportError:
+            from permission_prompt import PermissionResponse, PermissionPrompt
 
         options = prompt_data.get('options', [])
         if not options:
@@ -709,7 +768,10 @@ Session: {self.session.session_id[:8]} | Ready
 
     def _update_permission_prompt_display(self, line_index: int, prompt_data: dict) -> None:
         """Update the permission prompt display with new selection"""
-        from modules.permission_prompt import PermissionPrompt
+        try:
+            from modules.permission_prompt import PermissionPrompt
+        except ImportError:
+            from permission_prompt import PermissionPrompt
 
         # Create updated prompt with new selection
         prompt = PermissionPrompt(
@@ -732,6 +794,50 @@ Session: {self.session.session_id[:8]} | Ready
                 stream_display._rebuild_display()
         except Exception:
             pass
+
+    def _show_permission_prompt(self, prompt_data: dict) -> None:
+        """Show permission prompt inside MultiLineInput"""
+        try:
+            import sys
+            sys.stderr.write(f"\n🔒 _show_permission_prompt: Setting data on MultiLineInput\n")
+            sys.stderr.flush()
+
+            # Get the MultiLineInput and set permission data on it
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+
+            sys.stderr.write(f"🔒 Permission prompt data set on input\n")
+            sys.stderr.flush()
+
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"⚠️ Error in _show_permission_prompt: {e}\n")
+            import traceback
+            sys.stderr.write(traceback.format_exc())
+            sys.stderr.flush()
+
+    def _hide_permission_prompt(self) -> None:
+        """Clear permission prompt from MultiLineInput"""
+        try:
+            import sys
+            sys.stderr.write(f"\n🔒 _hide_permission_prompt: Clearing data from MultiLineInput\n")
+            sys.stderr.flush()
+
+            # Clear permission data from MultiLineInput
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+
+            sys.stderr.write(f"🔒 Permission prompt cleared, input restored\n")
+            sys.stderr.flush()
+
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"⚠️ Error clearing permission prompt: {e}\n")
+            sys.stderr.flush()
 
     def action_quit_app(self) -> None:
         """Quit and persist IPC server"""
