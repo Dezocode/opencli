@@ -11,22 +11,6 @@ from openai import OpenAI
 
 from modules.tool_call_utils import normalize_tool_call_messages
 
-# Patch OpenAI to accept opentools= parameter
-# Converts opentools= to tools= for API compatibility
-from openai.resources.chat.completions import Completions
-
-_original_sync_create = Completions.create
-
-def _patched_sync_create(self, **kwargs):
-    """Patched create that converts opentools= to tools="""
-    if 'opentools' in kwargs:
-        # Convert opentools to tools for API call
-        kwargs['tools'] = kwargs.pop('opentools')
-    return _original_sync_create(self, **kwargs)
-
-# Apply the patch
-Completions.create = _patched_sync_create
-
 # Add modules directory to path for imports
 MODULES_DIR = Path.home() / ".opencli" / "modules"
 if MODULES_DIR.exists() and str(MODULES_DIR) not in sys.path:
@@ -260,6 +244,11 @@ def prepare_messages_with_context(messages, config_dir=None):
 
     # Add working directory
     system_parts.append(f"\nWorking directory: {cwd}")
+
+    # Add available tools as context
+    import json
+    tools_json = json.dumps(TOOLS, indent=2)
+    system_parts.append(f"\n## Available Tools\nYou have access to these tools. When you want to use a tool, respond with tool_calls:\n```json\n{tools_json}\n```")
 
     # Create system message
     system_message = {
@@ -1557,10 +1546,10 @@ def interactive(config, session=None, initial=None):
                     prepared_messages = prepare_messages_with_context(session.messages, CONFIG_DIR)
 
                 # Use prepared messages for API call
+                # NO tools parameter - tools are in system message context
                 stream = client.chat.completions.create(
                     model=session.model or config["model"],
                     messages=prepared_messages,
-                    opentools=TOOLS,
                     stream=True
                 )
 

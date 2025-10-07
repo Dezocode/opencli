@@ -19,22 +19,6 @@ from stream_buffer import StreamBuffer, BufferStatusDisplay
 import uuid
 from copy import deepcopy
 
-# Patch AsyncOpenAI to accept opentools= parameter
-# Converts opentools= to tools= for API compatibility
-from openai.resources.chat import AsyncCompletions
-
-_original_async_create = AsyncCompletions.create
-
-async def _patched_async_create(self, **kwargs):
-    """Patched create that converts opentools= to tools="""
-    if 'opentools' in kwargs:
-        # Convert opentools to tools for API call
-        kwargs['tools'] = kwargs.pop('opentools')
-    return await _original_async_create(self, **kwargs)
-
-# Apply the patch
-AsyncCompletions.create = _patched_async_create
-
 
 # CRITICAL: Async wrapper for app.write() to prevent UI blocking
 async def async_write(app, text, end="\n"):
@@ -1633,12 +1617,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
 
                     # Create the API call - this might block during request setup
-                    # Use opentools= to prevent OpenRouter from routing to tool-enabled endpoints
-                    # OpenCLI handles tool execution client-side
+                    # NO tools parameter - tools are in system message context
+                    # AI sees tools and responds with tool_calls naturally
                     api_call = client.chat.completions.create(
                         model=session.model or config["model"],
                         messages=messages_with_context,
-                        opentools=TOOLS,
                         stream=True
                     )
 
@@ -1974,11 +1957,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
         
                                 # Create the API call - this might block during request setup
                                 # Use opentools= to prevent OpenRouter from routing to tool-enabled endpoints
-                                # OpenCLI handles tool execution client-side
+                                # NO tools parameter - tools are in system message context
+                                # AI sees tools and responds with tool_calls naturally
                                 api_call = client.chat.completions.create(
                                     model=session.model or config["model"],
                                     messages=messages_with_context,
-                                    opentools=TOOLS,
                                     stream=True
                                 )
         
