@@ -1628,17 +1628,25 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         )
                     except Exception as api_error:
                         error_msg = str(api_error)
-                        # Detect data policy errors
+                        # Detect data policy errors and show ACTUAL requirement from API
                         if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                            app.write(f"\n[yellow]⚠️  Data Policy Configuration Required[/yellow]\n")
+                            app.write(f"\n[red]❌ API Error: Data Policy Mismatch[/red]\n\n")
                             app.write(f"[yellow]Model: {session.model or config['model']}[/yellow]\n\n")
-                            app.write("[cyan]This model requires specific OpenRouter privacy settings.[/cyan]\n")
-                            app.write("[cyan]Please enable the following at https://openrouter.ai/settings/privacy:[/cyan]\n\n")
-                            if ":free" in (session.model or config["model"]):
-                                app.write("  • [green]Enable free endpoints that may train on inputs[/green]\n")
+
+                            # Show the ACTUAL error message from OpenRouter
+                            app.write("[cyan]OpenRouter says:[/cyan]\n")
+                            app.write(f"[dim]{error_msg}[/dim]\n\n")
+
+                            # Parse and suggest based on actual error
+                            app.write("[cyan]Possible solutions:[/cyan]\n")
+                            if "ZDR" in error_msg or "zero data retention" in error_msg.lower():
+                                app.write("  1. Enable 'ZDR Endpoints Only' at https://openrouter.ai/settings/privacy\n")
                             else:
-                                app.write("  • [green]Enable paid endpoints that may train on inputs[/green]\n")
-                            app.write("\n[dim]After enabling, restart your session with /new[/dim]\n")
+                                app.write("  1. Check your OpenRouter privacy settings\n")
+                                app.write("  2. Visit https://openrouter.ai/settings/privacy\n")
+                                app.write("  3. Try a different model with /model\n")
+
+                            app.write("\n[dim]After changing settings, restart with /new[/dim]\n")
                             restore_ui_state()
                             return
                         else:
@@ -1991,17 +1999,25 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     )
                                 except Exception as api_error:
                                     error_msg = str(api_error)
-                                    # Detect data policy errors
+                                    # Detect data policy errors and show ACTUAL requirement from API
                                     if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                                        app.write(f"\n[yellow]⚠️  Data Policy Configuration Required[/yellow]\n")
+                                        app.write(f"\n[red]❌ API Error: Data Policy Mismatch[/red]\n\n")
                                         app.write(f"[yellow]Model: {session.model or config['model']}[/yellow]\n\n")
-                                        app.write("[cyan]This model requires specific OpenRouter privacy settings.[/cyan]\n")
-                                        app.write("[cyan]Please enable at https://openrouter.ai/settings/privacy:[/cyan]\n\n")
-                                        if ":free" in (session.model or config["model"]):
-                                            app.write("  • [green]Enable free endpoints that may train on inputs[/green]\n")
+
+                                        # Show the ACTUAL error message from OpenRouter
+                                        app.write("[cyan]OpenRouter says:[/cyan]\n")
+                                        app.write(f"[dim]{error_msg}[/dim]\n\n")
+
+                                        # Parse and suggest based on actual error
+                                        app.write("[cyan]Possible solutions:[/cyan]\n")
+                                        if "ZDR" in error_msg or "zero data retention" in error_msg.lower():
+                                            app.write("  1. Enable 'ZDR Endpoints Only' at https://openrouter.ai/settings/privacy\n")
                                         else:
-                                            app.write("  • [green]Enable paid endpoints that may train on inputs[/green]\n")
-                                        app.write("\n[dim]After enabling, restart your session with /new[/dim]\n")
+                                            app.write("  1. Check your OpenRouter privacy settings\n")
+                                            app.write("  2. Visit https://openrouter.ai/settings/privacy\n")
+                                            app.write("  3. Try a different model with /model\n")
+
+                                        app.write("\n[dim]After changing settings, restart with /new[/dim]\n")
                                         restore_ui_state()
                                         return
                                     else:

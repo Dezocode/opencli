@@ -1557,17 +1557,25 @@ def interactive(config, session=None, initial=None):
                     )
                 except Exception as api_error:
                     error_msg = str(api_error)
-                    # Detect data policy errors
+                    # Detect data policy errors and show ACTUAL requirement from API
                     if "data policy" in error_msg.lower() or "endpoints found" in error_msg.lower():
-                        print(f"\n\033[93m⚠️  Data Policy Configuration Required\033[0m")
+                        print(f"\n\033[91m❌ API Error: Data Policy Mismatch\033[0m\n")
                         print(f"\033[93mModel: {session.model or config['model']}\033[0m\n")
-                        print("\033[96mThis model requires specific OpenRouter privacy settings.\033[0m")
-                        print("\033[96mPlease enable at https://openrouter.ai/settings/privacy:\033[0m\n")
-                        if ":free" in (session.model or config["model"]):
-                            print("  • \033[92mEnable free endpoints that may train on inputs\033[0m")
+
+                        # Show the ACTUAL error message from OpenRouter
+                        print("\033[96mOpenRouter says:\033[0m")
+                        print(f"\033[2m{error_msg}\033[0m\n")
+
+                        # Parse and suggest based on actual error
+                        print("\033[96mPossible solutions:\033[0m")
+                        if "ZDR" in error_msg or "zero data retention" in error_msg.lower():
+                            print("  1. Enable 'ZDR Endpoints Only' at https://openrouter.ai/settings/privacy")
                         else:
-                            print("  • \033[92mEnable paid endpoints that may train on inputs\033[0m")
-                        print("\n\033[2mAfter enabling, restart your session with /new\033[0m\n")
+                            print("  1. Check your OpenRouter privacy settings")
+                            print("  2. Visit https://openrouter.ai/settings/privacy")
+                            print("  3. Try a different model with /model")
+
+                        print("\n\033[2mAfter changing settings, restart with /new\033[0m\n")
                         return
                     else:
                         # Try without extra_body as fallback
