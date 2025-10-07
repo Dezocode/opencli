@@ -450,10 +450,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
         {"type": "function", "function": {"name": "Grep", "description": "Search files for pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
     ]
 
-    # Create async OpenAI client
+    # Create async OpenAI client with OpenRouter headers
     client = AsyncOpenAI(
         base_url=config["baseURL"],
-        api_key=config["apiKey"]
+        api_key=config["apiKey"],
+        default_headers={
+            "HTTP-Referer": "https://github.com/Dezocode/opencli",
+            "X-Title": "OpenCLI"
+        }
     )
 
     # Initialize permission manager (same as fallback mode)

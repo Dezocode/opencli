@@ -1359,7 +1359,14 @@ def ensure_prompt_at_bottom():
         print("\n" * 3, end='', flush=True)
 
 def interactive(config, session=None, initial=None):
-    client = OpenAI(base_url=config["baseURL"], api_key=config["apiKey"])
+    client = OpenAI(
+        base_url=config["baseURL"],
+        api_key=config["apiKey"],
+        default_headers={
+            "HTTP-Referer": "https://github.com/Dezocode/opencli",
+            "X-Title": "OpenCLI"
+        }
+    )
     session = session or Session(model=config["model"])
 
     # Initialize agent manager if available
@@ -1674,7 +1681,14 @@ def main():
     if args.print:
         if not prompt:
             prompt = sys.stdin.read().strip()
-        client = OpenAI(base_url=config["baseURL"], api_key=config["apiKey"])
+        client = OpenAI(
+            base_url=config["baseURL"],
+            api_key=config["apiKey"],
+            default_headers={
+                "HTTP-Referer": "https://github.com/Dezocode/opencli",
+                "X-Title": "OpenCLI"
+            }
+        )
         r = client.chat.completions.create(model=config["model"], messages=[{"role": "user", "content": prompt}])
         print(r.choices[0].message.content)
     else:
