@@ -11,19 +11,17 @@ from openai import OpenAI
 
 from modules.tool_call_utils import normalize_tool_call_messages
 
-# Patch OpenAI to accept and ignore opentools= parameter
-# This prevents OpenRouter from routing to tool-enabled endpoints
-# Tools are passed as context in system message instead
+# Patch OpenAI to accept opentools= parameter
+# Converts opentools= to tools= for API compatibility
 from openai.resources.chat.completions import Completions
 
 _original_sync_create = Completions.create
 
 def _patched_sync_create(self, **kwargs):
-    """Patched create that strips opentools= to prevent provider routing"""
+    """Patched create that converts opentools= to tools="""
     if 'opentools' in kwargs:
-        # Remove opentools - don't send to API
-        # Tools are in system message context instead
-        kwargs.pop('opentools')
+        # Convert opentools to tools for API call
+        kwargs['tools'] = kwargs.pop('opentools')
     return _original_sync_create(self, **kwargs)
 
 # Apply the patch
@@ -262,11 +260,6 @@ def prepare_messages_with_context(messages, config_dir=None):
 
     # Add working directory
     system_parts.append(f"\nWorking directory: {cwd}")
-
-    # Add available tools as context (prevents OpenRouter provider routing)
-    import json
-    tools_json = json.dumps(TOOLS, indent=2)
-    system_parts.append(f"\n## Available Tools\nYou have access to these tools. Respond with tool_calls in your message when you want to use them:\n```json\n{tools_json}\n```")
 
     # Create system message
     system_message = {
@@ -1564,8 +1557,6 @@ def interactive(config, session=None, initial=None):
                     prepared_messages = prepare_messages_with_context(session.messages, CONFIG_DIR)
 
                 # Use prepared messages for API call
-                # Use opentools= to prevent OpenRouter from routing to tool-enabled endpoints
-                # OpenCLI handles tool execution client-side
                 stream = client.chat.completions.create(
                     model=session.model or config["model"],
                     messages=prepared_messages,

@@ -19,19 +19,17 @@ from stream_buffer import StreamBuffer, BufferStatusDisplay
 import uuid
 from copy import deepcopy
 
-# Patch AsyncOpenAI to accept and ignore opentools= parameter
-# This prevents OpenRouter from routing to tool-enabled endpoints
-# Tools are passed as context in system message instead
+# Patch AsyncOpenAI to accept opentools= parameter
+# Converts opentools= to tools= for API compatibility
 from openai.resources.chat import AsyncCompletions
 
 _original_async_create = AsyncCompletions.create
 
 async def _patched_async_create(self, **kwargs):
-    """Patched create that strips opentools= to prevent provider routing"""
+    """Patched create that converts opentools= to tools="""
     if 'opentools' in kwargs:
-        # Remove opentools - don't send to API
-        # Tools are in system message context instead
-        kwargs.pop('opentools')
+        # Convert opentools to tools for API call
+        kwargs['tools'] = kwargs.pop('opentools')
     return await _original_async_create(self, **kwargs)
 
 # Apply the patch
