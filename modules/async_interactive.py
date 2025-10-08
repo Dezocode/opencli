@@ -1880,6 +1880,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     return
 
                 async def handle_policy_error(error_text: str) -> str:
+                    nonlocal model_mgr
                     provider_id = model_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
                     current_headers = config.get("defaultHeaders", {}) or {}
 
