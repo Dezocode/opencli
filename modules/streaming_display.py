@@ -58,7 +58,7 @@ class StreamingDisplay(Static):
         self._current_stream = ""
         self._streaming = False
         self._laser_colors = FRONTIER_LASER_COLORS
-        self._laser_enabled = True
+        self._laser_enabled = False  # Disabled - causes visual spam
         self._markdown_renderer = get_markdown_renderer()
 
         # Text selection state
@@ -75,13 +75,18 @@ class StreamingDisplay(Static):
         # Build complete display
         display_text = Text()
 
-        # Add completed lines
+        # Add completed lines (including buffer status)
         for line in self._lines:
-            if isinstance(line, Text):
+            if isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__":
+                # Buffer status tuple - extract the Text content
+                display_text.append_text(line[1])
+                display_text.append("\n")
+            elif isinstance(line, Text):
                 display_text.append_text(line)
+                display_text.append("\n")
             else:
                 display_text.append(str(line))
-            display_text.append("\n")
+                display_text.append("\n")
 
         # Add the rendered markdown (current stream)
         # Apply laser effect to the trailing characters if enabled
