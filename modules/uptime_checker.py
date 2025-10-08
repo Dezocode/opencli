@@ -3,10 +3,12 @@ Model Uptime Checker for OpenRouter
 Fetches availability status to distinguish between model downtime vs config issues
 """
 
+import json
 import re
+import html as html_lib
 import httpx
 import time
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 
 
 async def check_model_uptime(model_id: str) -> Tuple[bool, Optional[float], str]:
@@ -31,7 +33,8 @@ async def check_model_uptime(model_id: str) -> Tuple[bool, Optional[float], str]
         headers = {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            "Expires": "0"
+            "Expires": "0",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         }
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -77,6 +80,11 @@ def _parse_current_uptime(html: str) -> Optional[float]:
         r'(?:uptime|live)[^\d]*(\d+(?:\.\d+)?)\s*%',
         r'(\d+(?:\.\d+)?)\s*%[^\d]*(?:uptime|live)',
         r'<div[^>]*uptime[^>]*>.*?(\d+(?:\.\d+)?)\s*%',
+        r'Uptime stats[^%]*(\d+(?:\.\d+)?)\s*%',
+        r'Last\s*24[hH][^%]*(\d+(?:\.\d+)?)\s*%',
+        r'last[-_\s]*24[hH][^%]*(\d+(?:\.\d+)?)\s*%',
+        r'aria-label="[^"]*(\d+(?:\.\d+)?)\s*%\s*uptime',
+        r'data-uptime[^"\']*["\'](\d+(?:\.\d+)?)\s*%',
     ]
 
     for pattern in patterns:
@@ -114,15 +122,125 @@ def _parse_uptime_from_graph(html: str) -> Optional[float]:
         except (ValueError, IndexError):
             pass
 
+    # New chart format: JSON-like data stored in attributes (e.g., data-chart="{...}")
+    json_like_pattern = r'data-(?:chart|state|config)="([^"]+)"'
+    for attr_match in re.finditer(json_like_pattern, html):
+        encoded = attr_match.group(1)
+        try:
+            decoded = html_lib.unescape(encoded)
+            chart_data = json.loads(decoded)
+            value = _extract_uptime_from_json(chart_data)
+            if value is not None:
+                return value
+        except Exception:
+            continue
+
+    # __NEXT_DATA__ script JSON
+    next_match = re.search(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+    if next_match:
+        try:
+            payload = html_lib.unescape(next_match.group(1).strip())
+            data = json.loads(payload)
+            value = _extract_uptime_from_json(data)
+            if value is not None:
+                return value
+        except Exception:
+            pass
+
+    # window.__NUXT__ assignment
+    nuxt_match = re.search(r'window\.__NUXT__\s*=\s*(\{.*?\});', html, re.DOTALL)
+    if nuxt_match:
+        try:
+            payload = html_lib.unescape(nuxt_match.group(1).strip())
+            data = json.loads(payload.rstrip(';'))
+            value = _extract_uptime_from_json(data)
+            if value is not None:
+                return value
+        except Exception:
+            pass
+
+    # Generic fallback: look for "y": 0.95 values (take last)
+    y_values = re.findall(r'"y"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)', html)
+    if y_values:
+        try:
+            value = float(y_values[-1])
+            if value <= 1.0:
+                value *= 100.0
+            return value
+        except ValueError:
+            pass
+
+    # Look for JSON or meta data containing uptime percentage
+    json_patterns = [
+        r'"uptimePercent"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+        r'"uptimePercentage"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+        r'"currentUptime"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+        r'"uptime"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+        r'"last24h"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+        r'"last_24h"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+        r'"uptimeLast24Hours"\s*:\s*(0?\.\d+|\d+(?:\.\d+)?)',
+    ]
+
+    for pattern in json_patterns:
+        for json_match in re.finditer(pattern, html):
+            try:
+                value = float(json_match.group(1))
+                if value <= 1.0:
+                    value *= 100.0
+                return value
+            except ValueError:
+                continue
+
+    # Next.js data payload
     # Look for live badge or indicator
     if re.search(r'<[^>]*(?:class|id)=["\'][^"\']*live[^"\']*["\'][^>]*>', html, re.IGNORECASE):
-        # If there's a LIVE badge, try to extract nearby percentage
         live_context = re.search(r'live.*?(\d+(?:\.\d+)?)\s*%', html, re.IGNORECASE | re.DOTALL)
         if live_context:
             try:
                 return float(live_context.group(1))
             except ValueError:
                 pass
+
+    return None
+
+
+def _extract_uptime_from_json(data: Any) -> Optional[float]:
+    """
+    Recursively search JSON data for uptime-related fields.
+    """
+    key_candidates = [
+        "uptime", "uptimePercent", "uptimePercentage",
+        "currentUptime", "last24h", "last_24h", "uptimeLast24Hours"
+    ]
+
+    def normalize(value: Any) -> Optional[float]:
+        if isinstance(value, (int, float)):
+            return value * 100.0 if 0.0 <= value <= 1.0 else float(value)
+        if isinstance(value, str):
+            try:
+                parsed = float(value.strip().rstrip('%'))
+                if parsed <= 1.0:
+                    parsed *= 100.0
+                return parsed
+            except ValueError:
+                return None
+        return None
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            key_lower = key.lower()
+            if any(candidate.lower() in key_lower for candidate in key_candidates):
+                normalized = normalize(value)
+                if normalized is not None:
+                    return normalized
+            nested = _extract_uptime_from_json(value)
+            if nested is not None:
+                return nested
+    elif isinstance(data, list):
+        for item in data:
+            nested = _extract_uptime_from_json(item)
+            if nested is not None:
+                return nested
 
     return None
 

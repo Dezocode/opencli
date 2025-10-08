@@ -171,27 +171,41 @@ PROMPT_STYLE = Style.from_dict({
     'bottom-toolbar.text': 'noinherit',
 }) if RICH_PROMPT else None
 
-def get_api_key():
-    """Get API key from environment or secrets file"""
-    # Try environment variable first
-    key = os.getenv('OPENROUTER_API_KEY')
-    if key:
-        return key
-
-    # Try secrets file
-    if SECRETS_FILE.exists():
+def get_api_key(provider="openrouter"):
+    """Get API key for the specified provider"""
+    # First, try to load from models.json (multi-provider storage)
+    models_file = CONFIG_DIR / "models.json"
+    if models_file.exists():
         try:
-            with open(SECRETS_FILE) as f:
-                data = json.load(f)
-                return data.get('apiKey')
+            with open(models_file) as f:
+                models_data = json.load(f)
+                api_keys = models_data.get("api_keys", {})
+                if provider in api_keys and api_keys[provider]:
+                    return api_keys[provider]
         except:
             pass
 
-    # Prompt user to set it up
-    print("\n⚠️  No OpenRouter API key found!")
-    print("\nSet your API key by either:")
-    print("  1. Export OPENROUTER_API_KEY environment variable")
-    print("  2. Run: opencli --setup\n")
+    # Fallback for openrouter: try environment variable
+    if provider == "openrouter":
+        key = os.getenv('OPENROUTER_API_KEY')
+        if key:
+            return key
+
+        # Try legacy secrets file
+        if SECRETS_FILE.exists():
+            try:
+                with open(SECRETS_FILE) as f:
+                    data = json.load(f)
+                    key = data.get('apiKey')
+                    if key:
+                        return key
+            except:
+                pass
+
+    # No API key found for this provider
+    print(f"\n⚠️  No API key found for provider: {provider}")
+    print(f"\nAdd an API key with: /providers add {provider} YOUR_API_KEY")
+    print(f"Or run: opencli --setup\n")
     sys.exit(1)
 
 def setup_api_key():
@@ -305,7 +319,8 @@ def load_config():
     elif "defaultHeaders" in config:
         del config["defaultHeaders"]
 
-    config['apiKey'] = get_api_key()
+    # Load API key for the active provider
+    config['apiKey'] = get_api_key(provider)
 
     # Save config back to file if provider settings were auto-updated
     if config_changed:
@@ -323,18 +338,7 @@ def load_config():
 def create_openai_client(config):
     """Create OpenAI-compatible client with provider-specific headers."""
     headers = config.get("defaultHeaders") or None
-    provider = config.get("provider", "openrouter")
-
-    # Debug logging for Google
-    if provider == "google":
-        import sys
-        print(f"\n🔍 DEBUG - Creating Google client:", file=sys.stderr)
-        print(f"  Base URL: {config['baseURL']}", file=sys.stderr)
-        print(f"  API Key: {config['apiKey'][:20]}...{config['apiKey'][-4:]}", file=sys.stderr)
-        print(f"  Headers: {headers}", file=sys.stderr)
-        print(f"  Model: {config.get('model')}\n", file=sys.stderr)
-
-    # All providers use standard OpenAI client now (Google uses OpenAI-compatible endpoint)
+    # All providers use standard OpenAI client (Google uses OpenAI-compatible endpoint)
     return OpenAI(
         base_url=config["baseURL"],
         api_key=config["apiKey"],

@@ -367,8 +367,8 @@ async def perform_google_request(
             "parts": [{"text": system_instruction}]
         }
 
-    # Build endpoint URL with API key as query parameter
-    endpoint = f"{base_url}/models/{model_id}:generateContent?key={api_key}"
+    # Build endpoint URL (without query parameter - using header auth instead)
+    endpoint = f"{base_url}/models/{model_id}:generateContent"
 
     # Debug output
     print(f"[DEBUG Google] Base URL: {base_url}", file=sys.stderr)
@@ -377,6 +377,7 @@ async def perform_google_request(
 
     headers = {
         "Content-Type": "application/json",
+        "x-goog-api-key": api_key,  # Google recommends header auth (more secure than query param)
     }
 
     # Allow additional user-defined headers
@@ -749,7 +750,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
         headers = current_config.get("defaultHeaders") or None
         return AsyncOpenAI(
             base_url=current_config["baseURL"],
-            api_key=current_config["apiKey"],
+            api_key=current_config.get("apiKey", ""),
             default_headers=headers
         )
 

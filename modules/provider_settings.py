@@ -58,7 +58,7 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "models_endpoint": None,
         "key_patterns": ["AIza"],
         "request_format": "openai-chat",
-        "default_headers": {}
+        "default_headers": {}  # Google OpenAI-compatible endpoint uses standard Bearer token auth
     }
 }
 

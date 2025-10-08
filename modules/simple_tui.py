@@ -834,199 +834,60 @@ Session: {self.session.session_id[:8]} | Ready
             self.input_future.set_exception(KeyboardInterrupt())
         self.exit()
 
-    async def on_mouse_down(self, event: events.MouseDown) -> None:
-        """Start text selection on mouse down"""
-        # DEBUG - write immediately to verify handler is called
+    # Mouse selection - forward events to StreamingDisplay with coordinate conversion
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Forward mouse down to StreamingDisplay for text selection"""
         try:
-            with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                f.write(f"=== MOUSE DOWN EVENT RECEIVED ===\n")
-                f.write(f"Coords: screen({event.screen_x}, {event.screen_y}) offset({event.x}, {event.y})\n")
-        except Exception as e:
-            print(f"Debug write failed: {e}")
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                # Convert screen-absolute coords to widget-relative coords
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
 
-        # Don't interfere with input field clicks
+                # Call handler and capture mouse to receive move events during drag
+                stream_display._handle_mouse_down(widget_x, widget_y)
+                self.capture_mouse(stream_display)
+        except Exception as e:
+            try:
+                with open('/tmp/opencli_app_mouse_debug.txt', 'w') as f:
+                    f.write(f"ERROR forwarding mouse down: {e}\n")
+            except:
+                pass
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Forward ALL mouse move to StreamingDisplay - needed for smooth drag selection"""
         try:
-            widget = self.get_widget_at(event.x, event.y)[0]
-            if hasattr(widget, 'id') and widget.id == "prompt-input":
-                return
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+                stream_display._handle_mouse_move(widget_x, widget_y)
+
+                # DEBUG
+                try:
+                    with open('/tmp/opencli_app_mouse_debug.txt', 'a') as f:
+                        f.write(f"APP MOVE: screen ({event.x},{event.y}) → widget ({widget_x},{widget_y})\n")
+                except:
+                    pass
         except:
             pass
 
-        self._is_selecting = True
-        self._selection_start = (event.screen_x, event.screen_y)
-        self._selection_end = (event.screen_x, event.screen_y)
-
-    async def on_mouse_move(self, event: events.MouseMove) -> None:
-        """Update text selection during drag"""
-        if self._is_selecting:
-            self._selection_end = (event.screen_x, event.screen_y)
-
-    async def on_mouse_up(self, event: events.MouseUp) -> None:
-        """Complete text selection and auto-copy to clipboard"""
-        # DEBUG
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Forward mouse up to StreamingDisplay for text selection"""
         try:
-            with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                f.write(f"=== MOUSE UP EVENT RECEIVED ===\n")
-                f.write(f"Was selecting: {self._is_selecting}\n")
-                f.write(f"Coords: screen({event.screen_x}, {event.screen_y})\n")
-        except Exception as e:
-            print(f"Debug write failed: {e}")
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+                stream_display._handle_mouse_up(widget_x, widget_y)
 
-        if self._is_selecting:
-            self._is_selecting = False
-            await self._copy_selected_text()
-            # Clear selection after copy
-            self._selection_start = None
-            self._selection_end = None
-
-    async def _copy_selected_text(self) -> None:
-        """Extract selected text from screen and copy to clipboard"""
-        if not self._selection_start or not self._selection_end:
-            return
-
-        try:
-            # Get screen text from render buffer
-            selected_text = self._extract_text_from_selection()
-
-            # DEBUG
-            try:
-                with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                    f.write(f"Extracted text: {repr(selected_text)}\n")
-                    f.write(f"Text length: {len(selected_text)}\n\n")
-            except:
-                pass
-
-            if selected_text and selected_text.strip():
-                # Copy to system clipboard (run in executor to not block)
-                import subprocess
-                import platform
-
-                system = platform.system()
-
-                def copy_to_clipboard():
-                    if system == "Darwin":  # macOS
-                        process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
-                        process.communicate(selected_text.encode('utf-8'))
-                    elif system == "Linux":
-                        try:
-                            process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
-                            process.communicate(selected_text.encode('utf-8'))
-                        except FileNotFoundError:
-                            try:
-                                process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
-                                process.communicate(selected_text.encode('utf-8'))
-                            except FileNotFoundError:
-                                pass  # No clipboard tool available
-                    elif system == "Windows":
-                        process = subprocess.Popen(['clip'], stdin=subprocess.PIPE, shell=True)
-                        process.communicate(selected_text.encode('utf-8'))
-
-                # Run clipboard copy in thread pool to not block UI
-                await asyncio.get_event_loop().run_in_executor(None, copy_to_clipboard)
-
-        except Exception as e:
-            # DEBUG
-            try:
-                with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                    f.write(f"ERROR in _copy_selected_text: {e}\n\n")
-            except:
-                pass
-
-    def _extract_text_from_selection(self) -> str:
-        """Extract text from screen buffer based on selection coordinates"""
-        if not self._selection_start or not self._selection_end:
-            return ""
-
-        try:
-            # Normalize coordinates (handle dragging in any direction)
-            start_x, start_y = self._selection_start
-            end_x, end_y = self._selection_end
-
-            if start_y > end_y or (start_y == end_y and start_x > end_x):
-                start_x, start_y, end_x, end_y = end_x, end_y, start_x, start_y
-
-            # Get rendered text from content widgets
-            lines = []
-
-            # Try StreamingDisplay first (most common)
-            try:
-                stream_widget = self.query_one("#stream-display")
-                if hasattr(stream_widget, '_lines'):
-                    for line in stream_widget._lines:
-                        if isinstance(line, Text):
-                            lines.append(line.plain)
-                        else:
-                            lines.append(str(line))
-
-                    # Also add current stream if streaming
-                    if hasattr(stream_widget, '_current_stream') and stream_widget._current_stream:
-                        lines.append(stream_widget._current_stream)
-
-                    # DEBUG
-                    try:
-                        with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                            f.write(f"Found StreamingDisplay with {len(lines)} lines\n")
-                    except:
-                        pass
-            except Exception as e:
-                # Try RichLog fallback
-                try:
-                    content_widget = self.query_one("#content")
-                    if hasattr(content_widget, '_lines'):
-                        for line in content_widget._lines:
-                            if isinstance(line, Text):
-                                lines.append(line.plain)
-                            else:
-                                lines.append(str(line))
-
-                        # DEBUG
-                        try:
-                            with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                                f.write(f"Found RichLog with {len(lines)} lines\n")
-                        except:
-                            pass
-                except Exception as e2:
-                    # DEBUG
-                    try:
-                        with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                            f.write(f"Failed to find content widget: {e}, {e2}\n")
-                    except:
-                        pass
-
-            if not lines:
-                return ""
-
-            # Extract selected lines
-            selected_lines = []
-            for i in range(start_y, min(end_y + 1, len(lines))):
-                if i < 0 or i >= len(lines):
-                    continue
-
-                line = lines[i]
-
-                if start_y == end_y:
-                    # Single line selection
-                    selected_lines.append(line[max(0, start_x):min(len(line), end_x)])
-                elif i == start_y:
-                    # First line
-                    selected_lines.append(line[max(0, start_x):])
-                elif i == end_y:
-                    # Last line
-                    selected_lines.append(line[:min(len(line), end_x)])
-                else:
-                    # Middle lines
-                    selected_lines.append(line)
-
-            return "\n".join(selected_lines)
-
-        except Exception as e:
-            # DEBUG
-            try:
-                with open('/tmp/opencli_mouse_debug.txt', 'a') as f:
-                    f.write(f"Exception in _extract_text_from_selection: {e}\n")
-            except:
-                pass
-            return ""
+                # Release mouse capture
+                self.release_mouse()
+        except:
+            pass
 
     def _start_queue_thread(self):
         """Start background thread to process write queue independently"""

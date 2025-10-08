@@ -29,6 +29,7 @@ class ToolPermissionManager:
             'Write': RiskLevel.RISKY,
             'Bash': RiskLevel.DANGEROUS,
             'GitHub': RiskLevel.SAFE,
+            'ConfigureHeaders': RiskLevel.RISKY,
         }
 
         # Load saved permissions
