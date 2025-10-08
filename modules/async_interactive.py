@@ -751,7 +751,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
     # Setup message handler
     async def handle_user_input(user_input: str):
         """Handle user input and generate response"""
-        nonlocal client
+        nonlocal client, model_mgr
 
         # Handle pending provider header prompts before other logic
         if hasattr(session, '_pending_header_update') and session._pending_header_update:
@@ -878,7 +878,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
             except (ImportError, ValueError):
                 from model_manager import ModelManager
 
-            model_mgr = ModelManager()
+            local_model_mgr = ModelManager()
             api_key = user_input.strip()
 
             # Clear flag
@@ -887,12 +887,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
             app.write("[dim]Validating key and fetching models...[/dim]\n")
 
             # Fetch models from OpenRouter
-            result = await model_mgr.fetch_models_from_openrouter(api_key)
+            result = await local_model_mgr.fetch_models_from_openrouter(api_key)
 
             if result["success"]:
                 # Register models
-                model_mgr.add_api_key("openrouter", api_key)
-                model_mgr.register_models("openrouter", result["models"])
+                local_model_mgr.add_api_key("openrouter", api_key)
+                local_model_mgr.register_models("openrouter", result["models"])
 
                 app.write(f"[green]✓ API key added![/green]\n")
                 app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
@@ -909,14 +909,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
             except (ImportError, ValueError):
                 from model_manager import ModelManager
 
-            model_mgr = ModelManager()
+            local_model_mgr = ModelManager()
             api_key = user_input.strip()
 
             # Clear flag
             session._awaiting_provider_key = False
 
             # Auto-detect provider
-            provider = model_mgr.detect_provider(api_key)
+            provider = local_model_mgr.detect_provider(api_key)
 
             if not provider:
                 app.write("[red]✗ Could not detect provider from API key format[/red]\n\n")
@@ -928,18 +928,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 app.write("  • Google AI: AIza...\n\n")
                 return
 
-            provider_info = model_mgr.models_db.get("providers", {}).get(provider, {})
+            provider_info = local_model_mgr.models_db.get("providers", {}).get(provider, {})
             provider_name = provider_info.get("name", provider)
 
             app.write(f"[green]✓ Detected provider: {provider_name}[/green]\n")
             app.write("[dim]Fetching models...[/dim]\n\n")
 
             # Fetch models from provider
-            result = await model_mgr.fetch_models_from_provider(provider, api_key)
+            result = await local_model_mgr.fetch_models_from_provider(provider, api_key)
 
             if result["success"]:
-                model_mgr.add_api_key(provider, api_key)
-                model_mgr.register_models(provider, result["models"])
+                local_model_mgr.add_api_key(provider, api_key)
+                local_model_mgr.register_models(provider, result["models"])
 
                 app.write(f"[green]✓ Added {provider_name}![/green]\n")
                 app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
@@ -1036,7 +1036,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                model_mgr = ModelManager()
+                providers_mgr = ModelManager()
 
                 # Parse args
                 parts = user_input.split(maxsplit=1)
@@ -1230,7 +1230,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                model_mgr = ModelManager()
+                providers_mgr = ModelManager()
 
                 # Parse args
                 parts = user_input.split(maxsplit=2)
@@ -1239,7 +1239,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 if not subcommand or subcommand == "list":
                     # List all providers with status
-                    providers = model_mgr.get_providers()
+                    providers = providers_mgr.get_providers()
 
                     app.write("[bold cyan]🔌 API Providers[/bold cyan]\n\n")
 
@@ -1269,7 +1269,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     else:
                         # Direct key provided - detect and add
                         api_key = args.strip()
-                        provider = model_mgr.detect_provider(api_key)
+                        provider = providers_mgr.detect_provider(api_key)
 
                         if not provider:
                             app.write("[red]✗ Could not detect provider from API key format[/red]\n\n")
@@ -1281,18 +1281,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write("  • Google AI: AIza...\n\n")
                             return
 
-                        provider_info = model_mgr.models_db.get("providers", {}).get(provider, {})
+                        provider_info = providers_mgr.models_db.get("providers", {}).get(provider, {})
                         provider_name = provider_info.get("name", provider)
 
                         app.write(f"[green]✓ Detected provider: {provider_name}[/green]\n")
                         app.write("[dim]Fetching models...[/dim]\n\n")
 
                         # Fetch models from provider
-                        result = await model_mgr.fetch_models_from_provider(provider, api_key)
+                        result = await providers_mgr.fetch_models_from_provider(provider, api_key)
 
                         if result["success"]:
-                            model_mgr.add_api_key(provider, api_key)
-                            model_mgr.register_models(provider, result["models"])
+                            providers_mgr.add_api_key(provider, api_key)
+                            providers_mgr.register_models(provider, result["models"])
 
                             app.write(f"[green]✓ Added {provider_name}![/green]\n")
                             app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
@@ -1307,16 +1307,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         return
 
                     provider_id = args.strip()
-                    providers = model_mgr.models_db.get("providers", {})
+                    providers = providers_mgr.models_db.get("providers", {})
 
                     if provider_id not in providers:
                         app.write(f"[red]✗ Unknown provider: {provider_id}[/red]\n\n")
                         return
 
                     # Remove the key
-                    if provider_id in model_mgr.models_db.get("api_keys", {}):
-                        del model_mgr.models_db["api_keys"][provider_id]
-                        model_mgr._save_models()
+                    if provider_id in providers_mgr.models_db.get("api_keys", {}):
+                        del providers_mgr.models_db["api_keys"][provider_id]
+                        providers_mgr._save_models()
                         app.write(f"[green]✓ Removed {provider_id} API key[/green]\n\n")
                     else:
                         app.write(f"[yellow]⚠ {provider_id} was not configured[/yellow]\n\n")
