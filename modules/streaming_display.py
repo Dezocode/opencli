@@ -65,61 +65,12 @@ class StreamingDisplay(Static):
         self._selecting = False
 
     def write_stream(self, text: str):
-        """Write streaming text with markdown rendering and optional laser effect"""
+        """Accumulate streaming text silently - display handled by buffer status"""
         self._streaming = True
         self._current_stream += text
-
-        # Render the current stream as markdown IN REAL-TIME
-        rendered_stream = self._markdown_renderer.render(self._current_stream)
-
-        # Build complete display
-        display_text = Text()
-
-        # Add completed lines (including buffer status)
-        for line in self._lines:
-            if isinstance(line, tuple) and line[0] == "__BUFFER_STATUS__":
-                # Buffer status tuple - extract the Text content
-                display_text.append_text(line[1])
-                display_text.append("\n")
-            elif isinstance(line, Text):
-                display_text.append_text(line)
-                display_text.append("\n")
-            else:
-                display_text.append(str(line))
-                display_text.append("\n")
-
-        # Add the rendered markdown (current stream)
-        # Apply laser effect to the trailing characters if enabled
-        if self._laser_enabled and rendered_stream:
-            # Get the plain text length for laser calculation
-            plain_text = rendered_stream.plain
-            stream_len = len(plain_text)
-            trail_length = 20  # Characters in the laser trail
-
-            # Apply laser glow to trailing characters
-            # We'll rebuild with laser colors on the tail
-            for i, span in enumerate(rendered_stream._spans):
-                start, end, style = span.start, span.end, span.style
-                for pos in range(start, end):
-                    char = plain_text[pos] if pos < len(plain_text) else ''
-                    distance_from_front = stream_len - pos - 1
-
-                    if distance_from_front < trail_length:
-                        # In the laser trail - override with gradient
-                        intensity = 1.0 - (distance_from_front / trail_length)
-                        color_idx = int(intensity * (len(self._laser_colors) - 1))
-                        color_idx = min(color_idx, len(self._laser_colors) - 1)
-                        color = self._laser_colors[color_idx]
-                        display_text.append(char, style=Style(color=color, bold=True))
-                    else:
-                        # Beyond trail - use original markdown formatting
-                        display_text.append(char, style=style)
-        else:
-            # No laser - just show rendered markdown
-            display_text.append_text(rendered_stream)
-
-        self.update(display_text)
-        self._scroll_to_bottom()
+        # NOTE: No rendering or display here - just accumulate
+        # Buffer status display will show "Synthesizing..." with spinner
+        # finish_stream() will render and display the complete markdown
 
     def finish_stream(self):
         """Finish streaming and render markdown - REPLACES streamed content"""
