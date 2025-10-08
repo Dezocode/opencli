@@ -5,6 +5,7 @@ Fetches availability status to distinguish between model downtime vs config issu
 
 import re
 import httpx
+import time
 from typing import Tuple, Optional
 
 
@@ -22,10 +23,19 @@ async def check_model_uptime(model_id: str) -> Tuple[bool, Optional[float], str]
         - message: Human-readable status message
     """
     try:
-        url = f"https://openrouter.ai/{model_id}/uptime"
+        # Add timestamp to bust any caching
+        timestamp = int(time.time())
+        url = f"https://openrouter.ai/{model_id}/uptime?t={timestamp}"
+
+        # Cache-busting headers
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
 
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url)
+            response = await client.get(url, headers=headers)
 
             if response.status_code != 200:
                 return False, None, f"Could not fetch uptime data (HTTP {response.status_code})"
