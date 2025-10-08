@@ -1297,8 +1297,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
-            # Handle /providers command locally
-            if user_input.startswith('/providers'):
+            # Handle /provider and /providers command locally
+            if user_input.startswith('/provider'):
                 try:
                     from .model_manager import ModelManager
                 except (ImportError, ValueError):
@@ -1326,9 +1326,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"  ID: [dim]{provider['id']}[/dim]\n\n")
 
                     app.write("\n[dim]Usage:[/dim]\n")
-                    app.write("  [cyan]/providers add[/cyan]          Add new provider key\n")
-                    app.write("  [cyan]/providers add <key>[/cyan]   Add specific key (auto-detects provider)\n")
-                    app.write("  [cyan]/providers remove <id>[/cyan] Remove provider key\n\n")
+                    app.write("  [cyan]/provider add[/cyan]          Add new provider key\n")
+                    app.write("  [cyan]/provider add <key>[/cyan]   Add specific key (auto-detects provider)\n")
+                    app.write("  [cyan]/provider remove <id>[/cyan] Remove provider key\n\n")
 
                 elif subcommand == "add":
                     if not args:
@@ -1377,7 +1377,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 elif subcommand == "remove":
                     if not args:
                         app.write("[red]✗ Specify provider ID to remove[/red]\n\n")
-                        app.write("Example: [cyan]/providers remove openrouter[/cyan]\n\n")
+                        app.write("Example: [cyan]/provider remove openrouter[/cyan]\n\n")
                         return
 
                     provider_id = args.strip()

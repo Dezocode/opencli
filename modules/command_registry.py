@@ -19,6 +19,12 @@ class CommandRegistry:
                 'default_enabled': True,
                 'requires_args': False
             },
+            '/provider': {
+                'description': 'Manage API providers and keys',
+                'category': 'basic',
+                'default_enabled': True,
+                'requires_args': False
+            },
             '/agent': {
                 'description': 'Switch to specific agent',
                 'category': 'agents',
