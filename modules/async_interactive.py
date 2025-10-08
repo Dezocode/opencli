@@ -293,6 +293,122 @@ async def perform_anthropic_request(
     reply_text = "\n".join(part for part in text_parts if part).strip()
     return True, reply_text, None
 
+
+async def perform_google_request(
+    messages: List[Dict],
+    session,
+    config: Dict,
+    *,
+    timeout: Optional[float] = None
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Execute a request against the Google Gemini API.
+
+    Returns:
+        (success, response_text, error_message)
+    """
+    api_key = config.get("apiKey")
+    if not api_key:
+        return False, None, "Google API key missing from configuration"
+
+    # Debug: Check API key format
+    import sys
+    print(f"[DEBUG Google] API Key length: {len(api_key)}", file=sys.stderr)
+    print(f"[DEBUG Google] API Key prefix: {api_key[:10]}...", file=sys.stderr)
+
+    base_url = (config.get("baseURL") or "").rstrip("/")
+    if not base_url:
+        return False, None, "Google base URL missing from configuration"
+
+    model_id = session.model or config.get("model")
+    if not model_id:
+        return False, None, "Model ID missing from configuration"
+
+    # Convert messages to Google format
+    contents = []
+    system_instruction = None
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        # Extract text from content if it's a list of content blocks
+        if isinstance(content, list):
+            text_parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+            content = "\n".join(text_parts)
+
+        # Handle system messages as systemInstruction
+        if role == "system":
+            if system_instruction:
+                system_instruction += "\n\n" + content
+            else:
+                system_instruction = content
+        else:
+            # Map roles: assistant -> model, user -> user
+            google_role = "model" if role == "assistant" else "user"
+            contents.append({
+                "role": google_role,
+                "parts": [{"text": content}]
+            })
+
+    if not contents:
+        return False, None, "No conversation messages available for Google request"
+
+    payload: Dict = {
+        "contents": contents,
+    }
+
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+
+    # Build endpoint URL
+    endpoint = f"{base_url}/models/{model_id}:generateContent"
+
+    # Debug: Show endpoint and headers
+    print(f"[DEBUG Google] Endpoint: {endpoint}", file=sys.stderr)
+    print(f"[DEBUG Google] Model ID: {model_id}", file=sys.stderr)
+
+    headers = {
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+
+    # Allow additional user-defined headers
+    default_headers = config.get("defaultHeaders") or {}
+    for key, value in default_headers.items():
+        headers.setdefault(key, value)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as e:
+        return False, None, f"Google API error: {e.response.status_code} {e.response.text}"
+    except Exception as e:
+        return False, None, f"Google request failed: {e}"
+
+    # Extract text from response
+    text_parts: List[str] = []
+    for candidate in data.get("candidates", []):
+        content = candidate.get("content", {})
+        for part in content.get("parts", []):
+            if isinstance(part, dict) and "text" in part:
+                text_parts.append(part.get("text", ""))
+
+    reply_text = "\n".join(part for part in text_parts if part).strip()
+    return True, reply_text, None
+
+
 try:
     from .frontier_colors import FRONTIER_COLORS
 except (ImportError, ValueError):
@@ -1297,6 +1413,231 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
+            # Handle /refactor command - code analysis and refactoring
+            if user_input.startswith('/refactor'):
+                try:
+                    from .auto_refactor import get_auto_refactor_manager
+                    from .profiler import get_profiler
+                except (ImportError, ValueError):
+                    from auto_refactor import get_auto_refactor_manager
+                    from profiler import get_profiler
+
+                parts = user_input.split(maxsplit=2)
+                subcommand = parts[1] if len(parts) > 1 else None
+                args = parts[2] if len(parts) > 2 else None
+
+                # /refactor suggest-split <file>
+                if subcommand == "suggest-split":
+                    if not args:
+                        app.write("[red]Error: Please specify a file path[/red]\n\n")
+                        app.write("[dim]Usage: /refactor suggest-split <file-path>[/dim]\n\n")
+                        return
+
+                    manager = get_auto_refactor_manager()
+                    result = manager.suggest_split(args)
+
+                    if not result["success"]:
+                        app.write(f"[red]✗ {result['error']}[/red]\n\n")
+                        return
+
+                    stats = result["stats"]
+                    clusters = result["clusters"]
+
+                    app.write(f"[bold cyan]📊 Refactoring Analysis: {args}[/bold cyan]\n\n")
+                    app.write(f"[bold]File Stats:[/bold]\n")
+                    app.write(f"  Total Lines: {stats['total_lines']}\n")
+                    app.write(f"  Functions: {stats['function_count']}\n")
+                    app.write(f"  Max Nesting: {stats['max_nesting']}\n\n")
+
+                    if not clusters:
+                        app.write("[yellow]No suitable clusters found for extraction[/yellow]\n\n")
+                        return
+
+                    app.write(f"[bold]Suggested Extractions ({len(clusters)}):[/bold]\n\n")
+
+                    for i, cluster in enumerate(clusters, 1):
+                        app.write(f"[bold cyan]{i}. {cluster['suggested_name']}.py[/bold cyan]\n")
+                        app.write(f"   Functions: {', '.join(cluster['functions'])}\n")
+                        app.write(f"   Lines: {cluster['lines']}\n")
+                        app.write(f"   Cohesion: {cluster['cohesion']:.2f} | Coupling: {cluster['coupling']:.2f}\n")
+                        app.write(f"   Rationale: {cluster['rationale']}\n\n")
+
+                    return
+
+                # /refactor profile start/stop
+                elif subcommand == "profile":
+                    profiler = get_profiler()
+
+                    if args == "start":
+                        profiler.start_profiling()
+                        app.write("[green]✓ Performance profiling started[/green]\n\n")
+                    elif args == "stop":
+                        stats = profiler.stop_profiling()
+                        app.write("[bold cyan]📊 PERFORMANCE PROFILE[/bold cyan]\n\n")
+                        app.write(f"Total Calls: {stats.total_calls:,}\n")
+                        app.write(f"Total Time: {stats.total_time:.3f}s\n\n")
+
+                        if stats.budget_violations:
+                            app.write("[bold red]⚠️  PERFORMANCE BUDGET VIOLATIONS:[/bold red]\n")
+                            for violation in stats.budget_violations:
+                                app.write(f"  {violation.function}: {violation.actual_time:.1f}ms ")
+                                app.write(f"(budget: {violation.budget_time:.1f}ms)\n")
+                            app.write("\n")
+
+                        app.write("[bold]TOP 20 FUNCTIONS BY CUMULATIVE TIME:[/bold]\n")
+                        for func in stats.top_functions[:20]:
+                            app.write(f"  {func.filename}:{func.function}\n")
+                            app.write(f"    Cumulative: {func.cumtime:.3f}s | Calls: {func.ncalls:,} | Avg: {func.percall:.3f}ms\n")
+                    else:
+                        app.write("[yellow]Usage: /refactor profile [start|stop][/yellow]\n\n")
+
+                    return
+
+                # /refactor threads
+                elif subcommand == "threads":
+                    profiler = get_profiler()
+                    threads = profiler.analyze_threads()
+
+                    app.write("[bold cyan]🧵 THREAD ANALYSIS[/bold cyan]\n\n")
+                    app.write(f"Total Threads: {len(threads)}\n\n")
+
+                    for thread in threads:
+                        status_color = "green" if thread.is_alive else "red"
+                        daemon_marker = " [DAEMON]" if thread.is_daemon else ""
+                        app.write(f"[{status_color}]● {thread.name}{daemon_marker}[/{status_color}]\n")
+                        app.write(f"  ID: {thread.thread_id} | Alive: {thread.is_alive}\n\n")
+
+                    return
+
+                # /refactor blocking
+                elif subcommand == "blocking":
+                    profiler = get_profiler()
+                    blocked = profiler.detect_blocking_threads()
+
+                    app.write("[bold cyan]🔍 BLOCKING THREAD DETECTION[/bold cyan]\n\n")
+
+                    if not blocked:
+                        app.write("[green]✓ No blocked threads detected[/green]\n\n")
+                        return
+
+                    app.write(f"[bold red]⚠️  FOUND {len(blocked)} POTENTIALLY BLOCKED THREADS:[/bold red]\n\n")
+                    for thread in blocked:
+                        app.write(f"[red]● {thread.name}[/red]\n")
+                        app.write(f"  ID: {thread.thread_id}\n")
+                        if thread.stack_trace:
+                            app.write(f"  [dim]Stack trace:\n{thread.stack_trace}[/dim]\n")
+                        app.write("\n")
+
+                    return
+
+                # /refactor budget <function> <ms>
+                elif subcommand == "budget":
+                    if not args:
+                        app.write("[red]Error: Please specify function and time budget[/red]\n\n")
+                        app.write("[dim]Usage: /refactor budget <function> <milliseconds>[/dim]\n\n")
+                        return
+
+                    budget_parts = args.split()
+                    if len(budget_parts) < 2:
+                        app.write("[red]Error: Please specify both function name and time budget[/red]\n\n")
+                        return
+
+                    func_name = budget_parts[0]
+                    try:
+                        time_ms = float(budget_parts[1])
+                    except ValueError:
+                        app.write("[red]Error: Time budget must be a number[/red]\n\n")
+                        return
+
+                    profiler = get_profiler()
+                    profiler.set_performance_budget(func_name, time_ms)
+                    app.write(f"[green]✓ Set performance budget: {func_name} <= {time_ms}ms[/green]\n\n")
+
+                    return
+
+                else:
+                    app.write("[bold cyan]🔧 Refactoring Commands[/bold cyan]\n\n")
+                    app.write("[bold]Code Analysis:[/bold]\n")
+                    app.write("  /refactor suggest-split <file>  - Suggest how to split a file\n\n")
+                    app.write("[bold]Performance Profiling:[/bold]\n")
+                    app.write("  /refactor profile start         - Start performance profiling\n")
+                    app.write("  /refactor profile stop          - Stop and show report\n")
+                    app.write("  /refactor threads               - Analyze thread states\n")
+                    app.write("  /refactor blocking              - Detect blocked threads\n")
+                    app.write("  /refactor budget <func> <ms>    - Set performance budget\n\n")
+
+                return
+
+            # Handle /autorefactor command - automatic refactoring with file watching
+            if user_input.startswith('/autorefactor'):
+                try:
+                    from .auto_refactor import get_auto_refactor_manager
+                except (ImportError, ValueError):
+                    from auto_refactor import get_auto_refactor_manager
+
+                manager = get_auto_refactor_manager()
+
+                parts = user_input.split(maxsplit=1)
+                subcommand = parts[1] if len(parts) > 1 else None
+
+                if subcommand == "start":
+                    result = manager.start()
+
+                    if result["status"] == "already_running":
+                        app.write("[yellow]⚠️  Auto-refactoring is already running[/yellow]\n\n")
+                        return
+
+                    app.write("[green]✓ Auto-refactoring started[/green]\n\n")
+                    app.write("[bold]Watching:[/bold]\n")
+                    for path in result["watching"]:
+                        app.write(f"  📁 {path}\n")
+                    app.write(f"\n[bold]Trigger:[/bold] Files exceeding {result['max_file_lines']} lines\n\n")
+                    app.write("[dim]Auto-refactoring will analyze files and request permission before applying changes[/dim]\n\n")
+
+                elif subcommand == "stop":
+                    result = manager.stop()
+
+                    if result["status"] == "not_running":
+                        app.write("[yellow]⚠️  Auto-refactoring is not running[/yellow]\n\n")
+                        return
+
+                    app.write("[green]✓ Auto-refactoring stopped[/green]\n\n")
+                    if result["queued_refactorings"] > 0:
+                        app.write(f"[dim]{result['queued_refactorings']} queued refactorings discarded[/dim]\n\n")
+
+                elif subcommand == "status":
+                    result = manager.status()
+
+                    app.write("[bold cyan]🤖 Auto-Refactoring Status[/bold cyan]\n\n")
+                    app.write(f"Running: {'[green]Yes[/green]' if result['running'] else '[red]No[/red]'}\n")
+                    app.write(f"Enabled: {'[green]Yes[/green]' if result['enabled'] else '[red]No[/red]'}\n\n")
+
+                    if result['running']:
+                        app.write(f"[bold]Configuration:[/bold]\n")
+                        app.write(f"  Max File Lines: {result['max_file_lines']}\n")
+                        app.write(f"  Queued Refactorings: {result['queued_refactorings']}\n\n")
+
+                        app.write(f"[bold]Watching:[/bold]\n")
+                        for path in result['watching']:
+                            app.write(f"  📁 {path}\n")
+                        app.write("\n")
+
+                        if result['queue']:
+                            app.write(f"[bold]Queue:[/bold]\n")
+                            for item in result['queue']:
+                                app.write(f"  📄 {item['file']} ({item['lines']} lines)\n")
+                            app.write("\n")
+
+                else:
+                    app.write("[bold cyan]🤖 Auto-Refactoring Commands[/bold cyan]\n\n")
+                    app.write("  /autorefactor start   - Start file watching and auto-refactoring\n")
+                    app.write("  /autorefactor stop    - Stop auto-refactoring\n")
+                    app.write("  /autorefactor status  - Show current status\n\n")
+                    app.write("[dim]When enabled, files exceeding 500 lines will be automatically analyzed.\n")
+                    app.write("You'll be prompted to approve any suggested refactorings.[/dim]\n\n")
+
+                return
+
             # Handle /provider and /providers command locally
             if user_input.startswith('/provider'):
                 try:
@@ -1938,6 +2279,27 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     if not success:
                         restore_ui_state(error_msg or "Anthropic request failed")
+                        return
+
+                    if reply_text:
+                        session.add("assistant", reply_text)
+                        await asyncio.to_thread(session.save)
+                        await write_markdown_response(app, reply_text)
+                        app.write("\n")
+
+                    restore_ui_state()
+                    return
+
+                if request_format == "google-generative":
+                    success, reply_text, error_msg = await perform_google_request(
+                        messages_with_context,
+                        session,
+                        config,
+                        timeout=api_timeout
+                    )
+
+                    if not success:
+                        restore_ui_state(error_msg or "Google request failed")
                         return
 
                     if reply_text:

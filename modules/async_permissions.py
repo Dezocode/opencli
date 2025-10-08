@@ -148,6 +148,21 @@ class AsyncPermissionHandler:
                 url=args.get('url', '')
             )
 
+        elif tool_name == "ConfigureHeaders":
+            return PermissionTemplates.configure_headers(
+                provider=args.get('provider', ''),
+                model=args.get('model'),
+                issue=args.get('issue'),
+                current_headers=args.get('current_headers', {}),
+                proposed_headers=args.get('proposed_headers')
+            )
+
+        elif tool_name == "Refactoring":
+            return PermissionTemplates.code_refactoring(
+                plan=args.get('plan', {}),
+                result=args.get('result', {})
+            )
+
         # Fallback - generic prompt
         return {
             'title': f'{tool_name} Operation',
