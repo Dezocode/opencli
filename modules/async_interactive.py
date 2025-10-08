@@ -1071,6 +1071,96 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
             return
 
+        # Check if awaiting capability consent (for Ollama setup)
+        if hasattr(session, '_awaiting_capability_consent') and session._awaiting_capability_consent:
+            session._awaiting_capability_consent = False
+            consent = user_input.strip().lower()
+
+            if consent in ['y', 'yes']:
+                setup = session._pending_ollama_setup
+
+                try:
+                    from .system_capability import SystemCapability
+                    from .model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+                except (ImportError, ValueError):
+                    from system_capability import SystemCapability
+                    from model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+
+                app.write("\n[dim]Detecting system capabilities...[/dim]\n\n")
+
+                # Detect system capabilities
+                sys_cap = SystemCapability()
+                caps = sys_cap.detect_capabilities()
+
+                # Display system info
+                app.write("[cyan]▸ System Information[/cyan]\n")
+                app.write(f"  OS: {caps['os']} ({caps['arch']})\n")
+                app.write(f"  RAM: {caps['ram_gb']}GB\n")
+                if caps['gpu_type']:
+                    app.write(f"  GPU: {caps['gpu_type']}\n")
+                    if caps['vram_gb']:
+                        app.write(f"  VRAM: {caps['vram_gb']}GB\n")
+
+                # Show tier with color coding
+                tier = caps['tier']
+                tier_colors = {"green": "green", "yellow": "yellow", "red": "red"}
+                tier_color = tier_colors.get(tier, "white")
+                tier_desc = sys_cap.get_tier_description(tier)
+
+                app.write(f"\n  Capability Tier: [{tier_color}]{tier.upper()}[/{tier_color}]\n")
+                app.write(f"  {tier_desc}\n\n")
+
+                # Get and display recommendations
+                recs = get_recommendations(tier, caps['is_apple_silicon'])
+                rec_text = format_recommendation_text(recs, show_dual=True)
+                app.write(rec_text)
+                app.write("\n\n")
+
+                # Show ollama pull commands
+                app.write("[cyan]▸ Quick Start Commands[/cyan]\n\n")
+                app.write("Install recommended models:\n\n")
+
+                primary_cmd = get_ollama_pull_commands(recs, dual=False)
+                dual_cmds = get_ollama_pull_commands(recs, dual=True)
+
+                app.write("[dim]# Single-model setup (recommended for beginners)[/dim]\n")
+                for cmd in primary_cmd:
+                    app.write(f"  {cmd}\n")
+
+                if len(dual_cmds) > 1:
+                    app.write("\n[dim]# Dual-model setup (recommended for complex work)[/dim]\n")
+                    for cmd in dual_cmds:
+                        app.write(f"  {cmd}\n")
+
+                app.write("\n[dim]═══════════════════════════════════════════════════════════[/dim]\n\n")
+
+            else:
+                app.write("\n[dim]Skipping capability detection[/dim]\n\n")
+                setup = session._pending_ollama_setup
+
+            # Continue with model fetching
+            app.write("[dim]Fetching models from Ollama server...[/dim]\n\n")
+
+            local_model_mgr = setup["local_model_mgr"]
+            provider = setup["provider"]
+            api_key = setup["api_key"]
+            provider_name = setup["provider_name"]
+
+            result = await local_model_mgr.fetch_models_from_provider(provider, api_key)
+
+            if result["success"]:
+                local_model_mgr.add_api_key(provider, api_key)
+                local_model_mgr.register_models(provider, result["models"])
+
+                app.write(f"[green]✓ Added {provider_name}![/green]\n")
+                app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
+                app.write("Use [cyan]/model[/cyan] to see and switch to these models\n\n")
+            else:
+                app.write(f"[red]✗ Failed to fetch models: {result['error']}[/red]\n\n")
+
+            del session._pending_ollama_setup
+            return
+
         # Check if awaiting provider key input
         if hasattr(session, '_awaiting_provider_key') and session._awaiting_provider_key:
             try:
@@ -1101,6 +1191,34 @@ async def interactive_async(config, session=None, initial_prompt=None):
             provider_name = provider_info.get("name", provider)
 
             app.write(f"[green]✓ Detected provider: {provider_name}[/green]\n")
+
+            # For Ollama/local providers, show system capability recommendations
+            if provider == "ollama":
+                try:
+                    from .system_capability import SystemCapability
+                    from .model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+                except (ImportError, ValueError):
+                    from system_capability import SystemCapability
+                    from model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+
+                app.write("\n[dim]═══════════════════════════════════════════════════════════[/dim]\n")
+                app.write("[cyan]▸ System Capability Detection[/cyan]\n\n")
+                app.write("[dim]Privacy-first approach:[/dim]\n")
+                app.write("[dim]  • Only detects: RAM, GPU type, OS version[/dim]\n")
+                app.write("[dim]  • All processing is local[/dim]\n")
+                app.write("[dim]  • No data sent anywhere[/dim]\n")
+                app.write("[dim]  • Used only for model recommendations[/dim]\n\n")
+
+                app.write("Detect system specs for model recommendations? [y/n]: ")
+                session._awaiting_capability_consent = True
+                session._pending_ollama_setup = {
+                    "provider": provider,
+                    "provider_name": provider_name,
+                    "api_key": api_key,
+                    "local_model_mgr": local_model_mgr
+                }
+                return
+
             app.write("[dim]Fetching models...[/dim]\n\n")
 
             # Fetch models from provider
@@ -1344,14 +1462,23 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     app.write("\n")
 
                 elif args == "add":
-                    # Interactive API key setup
-                    app.write("[bold]🔑 Add API Key[/bold]\n\n")
-                    app.write("Enter your OpenRouter API key:\n")
-                    app.write("[dim](Get one at https://openrouter.ai/keys)[/dim]\n\n")
-
-                    # Prompt for key on next input - set a flag
-                    app.write("[yellow]Type your key and press Enter:[/yellow]\n")
-                    session._awaiting_api_key = True
+                    # Interactive provider/API key setup
+                    app.write("[bold cyan]▸ Add API Provider[/bold cyan]\n\n")
+                    app.write("Supported providers:\n\n")
+                    app.write("  1. [cyan]OpenRouter[/cyan] - 200+ models from all providers\n")
+                    app.write("     [dim]Get key: https://openrouter.ai/keys[/dim]\n\n")
+                    app.write("  2. [cyan]Anthropic[/cyan] - Claude models (Opus, Sonnet, Haiku)\n")
+                    app.write("     [dim]Get key: https://console.anthropic.com/[/dim]\n\n")
+                    app.write("  3. [cyan]OpenAI[/cyan] - GPT-4, GPT-3.5, o1 models\n")
+                    app.write("     [dim]Get key: https://platform.openai.com/api-keys[/dim]\n\n")
+                    app.write("  4. [cyan]DeepSeek[/cyan] - DeepSeek-V3 and coding models\n")
+                    app.write("     [dim]Get key: https://platform.deepseek.com/[/dim]\n\n")
+                    app.write("  5. [cyan]Google AI[/cyan] - Gemini models\n")
+                    app.write("     [dim]Get key: https://makersuite.google.com/app/apikey[/dim]\n\n")
+                    app.write("  6. [cyan]Ollama[/cyan] - Local models (free, runs on your machine)\n")
+                    app.write("     [dim]Setup: https://ollama.ai/[/dim]\n\n")
+                    app.write("[yellow]Type your API key (or 'ollama' for local) and press Enter:[/yellow]\n")
+                    session._awaiting_provider_key = True
 
                 else:
                     # Switch model by number or ID
@@ -1467,24 +1594,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # If no subcommand, toggle the statusline AND show help
                 if not subcommand:
-                    app.write("[yellow]DEBUG: /refactor called with no subcommand[/yellow]\n")
-
                     try:
-                        app.write("[yellow]DEBUG: Importing RefactoringStatusLine[/yellow]\n")
                         from simple_tui import RefactoringStatusLine
-
-                        app.write("[yellow]DEBUG: Querying for widget[/yellow]\n")
                         refactor_statusline = app.query_one(RefactoringStatusLine)
-                        app.write(f"[yellow]DEBUG: Widget found: {refactor_statusline}[/yellow]\n")
 
                         # Check orchestrator availability
                         if not refactor_statusline.orchestrator:
                             app.write("[red]Error: Refactoring orchestrator not initialized[/red]\n")
                             app.write("[dim]Missing dependencies or configuration issue[/dim]\n\n")
                         else:
-                            app.write(f"[yellow]DEBUG: Orchestrator exists, calling toggle[/yellow]\n")
                             is_enabled = refactor_statusline.toggle()
-                            app.write(f"[yellow]DEBUG: Toggle returned: {is_enabled}[/yellow]\n")
 
                             if is_enabled:
                                 app.write("[green]Refactoring monitoring enabled[/green]\n\n")
@@ -1499,8 +1618,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write("[yellow]Refactoring monitoring disabled[/yellow]\n\n")
                     except Exception as e:
                         import traceback
-                        app.write(f"[red]EXCEPTION CAUGHT: {e}[/red]\n")
-                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n\n")
+                        app.write(f"[red]ERROR: Could not toggle refactoring: {e}[/red]\n")
+                        app.write(f"[dim]Traceback:\n{traceback.format_exc()}[/dim]\n\n")
 
                     # Show quick command reference
                     app.write("[bold cyan]▸ Quick Commands:[/bold cyan]\n\n")
@@ -2770,7 +2889,6 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         return
 
                 if not response:
-                    restore_ui_state("No response from API")
                     return
 
                 full_response = ""
@@ -2797,8 +2915,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 drain_task = asyncio.create_task(stream_buffer.drain_smooth(write_stream_chunk))
 
-                try:
-                    async for chunk in response:
+                async for chunk in response:
                     # CRITICAL: Yield at start of each chunk to keep UI responsive
                     await asyncio.sleep(0)
 
@@ -2844,11 +2961,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 # Finish receiving and wait for drain to complete
                 stream_buffer.finish_receiving()
-                try:
-                    await drain_task  # Wait for all buffered content to be displayed
-                except Exception as drain_error:
-                    if session.debug_mode:
-                        app.write(f"[dim]Warning: Drain task error: {drain_error}[/dim]\n")
+                await drain_task  # Wait for all buffered content to be displayed
 
                 if session.debug_mode:
                     app.write(f"[dim]STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -2875,15 +2988,14 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
                         full_response = cleaned_text
 
-                    # Finish streaming and render markdown BEFORE removing buffer status
-                    if full_response and not tool_calls_dict:
-                        if hasattr(app, 'finish_stream'):
-                            app.finish_stream()
-                        app.write("\n")
+                # Finish streaming and render markdown BEFORE removing buffer status
+                if full_response and not tool_calls_dict:
+                    if hasattr(app, 'finish_stream'):
+                        app.finish_stream()
+                    app.write("\n")
 
-                finally:
-                    # ALWAYS remove buffer status - prevents UI blocking
-                    await status_display.stop()
+                # Remove buffer status AFTER markdown is displayed (prevents black flash)
+                await status_display.stop()
 
                 # Check if we have tool calls
                 if tool_calls_dict:
@@ -3190,64 +3302,59 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                             drain_task_cont = asyncio.create_task(stream_buffer_cont.drain_smooth(write_stream_chunk_cont))
 
-                            try:
-                                async for chunk in response:
-                                    # CRITICAL: Yield at start of each chunk to keep UI responsive
+                            async for chunk in response:
+                                # CRITICAL: Yield at start of each chunk to keep UI responsive
+                                await asyncio.sleep(0)
+
+                                try:
+                                    chunk_count += 1
+                                    current_time = asyncio.get_event_loop().time()
+
+                                    if app.should_exit:
+                                        break
+
+                                    # Capture finish_reason (CRITICAL for knowing when to stop!)
+                                    if chunk.choices and chunk.choices[0].finish_reason:
+                                        finish_reason_continuation = chunk.choices[0].finish_reason
+                                        if session.debug_mode:
+                                            app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
+
+                                    delta = chunk.choices[0].delta if chunk.choices else None
+                                    if not delta:
+                                        continue
+
+                                    # Handle tool calls in continuation too!
+                                    if delta.tool_calls:
+                                        for tc in delta.tool_calls:
+                                            idx = tc.index
+                                            if idx not in tool_calls_dict_continuation:
+                                                tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
+                                            if tc.function:
+                                                if tc.function.name:
+                                                    tool_calls_dict_continuation[idx]["name"] = tc.function.name
+                                                if tc.function.arguments:
+                                                    tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
+
+                                    # Handle content
+                                    if delta.content:
+                                        full_response += delta.content
+                                        # Add to buffer - will be drained smoothly by background task
+                                        await stream_buffer_cont.add_chunk(delta.content)
+
+                                except Exception as chunk_error:
+                                    # CRITICAL: Don't let chunk errors kill the entire stream
+                                    app.write(f"\n[red]! Chunk #{chunk_count} error: {chunk_error}[/red]\n")
+                                    if session.debug_mode:
+                                        import traceback
+                                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                                    # Continue processing next chunk
                                     await asyncio.sleep(0)
 
-                                    try:
-                                        chunk_count += 1
-                                        current_time = asyncio.get_event_loop().time()
+                            # Finish receiving and wait for drain to complete
+                            stream_buffer_cont.finish_receiving()
+                            await drain_task_cont  # Wait for all buffered content to be displayed
 
-                                        if app.should_exit:
-                                            break
-
-                                        # Capture finish_reason (CRITICAL for knowing when to stop!)
-                                        if chunk.choices and chunk.choices[0].finish_reason:
-                                            finish_reason_continuation = chunk.choices[0].finish_reason
-                                            if session.debug_mode:
-                                                app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
-
-                                        delta = chunk.choices[0].delta if chunk.choices else None
-                                        if not delta:
-                                            continue
-
-                                        # Handle tool calls in continuation too!
-                                        if delta.tool_calls:
-                                            for tc in delta.tool_calls:
-                                                idx = tc.index
-                                                if idx not in tool_calls_dict_continuation:
-                                                    tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
-                                                if tc.function:
-                                                    if tc.function.name:
-                                                        tool_calls_dict_continuation[idx]["name"] = tc.function.name
-                                                    if tc.function.arguments:
-                                                        tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
-
-                                        # Handle content
-                                        if delta.content:
-                                            full_response += delta.content
-                                            # Add to buffer - will be drained smoothly by background task
-                                            await stream_buffer_cont.add_chunk(delta.content)
-
-                                    except Exception as chunk_error:
-                                        # CRITICAL: Don't let chunk errors kill the entire stream
-                                        app.write(f"\n[red]! Chunk #{chunk_error}[/red]\n")
-                                        if session.debug_mode:
-                                            import traceback
-                                            app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
-                                        # Continue processing next chunk
-                                        await asyncio.sleep(0)
-
-                                # Finish receiving and wait for drain to complete
-                                stream_buffer_cont.finish_receiving()
-                                try:
-                                    await drain_task_cont  # Wait for all buffered content to be displayed
-                                except Exception as drain_error:
-                                    if session.debug_mode:
-                                        app.write(f"[dim]Warning: Drain task error: {drain_error}[/dim]\n")
-
-                                if session.debug_mode:
+                            if session.debug_mode:
                                 app.write(f"[dim]CONTINUATION: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                                 app.write(f"[dim]CONTINUATION: Full response length: {len(full_response)} chars[/dim]\n")
                                 app.write(f"[dim]CONTINUATION: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
@@ -3273,15 +3380,14 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
                                     full_response = cleaned_text
 
-                                # Finish streaming and render markdown BEFORE removing buffer status
-                                if full_response and not tool_calls_dict_continuation:
-                                    if hasattr(app, 'finish_stream'):
-                                        app.finish_stream()
-                                    app.write("\n")
+                            # Finish streaming and render markdown BEFORE removing buffer status
+                            if full_response and not tool_calls_dict_continuation:
+                                if hasattr(app, 'finish_stream'):
+                                    app.finish_stream()
+                                app.write("\n")
 
-                            finally:
-                                # ALWAYS remove buffer status - prevents UI blocking
-                                await status_display_cont.stop()
+                            # Remove buffer status AFTER markdown is displayed (prevents black flash)
+                            await status_display_cont.stop()
 
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                             if tool_calls_dict_continuation:
