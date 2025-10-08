@@ -6,6 +6,7 @@ Designed to not break chat layout
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
+from textual.events import Paste
 from rich.text import Text
 from rich.console import Console
 from rich.style import Style
@@ -180,6 +181,26 @@ class MultiLineInput(Widget):
             lines.append(current_line)
 
         return lines
+
+    def on_paste(self, event: Paste) -> None:
+        """Handle paste events"""
+        # Don't allow paste during permission prompts
+        if self.permission_prompt_data:
+            event.prevent_default()
+            return
+
+        # Insert pasted text at cursor position
+        pasted_text = event.text
+        # Remove any newlines from pasted text to keep single-line input
+        pasted_text = pasted_text.replace('\n', ' ').replace('\r', '')
+
+        self.value = (
+            self.value[:self.cursor_position] +
+            pasted_text +
+            self.value[self.cursor_position:]
+        )
+        self.cursor_position += len(pasted_text)
+        event.prevent_default()
 
     def on_key(self, event) -> None:
         """Handle key presses"""
