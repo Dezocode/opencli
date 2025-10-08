@@ -24,6 +24,14 @@ try:
 except (ImportError, ValueError):
     from multiline_input import MultiLineInput
 
+# Import command suggestion system
+try:
+    from .command_suggestions import CommandSuggestionBuffer, CommandMatch
+    from .command_registry import CommandRegistry
+except (ImportError, ValueError):
+    from command_suggestions import CommandSuggestionBuffer, CommandMatch
+    from command_registry import CommandRegistry
+
 # Import custom modules - relative imports since we're in modules/ dir
 try:
     from .tui_config import get_tui_config
@@ -426,6 +434,21 @@ class OpenCLITUI(App):
     MultiLineInput:focus {
         border: round #6B9E78;
     }
+
+    #command-suggestions {
+        width: 1fr;
+        height: auto;
+        max-height: 12;
+        margin: 0;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
+    .hidden {
+        display: none;
+    }
     """
 
     BINDINGS = [
@@ -529,6 +552,8 @@ class OpenCLITUI(App):
             with Container(id="prompt-container"):
                 # Multi-line input with integrated spinner
                 yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
+                # Command suggestion buffer (initially hidden)
+                yield CommandSuggestionBuffer(id="command-suggestions", classes="hidden")
             yield PerformanceStatusLine(self.session)
             yield RefactoringStatusLine(self.session)
 
@@ -712,6 +737,104 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': {}
             }
             handler.handle_response(response_data)
+
+    # ========================================================================
+    # COMMAND SUGGESTION HANDLERS
+    # ========================================================================
+
+    def on_multi_line_input_show_command_suggestions(self, event: MultiLineInput.ShowCommandSuggestions) -> None:
+        """Handle slash command typed - show/update command suggestions"""
+        try:
+            # Get command suggestion buffer
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            # Get command registry
+            registry = CommandRegistry()
+
+            # Search commands based on query
+            query = event.query
+
+            # Get feature flags for filtering
+            feature_flags = {
+                'AGENT_SYSTEM': True,  # TODO: Get from config
+                'UPGRADE_SYSTEM': True,
+                'TOOL_PERMISSIONS': True
+            }
+
+            # Search commands
+            matches = registry.search_commands(query, feature_flags=feature_flags)
+
+            # Convert to CommandMatch objects
+            command_matches = [
+                CommandMatch(
+                    name=m['name'],
+                    description=m['description'],
+                    category=m['category'],
+                    score=m['score'],
+                    usage_count=m['usage_count']
+                )
+                for m in matches
+            ]
+
+            # Update suggestion buffer
+            suggestions_buffer.update_suggestions(command_matches, query)
+
+            # Show the buffer
+            suggestions_buffer.remove_class("hidden")
+
+        except Exception as e:
+            # Silent failure - don't break input
+            pass
+
+    def on_multi_line_input_hide_command_suggestions(self, event: MultiLineInput.HideCommandSuggestions) -> None:
+        """Handle hiding command suggestions"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+            suggestions_buffer.add_class("hidden")
+            suggestions_buffer.clear()
+        except Exception:
+            pass
+
+    def on_multi_line_input_command_suggestion_navigate(self, event: MultiLineInput.CommandSuggestionNavigate) -> None:
+        """Handle arrow key navigation in command suggestions"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            if event.direction == "up":
+                suggestions_buffer.move_selection_up()
+            elif event.direction == "down":
+                suggestions_buffer.move_selection_down()
+
+        except Exception:
+            pass
+
+    async def on_multi_line_input_command_suggestion_select(self, event: MultiLineInput.CommandSuggestionSelect) -> None:
+        """Handle Enter key with command suggestions active"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+            prompt_input = self.query_one("#prompt-input", MultiLineInput)
+
+            # Get selected command
+            selected = suggestions_buffer.get_selected_command()
+
+            if selected:
+                # Get command registry for usage tracking
+                registry = CommandRegistry()
+
+                # Record usage
+                registry.record_usage(selected.name)
+
+                # Hide suggestions
+                suggestions_buffer.add_class("hidden")
+                suggestions_buffer.clear()
+                prompt_input.suggestions_active = False
+
+                # Execute the command
+                await self._handle_user_message(selected.name, prompt_input)
+
+        except Exception as e:
+            # Silent failure
+            pass
 
     async def _handle_local_model_step(self, current_step: str, option_data: dict) -> None:
         """Handle multi-step local model selection workflow"""
