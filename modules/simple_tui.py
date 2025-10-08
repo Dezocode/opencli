@@ -744,9 +744,20 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_show_command_suggestions(self, event: MultiLineInput.ShowCommandSuggestions) -> None:
         """Handle slash command typed - show/update command suggestions"""
+        # DEBUG LOGGING
+        import os
+        if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+            with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                f.write(f"[SimpleTUI] Received ShowCommandSuggestions('{event.query}')\n")
+
         try:
             # Get command suggestion buffer
             suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Found suggestions buffer\n")
 
             # Get command registry
             registry = CommandRegistry()
@@ -764,6 +775,11 @@ Session: {self.session.session_id[:8]} | Ready
             # Search commands
             matches = registry.search_commands(query, feature_flags=feature_flags)
 
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Found {len(matches)} matches\n")
+
             # Convert to CommandMatch objects
             command_matches = [
                 CommandMatch(
@@ -779,11 +795,26 @@ Session: {self.session.session_id[:8]} | Ready
             # Update suggestion buffer
             suggestions_buffer.update_suggestions(command_matches, query)
 
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Updated suggestions buffer\n")
+
             # Show the buffer
             suggestions_buffer.remove_class("hidden")
 
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Removed 'hidden' class from buffer\n")
+
         except Exception as e:
-            # Silent failure - don't break input
+            # Log error in debug mode
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] ERROR: {e}\n")
+                    import traceback
+                    f.write(traceback.format_exc())
             pass
 
     def on_multi_line_input_hide_command_suggestions(self, event: MultiLineInput.HideCommandSuggestions) -> None:

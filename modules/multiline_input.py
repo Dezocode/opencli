@@ -358,6 +358,12 @@ class MultiLineInput(Widget):
 
     def watch_value(self, old_value: str, new_value: str) -> None:
         """Update when value changes - detect slash commands"""
+        # DEBUG LOGGING
+        import os
+        if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+            with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                f.write(f"[watch_value] old='{old_value}' new='{new_value}' starts_with_slash={new_value.startswith('/')}\n")
+
         # Ensure cursor is within bounds
         if self.cursor_position > len(new_value):
             self.cursor_position = len(new_value)
@@ -367,11 +373,21 @@ class MultiLineInput(Widget):
             # Show/update command suggestions
             self.suggestions_active = True
             self.post_message(self.ShowCommandSuggestions(new_value))
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[watch_value] Posted ShowCommandSuggestions('{new_value}')\n")
         else:
             # Hide suggestions if not a slash command
             if self.suggestions_active:
                 self.suggestions_active = False
                 self.post_message(self.HideCommandSuggestions())
+
+                # DEBUG
+                if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                    with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                        f.write(f"[watch_value] Posted HideCommandSuggestions\n")
 
         self.refresh()
 
