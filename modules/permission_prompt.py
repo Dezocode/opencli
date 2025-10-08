@@ -538,12 +538,14 @@ class PermissionTemplates:
         for rec in recommendations:
             model_name = rec.get('name', '')
             pull_cmd = rec.get('pull_command', f"ollama pull {model_name}")
+            is_installed = rec.get('installed', False)
             options.append({
                 'text': f"{model_name}",
                 'response': PermissionResponse.ALLOW_ONCE,
                 'data': {
                     'model': model_name,
-                    'command': pull_cmd
+                    'command': pull_cmd,
+                    'installed': is_installed
                 }
             })
 

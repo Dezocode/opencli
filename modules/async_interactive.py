@@ -1327,6 +1327,68 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     from model_recommendations import get_recommendations, get_ollama_pull_commands
                     from permission_prompt import PermissionTemplates
 
+                import subprocess
+
+                app.write("[cyan]▸ Checking Ollama installation...[/cyan]\n\n")
+
+                # Check if ollama command exists
+                try:
+                    result = subprocess.run(
+                        ["which", "ollama"],
+                        capture_output=True,
+                        timeout=2
+                    )
+                    if result.returncode != 0:
+                        app.write("[red]✗ Ollama not installed[/red]\n\n")
+                        app.write("Install Ollama to use local models:\n")
+                        app.write("  [cyan]https://ollama.ai/[/cyan]\n\n")
+                        app.write("After installation:\n")
+                        app.write("  1. Run [cyan]ollama serve[/cyan] in a terminal\n")
+                        app.write("  2. Run [cyan]/local[/cyan] again to see recommendations\n\n")
+                        return
+                except Exception:
+                    app.write("[red]✗ Could not detect Ollama[/red]\n\n")
+                    app.write("Install Ollama first: [cyan]https://ollama.ai/[/cyan]\n\n")
+                    return
+
+                # Check if Ollama server is running by trying to list models
+                existing_models = []
+                try:
+                    result = subprocess.run(
+                        ["ollama", "list"],
+                        capture_output=True,
+                        timeout=3
+                    )
+                    if result.returncode != 0:
+                        app.write("[yellow]! Ollama installed but server not running[/yellow]\n\n")
+                        app.write("Start Ollama server:\n")
+                        app.write("  [cyan]ollama serve[/cyan]\n\n")
+                        app.write("Then run [cyan]/local[/cyan] again\n\n")
+                        return
+
+                    # Parse existing models
+                    output = result.stdout.decode('utf-8')
+                    for line in output.split('\n')[1:]:  # Skip header
+                        if line.strip():
+                            parts = line.split()
+                            if parts:
+                                existing_models.append(parts[0])
+
+                    if existing_models:
+                        app.write(f"[green]✓ Ollama running with {len(existing_models)} models installed[/green]\n")
+                        app.write(f"[dim]Installed: {', '.join(existing_models[:3])}")
+                        if len(existing_models) > 3:
+                            app.write(f" (+{len(existing_models) - 3} more)")
+                        app.write("[/dim]\n\n")
+                    else:
+                        app.write("[green]✓ Ollama server running[/green]\n\n")
+
+                except Exception as e:
+                    app.write("[yellow]! Could not connect to Ollama server[/yellow]\n\n")
+                    app.write("Make sure the server is running:\n")
+                    app.write("  [cyan]ollama serve[/cyan]\n\n")
+                    return
+
                 app.write("[cyan]▸ Detecting system capabilities...[/cyan]\n\n")
 
                 # Detect system capabilities
@@ -1340,12 +1402,22 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # Build recommendation list for prompt
                 recommendations = []
 
+                # Helper to check if model is already installed
+                def is_installed(model_name):
+                    # Check both exact match and base name (without :tag)
+                    for installed in existing_models:
+                        if installed == model_name or installed.split(':')[0] == model_name.split(':')[0]:
+                            return True
+                    return False
+
                 # Primary single-model recommendation
                 primary = recs['single_model']['primary']
+                installed_badge = " [green]✓ Installed[/green]" if is_installed(primary['name']) else ""
                 recommendations.append({
                     'name': primary['name'],
-                    'description': f"{primary['size']} - {primary['why'][:60]}...",
-                    'pull_command': f"ollama pull {primary['name']}"
+                    'description': f"{primary['size']} - {primary['why'][:60]}...{installed_badge}",
+                    'pull_command': f"ollama pull {primary['name']}",
+                    'installed': is_installed(primary['name'])
                 })
 
                 # Dual-model recommendations if available
@@ -1353,25 +1425,32 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     planner = recs['dual_model']['planner']
                     coder = recs['dual_model']['coder']
 
+                    planner_installed = is_installed(planner['name'])
+                    coder_installed = is_installed(coder['name'])
+
                     recommendations.append({
                         'name': f"{planner['name']} (planner)",
-                        'description': f"{planner['size']} - {planner['why'][:50]}...",
-                        'pull_command': f"ollama pull {planner['name']}"
+                        'description': f"{planner['size']} - {planner['why'][:50]}..." + (" [green]✓ Installed[/green]" if planner_installed else ""),
+                        'pull_command': f"ollama pull {planner['name']}",
+                        'installed': planner_installed
                     })
 
                     recommendations.append({
                         'name': f"{coder['name']} (coder)",
-                        'description': f"{coder['size']} - {coder['why'][:50]}...",
-                        'pull_command': f"ollama pull {coder['name']}"
+                        'description': f"{coder['size']} - {coder['why'][:50]}..." + (" [green]✓ Installed[/green]" if coder_installed else ""),
+                        'pull_command': f"ollama pull {coder['name']}",
+                        'installed': coder_installed
                     })
 
                 # Alternative if available
                 if 'alternative' in recs.get('single_model', {}):
                     alt = recs['single_model']['alternative']
+                    alt_installed = is_installed(alt['name'])
                     recommendations.append({
                         'name': f"{alt['name']} (alternative)",
-                        'description': f"{alt['size']} - {alt['why'][:50]}...",
-                        'pull_command': f"ollama pull {alt['name']}"
+                        'description': f"{alt['size']} - {alt['why'][:50]}..." + (" [green]✓ Installed[/green]" if alt_installed else ""),
+                        'pull_command': f"ollama pull {alt['name']}",
+                        'installed': alt_installed
                     })
 
                 # Create permission prompt using template

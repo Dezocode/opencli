@@ -170,8 +170,8 @@ class RefactoringStatusLine(Static):
                 self.orchestrator.stop_monitoring()
                 self.enabled = False
             else:
-                result = self.orchestrator.start_monitoring()
-                self.enabled = result.get("success", False)
+                self.orchestrator.start_monitoring()
+                self.enabled = True
             self.refresh()
             return self.enabled
         return False
@@ -630,6 +630,7 @@ Session: {self.session.session_id[:8]} | Ready
             option_data = event.option.get('data', {})
             model_name = option_data.get('model', '')
             pull_command = option_data.get('command', '')
+            is_installed = option_data.get('installed', False)
 
             # Check if user cancelled
             try:
@@ -644,6 +645,13 @@ Session: {self.session.session_id[:8]} | Ready
 
             if event.option.get('response') == PermissionResponse.CANCEL:
                 self.write("\n[dim]Model installation cancelled[/dim]\n\n")
+                return
+
+            # If already installed, skip pulling
+            if is_installed:
+                self.write(f"\n[green]✓ {model_name} is already installed[/green]\n\n")
+                self.write("[dim]You can use this model with Ollama[/dim]\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
                 return
 
             if not pull_command:
