@@ -2763,7 +2763,24 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 chunk_count = 0
                 last_chunk_time = asyncio.get_event_loop().time()
 
-                # Note: StreamBuffer removed - writing chunks directly for immediate display
+                # Create stream buffer and status display
+                stream_buffer = StreamBuffer(chars_per_batch=20, batch_delay_ms=50)
+                status_display = BufferStatusDisplay(app, stream_buffer)
+
+                # Start buffer and status animation
+                stream_buffer.start()
+                await status_display.start()
+
+                # Start draining buffer in background task
+                async def write_stream_chunk(text):
+                    """Write callback for drain_smooth"""
+                    if hasattr(app, '_resolve_content_widget'):
+                        content_widget = app._resolve_content_widget()
+                        if content_widget and hasattr(content_widget, 'write_stream'):
+                            content_widget.write_stream(text)
+                    await asyncio.sleep(0)
+
+                drain_task = asyncio.create_task(stream_buffer.drain_smooth(write_stream_chunk))
 
                 async for chunk in response:
                     # CRITICAL: Yield at start of each chunk to keep UI responsive
@@ -2806,11 +2823,13 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     # Handle content
                     if delta.content:
                         full_response += delta.content
-                        # Write chunk directly to display for immediate streaming
-                        if hasattr(app, '_resolve_content_widget'):
-                            content_widget = app._resolve_content_widget()
-                            if content_widget and hasattr(content_widget, 'write_stream'):
-                                content_widget.write_stream(delta.content)
+                        # Add to buffer - will be drained smoothly by background task
+                        await stream_buffer.add_chunk(delta.content)
+
+                # Finish receiving and wait for drain to complete
+                stream_buffer.finish_receiving()
+                await drain_task  # Wait for all buffered content to be displayed
+                await status_display.stop()
 
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -3129,7 +3148,24 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             chunk_count = 0
                             last_chunk_time = asyncio.get_event_loop().time()
 
-                            # Note: StreamBuffer removed - writing chunks directly for immediate display
+                            # Create stream buffer and status display for continuation
+                            stream_buffer_cont = StreamBuffer(chars_per_batch=20, batch_delay_ms=50)
+                            status_display_cont = BufferStatusDisplay(app, stream_buffer_cont)
+
+                            # Start buffer and status animation
+                            stream_buffer_cont.start()
+                            await status_display_cont.start()
+
+                            # Start draining buffer in background task
+                            async def write_stream_chunk_cont(text):
+                                """Write callback for drain_smooth"""
+                                if hasattr(app, '_resolve_content_widget'):
+                                    content_widget = app._resolve_content_widget()
+                                    if content_widget and hasattr(content_widget, 'write_stream'):
+                                        content_widget.write_stream(text)
+                                await asyncio.sleep(0)
+
+                            drain_task_cont = asyncio.create_task(stream_buffer_cont.drain_smooth(write_stream_chunk_cont))
 
                             async for chunk in response:
                                 # CRITICAL: Yield at start of each chunk to keep UI responsive
@@ -3167,11 +3203,8 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                     # Handle content
                                     if delta.content:
                                         full_response += delta.content
-                                        # Write chunk directly to display for immediate streaming
-                                        if hasattr(app, '_resolve_content_widget'):
-                                            content_widget = app._resolve_content_widget()
-                                            if content_widget and hasattr(content_widget, 'write_stream'):
-                                                content_widget.write_stream(delta.content)
+                                        # Add to buffer - will be drained smoothly by background task
+                                        await stream_buffer_cont.add_chunk(delta.content)
 
                                 except Exception as chunk_error:
                                     # CRITICAL: Don't let chunk errors kill the entire stream
@@ -3181,6 +3214,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                                     # Continue processing next chunk
                                     await asyncio.sleep(0)
+
+                            # Finish receiving and wait for drain to complete
+                            stream_buffer_cont.finish_receiving()
+                            await drain_task_cont  # Wait for all buffered content to be displayed
+                            await status_display_cont.stop()
 
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
