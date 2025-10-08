@@ -41,7 +41,27 @@
 - **Error Scenarios**: Test invalid keys, wrong endpoints, malformed headers
 - **Integration Tests**: End-to-end tests for each supported provider
 
-### 5. Development Process
+### 5. Command System Standards
+
+#### Input Interception
+- **Local Command Priority**: Slash commands (`/`) must NEVER be sent to chat API
+- **Intercept at Input Level**: Catch commands before API submission
+- **Unified Handling**: Single code path for all slash command processing
+- **Zero API Waste**: No tokens spent on local commands
+
+#### Command Discoverability
+- **Autocomplete System**: Interactive suggestions for all registered commands
+- **Search Priority**: Exact match → fuzzy match → description → usage frequency
+- **Visual Feedback**: Commands appear in buffer below input, within prompt borders
+- **Keyboard Navigation**: Arrow keys (↑↓) + Enter selection + Esc cancel
+
+#### Command Registry
+- **Centralized Registry**: All commands in command_registry.py
+- **Metadata Rich**: Name, description, category, enabled state
+- **Usage Tracking**: Track command frequency for smart sorting
+- **Dynamic Discovery**: Auto-discover commands from modules
+
+### 6. Development Process
 
 #### Configuration Management
 - **Centralized Defaults**: All provider settings in provider_settings.py
