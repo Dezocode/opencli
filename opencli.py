@@ -269,9 +269,11 @@ def load_config():
                 print(f"🔄 Updated request format: {old_format} → {new_format}")
 
     # Build effective headers (provider defaults -> overrides -> environment)
+    # IMPORTANT: Start fresh - don't inherit headers from previous provider
     provider_overrides = config.get("providerOverrides") or {}
     provider_entry = provider_overrides.get(provider, {}) if isinstance(provider_overrides, dict) else {}
 
+    # Start with ONLY the current provider's default headers
     headers = dict(provider_defaults.get("default_headers") or {})
 
     base_override = provider_entry.get("headers")
@@ -284,9 +286,8 @@ def load_config():
         if isinstance(model_override, dict):
             headers.update(model_override)
 
-    # Existing defaultHeaders from config.json take precedence (backwards compatibility)
-    existing_headers = config.get("defaultHeaders") or {}
-    headers.update(existing_headers)
+    # DON'T merge existing defaultHeaders - they may be from a different provider
+    # Each provider gets fresh headers based on provider_defaults
 
     if provider == "openrouter":
         site_url = os.getenv("OPENROUTER_SITE_URL")
