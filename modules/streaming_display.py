@@ -46,6 +46,10 @@ class StreamingDisplay(Static):
         ("ctrl+c", "copy_all", "Copy"),
     ]
 
+    # Reactive selection for visual feedback
+    selection_start = reactive(None)
+    selection_end = reactive(None)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._lines = []
@@ -56,8 +60,6 @@ class StreamingDisplay(Static):
         self._markdown_renderer = get_markdown_renderer()
 
         # Text selection state
-        self._selection_start = None
-        self._selection_end = None
         self._selecting = False
 
     def write_stream(self, text: str):
@@ -167,14 +169,19 @@ class StreamingDisplay(Static):
                 # Parse markup like [green]...[/green]
                 self._lines.append(Text.from_markup(text_str))
 
-        # Rebuild display
+        # Rebuild display with selection highlighting
         display_text = Text()
-        for line in self._lines:
+        for idx, line in enumerate(self._lines):
             # Each line might be Text object or string
             if isinstance(line, Text):
-                display_text.append_text(line)
+                # Apply selection highlight if active
+                highlighted_line = self._apply_selection_highlight(line, idx)
+                display_text.append_text(highlighted_line)
             else:
-                display_text.append(str(line))
+                # Convert string to Text and apply highlighting
+                line_text = Text(str(line))
+                highlighted_line = self._apply_selection_highlight(line_text, idx)
+                display_text.append_text(highlighted_line)
 
             # Add newline if not present
             if not (isinstance(line, str) and line.endswith("\n")):
@@ -249,23 +256,103 @@ class StreamingDisplay(Static):
     def on_mouse_down(self, event: events.MouseDown) -> None:
         """Handle mouse down - start selection"""
         self._selecting = True
-        self._selection_start = (event.x, event.y)
-        self._selection_end = (event.x, event.y)
+        self.selection_start = (event.x, event.y)
+        self.selection_end = (event.x, event.y)
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         """Handle mouse move - update selection"""
         if self._selecting:
-            self._selection_end = (event.x, event.y)
+            self.selection_end = (event.x, event.y)
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
         """Handle mouse up - finish selection and copy to clipboard"""
         if self._selecting:
             self._selecting = False
             self._copy_selection()
+            # Clear selection after a brief moment
+            self.set_timer(0.5, lambda: self._clear_selection())
+
+    def _clear_selection(self):
+        """Clear the selection"""
+        self.selection_start = None
+        self.selection_end = None
+
+    def watch_selection_start(self, old_value, new_value):
+        """Reactive watcher - trigger re-render when selection changes"""
+        if old_value != new_value:
+            self._rebuild_display()
+
+    def watch_selection_end(self, old_value, new_value):
+        """Reactive watcher - trigger re-render when selection changes"""
+        if old_value != new_value:
+            self._rebuild_display()
+
+    def _rebuild_display(self):
+        """Rebuild the display with current content and selection"""
+        # Rebuild display with selection highlighting
+        display_text = Text()
+        for idx, line in enumerate(self._lines):
+            # Each line might be Text object or string
+            if isinstance(line, Text):
+                # Apply selection highlight if active
+                highlighted_line = self._apply_selection_highlight(line, idx)
+                display_text.append_text(highlighted_line)
+            else:
+                # Convert string to Text and apply highlighting
+                line_text = Text(str(line))
+                highlighted_line = self._apply_selection_highlight(line_text, idx)
+                display_text.append_text(highlighted_line)
+
+            # Add newline if not present
+            plain = line.plain if isinstance(line, Text) else str(line)
+            if not plain.endswith("\n"):
+                display_text.append("\n")
+
+        self.update(display_text)
+
+    def _apply_selection_highlight(self, content: Text, line_number: int) -> Text:
+        """Apply visual highlight to selected text in a line"""
+        if not self.selection_start or not self.selection_end:
+            return content
+
+        # Get selection coordinates
+        start_x, start_y = self.selection_start
+        end_x, end_y = self.selection_end
+
+        # Normalize
+        if start_y > end_y or (start_y == end_y and start_x > end_x):
+            start_x, start_y, end_x, end_y = end_x, end_y, start_x, start_y
+
+        # Check if this line is in selection range
+        if line_number < start_y or line_number > end_y:
+            return content
+
+        # Create highlighted version
+        highlighted = Text()
+        plain_text = content.plain
+
+        if line_number == start_y == end_y:
+            # Single line selection
+            highlighted.append(plain_text[:start_x])
+            highlighted.append(plain_text[start_x:end_x], style=Style(reverse=True))
+            highlighted.append(plain_text[end_x:])
+        elif line_number == start_y:
+            # First line of multi-line selection
+            highlighted.append(plain_text[:start_x])
+            highlighted.append(plain_text[start_x:], style=Style(reverse=True))
+        elif line_number == end_y:
+            # Last line of multi-line selection
+            highlighted.append(plain_text[:end_x], style=Style(reverse=True))
+            highlighted.append(plain_text[end_x:])
+        else:
+            # Middle line - fully selected
+            highlighted.append(plain_text, style=Style(reverse=True))
+
+        return highlighted
 
     def _get_selected_text(self) -> str:
         """Get the currently selected text"""
-        if not self._selection_start or not self._selection_end:
+        if not self.selection_start or not self.selection_end:
             return ""
 
         # Get all text content as lines
@@ -285,8 +372,8 @@ class StreamingDisplay(Static):
             return ""
 
         # Extract coordinates
-        start_x, start_y = self._selection_start
-        end_x, end_y = self._selection_end
+        start_x, start_y = self.selection_start
+        end_x, end_y = self.selection_end
 
         # Normalize coordinates (handle dragging up or down)
         if start_y > end_y or (start_y == end_y and start_x > end_x):
@@ -327,6 +414,16 @@ class StreamingDisplay(Static):
     def _copy_selection(self):
         """Copy selected text to clipboard"""
         selected_text = self._get_selected_text()
+
+        # DEBUG: Write to a temp file to verify selection is working
+        try:
+            with open('/tmp/opencli_selection_debug.txt', 'w') as f:
+                f.write(f"Selection coords: {self.selection_start} to {self.selection_end}\n")
+                f.write(f"Selected text: {repr(selected_text)}\n")
+                f.write(f"Text length: {len(selected_text)}\n")
+        except:
+            pass
+
         if not selected_text:
             return
 
