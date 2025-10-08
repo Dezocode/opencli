@@ -1930,12 +1930,49 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         restore_ui_state("Provider headers unchanged.")
                         return "denied"
 
-                    if proposed and any(current_headers.get(k) != v for k, v in proposed.items()):
-                        local_mgr.update_provider_headers(provider_id, proposed, None)
-                        config.update(local_mgr.config)
-                        app.config = config
-                        app.write("[green]✓ Applied provider headers from environment overrides.[/green]\n")
-                        return "updated"
+                    # User clicked "Yes, continue" - auto-configure headers
+                    if allowed:
+                        # Try environment variables first
+                        if proposed and any(current_headers.get(k) != v for k, v in proposed.items()):
+                            local_mgr.update_provider_headers(provider_id, proposed, None)
+                            config.update(local_mgr.config)
+                            app.config = config
+                            app.write("[green]✓ Applied provider headers from environment overrides.[/green]\n")
+                            return "updated"
+
+                        # If no env vars, auto-fetch from model API page
+                        model_id = session.model or config.get("model")
+                        if provider_id == "openrouter" and model_id:
+                            try:
+                                from .header_autoconfig import auto_configure_headers
+                            except (ImportError, ValueError):
+                                from header_autoconfig import auto_configure_headers
+
+                            app.write("[dim]🔍 Auto-configuring headers from model API page...[/dim]\n")
+
+                            success, new_headers, message = await auto_configure_headers(model_id, current_headers)
+
+                            if success and new_headers:
+                                # Check if headers actually changed
+                                if any(current_headers.get(k) != v for k, v in new_headers.items()):
+                                    local_mgr.update_provider_headers(provider_id, new_headers, None)
+                                    config.update(local_mgr.config)
+                                    app.config = config
+                                    app.write(f"[green]✓ {message}[/green]\n")
+                                    app.write(f"[dim]  HTTP-Referer: {new_headers.get('HTTP-Referer', '[unset]')}[/dim]\n")
+                                    app.write(f"[dim]  X-Title: {new_headers.get('X-Title', '[unset]')}[/dim]\n")
+                                    return "updated"
+                                else:
+                                    app.write("[yellow]⚠ Headers already configured correctly.[/yellow]\n")
+                                    app.write("[yellow]⚠ The error may be due to account privacy settings.[/yellow]\n")
+                                    app.write(f"[yellow]⚠ Configure at: https://openrouter.ai/settings/privacy[/yellow]\n")
+                                    restore_ui_state("Header auto-config: settings issue")
+                                    return "denied"
+                            else:
+                                app.write(f"[yellow]⚠ Auto-config failed: {message}[/yellow]\n")
+                                # Fall through to manual input
+                        else:
+                            app.write("[yellow]⚠ Auto-config only available for OpenRouter models[/yellow]\n")
 
                     session._pending_header_update = {
                         "provider": provider_id,
