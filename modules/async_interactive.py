@@ -1915,13 +1915,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if success and uptime is not None:
                             app.write(f"[dim]📊 {status_msg}[/dim]\n\n")
 
-                            # If model is clearly down, don't prompt for header config
+                            # Show warning if model is degraded, but still allow user to proceed
                             if not is_model_healthy(uptime):
                                 recommendation = get_user_recommendation(uptime, model_id)
-                                app.write(f"[yellow]⚠️  Model Unavailable[/yellow]\n\n")
+                                app.write(f"[yellow]⚠️  Warning: Low Model Availability[/yellow]\n\n")
                                 app.write(f"{recommendation}\n\n")
-                                restore_ui_state(f"Model unavailable ({uptime:.1f}% uptime)")
-                                return "denied"
+                                app.write("[dim]You can still try to configure headers below, but the error may be due to model downtime.[/dim]\n\n")
 
                     # Suggested headers from environment overrides (if provided)
                     proposed = {}
