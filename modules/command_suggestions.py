@@ -72,7 +72,7 @@ class CommandSuggestionBuffer(Static):
 
     class CloseSuggestions(Message):
         """Posted when suggestions should be hidden."""
-        super().__init__()
+        pass
 
     def __init__(
         self,
