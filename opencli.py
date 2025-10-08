@@ -294,6 +294,8 @@ def load_config():
 def create_openai_client(config):
     """Create OpenAI-compatible client with provider-specific headers."""
     headers = config.get("defaultHeaders") or None
+
+    # All providers use standard OpenAI client now (Google uses OpenAI-compatible endpoint)
     return OpenAI(
         base_url=config["baseURL"],
         api_key=config["apiKey"],
