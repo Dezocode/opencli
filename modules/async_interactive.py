@@ -1467,16 +1467,24 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # If no subcommand, toggle the statusline AND show help
                 if not subcommand:
+                    app.write("[yellow]DEBUG: /refactor called with no subcommand[/yellow]\n")
+
                     try:
+                        app.write("[yellow]DEBUG: Importing RefactoringStatusLine[/yellow]\n")
                         from simple_tui import RefactoringStatusLine
+
+                        app.write("[yellow]DEBUG: Querying for widget[/yellow]\n")
                         refactor_statusline = app.query_one(RefactoringStatusLine)
+                        app.write(f"[yellow]DEBUG: Widget found: {refactor_statusline}[/yellow]\n")
 
                         # Check orchestrator availability
                         if not refactor_statusline.orchestrator:
                             app.write("[red]Error: Refactoring orchestrator not initialized[/red]\n")
                             app.write("[dim]Missing dependencies or configuration issue[/dim]\n\n")
                         else:
+                            app.write(f"[yellow]DEBUG: Orchestrator exists, calling toggle[/yellow]\n")
                             is_enabled = refactor_statusline.toggle()
+                            app.write(f"[yellow]DEBUG: Toggle returned: {is_enabled}[/yellow]\n")
 
                             if is_enabled:
                                 app.write("[green]Refactoring monitoring enabled[/green]\n\n")
@@ -1491,7 +1499,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write("[yellow]Refactoring monitoring disabled[/yellow]\n\n")
                     except Exception as e:
                         import traceback
-                        app.write(f"[red]Error: {e}[/red]\n")
+                        app.write(f"[red]EXCEPTION CAUGHT: {e}[/red]\n")
                         app.write(f"[dim]{traceback.format_exc()}[/dim]\n\n")
 
                     # Show quick command reference
@@ -2762,6 +2770,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         return
 
                 if not response:
+                    restore_ui_state("No response from API")
                     return
 
                 full_response = ""
@@ -2788,7 +2797,8 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 drain_task = asyncio.create_task(stream_buffer.drain_smooth(write_stream_chunk))
 
-                async for chunk in response:
+                try:
+                    async for chunk in response:
                     # CRITICAL: Yield at start of each chunk to keep UI responsive
                     await asyncio.sleep(0)
 
@@ -2834,7 +2844,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 # Finish receiving and wait for drain to complete
                 stream_buffer.finish_receiving()
-                await drain_task  # Wait for all buffered content to be displayed
+                try:
+                    await drain_task  # Wait for all buffered content to be displayed
+                except Exception as drain_error:
+                    if session.debug_mode:
+                        app.write(f"[dim]Warning: Drain task error: {drain_error}[/dim]\n")
 
                 if session.debug_mode:
                     app.write(f"[dim]STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -2861,14 +2875,15 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
                         full_response = cleaned_text
 
-                # Finish streaming and render markdown BEFORE removing buffer status
-                if full_response and not tool_calls_dict:
-                    if hasattr(app, 'finish_stream'):
-                        app.finish_stream()
-                    app.write("\n")
+                    # Finish streaming and render markdown BEFORE removing buffer status
+                    if full_response and not tool_calls_dict:
+                        if hasattr(app, 'finish_stream'):
+                            app.finish_stream()
+                        app.write("\n")
 
-                # Remove buffer status AFTER markdown is displayed (prevents black flash)
-                await status_display.stop()
+                finally:
+                    # ALWAYS remove buffer status - prevents UI blocking
+                    await status_display.stop()
 
                 # Check if we have tool calls
                 if tool_calls_dict:
@@ -3175,59 +3190,64 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                             drain_task_cont = asyncio.create_task(stream_buffer_cont.drain_smooth(write_stream_chunk_cont))
 
-                            async for chunk in response:
-                                # CRITICAL: Yield at start of each chunk to keep UI responsive
-                                await asyncio.sleep(0)
-
-                                try:
-                                    chunk_count += 1
-                                    current_time = asyncio.get_event_loop().time()
-
-                                    if app.should_exit:
-                                        break
-
-                                    # Capture finish_reason (CRITICAL for knowing when to stop!)
-                                    if chunk.choices and chunk.choices[0].finish_reason:
-                                        finish_reason_continuation = chunk.choices[0].finish_reason
-                                        if session.debug_mode:
-                                            app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
-
-                                    delta = chunk.choices[0].delta if chunk.choices else None
-                                    if not delta:
-                                        continue
-
-                                    # Handle tool calls in continuation too!
-                                    if delta.tool_calls:
-                                        for tc in delta.tool_calls:
-                                            idx = tc.index
-                                            if idx not in tool_calls_dict_continuation:
-                                                tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
-                                            if tc.function:
-                                                if tc.function.name:
-                                                    tool_calls_dict_continuation[idx]["name"] = tc.function.name
-                                                if tc.function.arguments:
-                                                    tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
-
-                                    # Handle content
-                                    if delta.content:
-                                        full_response += delta.content
-                                        # Add to buffer - will be drained smoothly by background task
-                                        await stream_buffer_cont.add_chunk(delta.content)
-
-                                except Exception as chunk_error:
-                                    # CRITICAL: Don't let chunk errors kill the entire stream
-                                    app.write(f"\n[red]! Chunk #{chunk_count} error: {chunk_error}[/red]\n")
-                                    if session.debug_mode:
-                                        import traceback
-                                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
-                                    # Continue processing next chunk
+                            try:
+                                async for chunk in response:
+                                    # CRITICAL: Yield at start of each chunk to keep UI responsive
                                     await asyncio.sleep(0)
 
-                            # Finish receiving and wait for drain to complete
-                            stream_buffer_cont.finish_receiving()
-                            await drain_task_cont  # Wait for all buffered content to be displayed
+                                    try:
+                                        chunk_count += 1
+                                        current_time = asyncio.get_event_loop().time()
 
-                            if session.debug_mode:
+                                        if app.should_exit:
+                                            break
+
+                                        # Capture finish_reason (CRITICAL for knowing when to stop!)
+                                        if chunk.choices and chunk.choices[0].finish_reason:
+                                            finish_reason_continuation = chunk.choices[0].finish_reason
+                                            if session.debug_mode:
+                                                app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
+
+                                        delta = chunk.choices[0].delta if chunk.choices else None
+                                        if not delta:
+                                            continue
+
+                                        # Handle tool calls in continuation too!
+                                        if delta.tool_calls:
+                                            for tc in delta.tool_calls:
+                                                idx = tc.index
+                                                if idx not in tool_calls_dict_continuation:
+                                                    tool_calls_dict_continuation[idx] = {"id": tc.id or "", "type": "function", "name": "", "arguments": ""}
+                                                if tc.function:
+                                                    if tc.function.name:
+                                                        tool_calls_dict_continuation[idx]["name"] = tc.function.name
+                                                    if tc.function.arguments:
+                                                        tool_calls_dict_continuation[idx]["arguments"] += tc.function.arguments
+
+                                        # Handle content
+                                        if delta.content:
+                                            full_response += delta.content
+                                            # Add to buffer - will be drained smoothly by background task
+                                            await stream_buffer_cont.add_chunk(delta.content)
+
+                                    except Exception as chunk_error:
+                                        # CRITICAL: Don't let chunk errors kill the entire stream
+                                        app.write(f"\n[red]! Chunk #{chunk_error}[/red]\n")
+                                        if session.debug_mode:
+                                            import traceback
+                                            app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+                                        # Continue processing next chunk
+                                        await asyncio.sleep(0)
+
+                                # Finish receiving and wait for drain to complete
+                                stream_buffer_cont.finish_receiving()
+                                try:
+                                    await drain_task_cont  # Wait for all buffered content to be displayed
+                                except Exception as drain_error:
+                                    if session.debug_mode:
+                                        app.write(f"[dim]Warning: Drain task error: {drain_error}[/dim]\n")
+
+                                if session.debug_mode:
                                 app.write(f"[dim]CONTINUATION: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                                 app.write(f"[dim]CONTINUATION: Full response length: {len(full_response)} chars[/dim]\n")
                                 app.write(f"[dim]CONTINUATION: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
@@ -3253,14 +3273,15 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
                                     full_response = cleaned_text
 
-                            # Finish streaming and render markdown BEFORE removing buffer status
-                            if full_response and not tool_calls_dict_continuation:
-                                if hasattr(app, 'finish_stream'):
-                                    app.finish_stream()
-                                app.write("\n")
+                                # Finish streaming and render markdown BEFORE removing buffer status
+                                if full_response and not tool_calls_dict_continuation:
+                                    if hasattr(app, 'finish_stream'):
+                                        app.finish_stream()
+                                    app.write("\n")
 
-                            # Remove buffer status AFTER markdown is displayed (prevents black flash)
-                            await status_display_cont.stop()
+                            finally:
+                                # ALWAYS remove buffer status - prevents UI blocking
+                                await status_display_cont.stop()
 
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                             if tool_calls_dict_continuation:
