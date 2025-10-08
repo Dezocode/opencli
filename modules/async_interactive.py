@@ -1899,6 +1899,29 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     local_mgr = ModelManager()
                     provider_id = local_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
                     current_headers = config.get("defaultHeaders", {}) or {}
+                    model_id = session.model or config.get("model")
+
+                    # Check model uptime first (for OpenRouter models)
+                    if provider_id == "openrouter" and model_id:
+                        try:
+                            from .uptime_checker import check_model_uptime, is_model_healthy, get_user_recommendation
+                        except (ImportError, ValueError):
+                            from uptime_checker import check_model_uptime, is_model_healthy, get_user_recommendation
+
+                        app.write("[dim]🔍 Checking model availability...[/dim]\n")
+
+                        success, uptime, status_msg = await check_model_uptime(model_id)
+
+                        if success and uptime is not None:
+                            app.write(f"[dim]📊 {status_msg}[/dim]\n\n")
+
+                            # If model is clearly down, don't prompt for header config
+                            if not is_model_healthy(uptime):
+                                recommendation = get_user_recommendation(uptime, model_id)
+                                app.write(f"[yellow]⚠️  Model Unavailable[/yellow]\n\n")
+                                app.write(f"{recommendation}\n\n")
+                                restore_ui_state(f"Model unavailable ({uptime:.1f}% uptime)")
+                                return "denied"
 
                     # Suggested headers from environment overrides (if provided)
                     proposed = {}
