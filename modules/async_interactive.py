@@ -751,7 +751,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
     # Setup message handler
     async def handle_user_input(user_input: str):
         """Handle user input and generate response"""
-        nonlocal client, model_mgr
+        nonlocal client
 
         # Handle pending provider header prompts before other logic
         if hasattr(session, '_pending_header_update') and session._pending_header_update:
@@ -791,8 +791,15 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     collected = {k: v for k, v in pending.get("collected", {}).items() if v}
 
                     try:
-                        model_mgr.update_provider_headers(provider_id, collected, None)
-                        config.update(model_mgr.config)
+                        # Create local ModelManager instance
+                        try:
+                            from .model_manager import ModelManager
+                        except (ImportError, ValueError):
+                            from model_manager import ModelManager
+
+                        local_mgr = ModelManager()
+                        local_mgr.update_provider_headers(provider_id, collected, None)
+                        config.update(local_mgr.config)
                         app.config = config
                         client = create_async_client(config)
                         if collected:
@@ -1793,7 +1800,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
-            nonlocal client, model_mgr
+            nonlocal client
             try:
                 # STALL DEBUG: Starting message preparation
                 if session.debug_mode:
