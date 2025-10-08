@@ -1921,6 +1921,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write(f"[yellow]⚠️  Warning: Low Model Availability[/yellow]\n\n")
                                 app.write(f"{recommendation}\n\n")
                                 app.write("[dim]You can still try to configure headers below, but the error may be due to model downtime.[/dim]\n\n")
+                        else:
+                            # Show why uptime check failed
+                            app.write(f"[dim]⚠ Could not fetch uptime: {status_msg}[/dim]\n")
 
                     # Suggested headers from environment overrides (if provided)
                     proposed = {}
