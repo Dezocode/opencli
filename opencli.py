@@ -248,25 +248,27 @@ def load_config():
         config["provider"] = provider
 
     # Auto-migrate stale configs to new provider defaults
+    config_changed = False
+
+    # Update baseURL if it doesn't match provider default
     if provider_defaults.get("base_url"):
-        current_base_url = config.get("baseURL", "")
         expected_base_url = provider_defaults["base_url"]
+        current_base_url = config.get("baseURL", "")
 
-        # For Google, auto-migrate from old endpoint to OpenAI-compatible
-        if provider == "google" and "openai" not in current_base_url:
+        if current_base_url != expected_base_url:
             config["baseURL"] = expected_base_url
-            print(f"🔄 Migrated Google endpoint to OpenAI-compatible: {expected_base_url}")
-        elif not config.get("baseURL"):
-            config["baseURL"] = expected_base_url
+            print(f"🔄 Updated {provider} endpoint: {expected_base_url}")
+            config_changed = True
 
-    # Always use provider's request format (override stale values)
+    # Update request format to match provider
     if provider_defaults.get("request_format"):
-        old_format = config.get("requestFormat")
-        new_format = provider_defaults["request_format"]
-        if old_format != new_format:
-            config["requestFormat"] = new_format
-            if old_format:
-                print(f"🔄 Updated request format: {old_format} → {new_format}")
+        expected_format = provider_defaults["request_format"]
+        current_format = config.get("requestFormat", "")
+
+        if current_format != expected_format:
+            config["requestFormat"] = expected_format
+            print(f"🔄 Updated request format for {provider}: {expected_format}")
+            config_changed = True
 
     # Build effective headers (provider defaults -> overrides -> environment)
     # IMPORTANT: Start fresh - don't inherit headers from previous provider
@@ -304,6 +306,17 @@ def load_config():
         del config["defaultHeaders"]
 
     config['apiKey'] = get_api_key()
+
+    # Save config back to file if provider settings were auto-updated
+    if config_changed:
+        config_to_save = {k: v for k, v in config.items() if k != 'apiKey'}
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config_to_save, f, indent=2)
+            print(f"💾 Saved updated config to {CONFIG_FILE}")
+        except Exception as e:
+            print(f"⚠️  Could not save config: {e}")
+
     return config
 
 
