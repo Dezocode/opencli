@@ -9,7 +9,12 @@ from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
 
-from modules.tool_call_utils import normalize_tool_call_messages
+# Development mode - prevent .pyc creation if OPENCLI_DEV=1
+if os.getenv('OPENCLI_DEV') == '1':
+    sys.dont_write_bytecode = True
+    os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
+from modules.tool_call_utils import normalize_tool_call_messages, extract_tool_calls_from_text
 
 try:
     from modules.model_manager import ModelManager
@@ -1872,6 +1877,22 @@ def interactive(config, session=None, initial=None):
                         full_content += delta.content
                         print(delta.content, end='', flush=True)
 
+                if not tool_calls_dict:
+                    parsed_calls, cleaned_content = extract_tool_calls_from_text(full_content)
+                    if parsed_calls:
+                        for idx, call in enumerate(parsed_calls):
+                            try:
+                                arguments_json = json.dumps(call.get("arguments", {}))
+                            except TypeError:
+                                arguments_json = json.dumps({})
+                            tool_calls_dict[idx] = {
+                                "id": call.get("id", f"text_{idx}"),
+                                "name": call.get("name", ""),
+                                "arguments": arguments_json,
+                                "type": "function"
+                            }
+                        full_content = cleaned_content
+
                 if tool_calls_dict:
                     print()
                     from types import SimpleNamespace
@@ -1956,6 +1977,22 @@ def main():
     config = load_config()
     if args.model:
         config["model"] = args.model
+
+    # Check for stale Python cache on startup
+    try:
+        from modules.cache_manager import get_cache_manager
+        manager = get_cache_manager()
+        stale = manager.find_all_stale_cache()
+
+        if stale and len(stale) > 0:
+            print(f"\n⚠️  WARNING: Found {len(stale)} modules with stale bytecode cache")
+            print("   Your .pyc files are older than source files.")
+            print("   This can cause 'Unknown command' errors or outdated behavior.\n")
+            print("   Recommended: Type '/reload' in the CLI to fix this")
+            print("   Or run: find ~/opencli -name '*.pyc' -delete\n")
+    except Exception:
+        # Cache manager not available or error - silently continue
+        pass
 
     session = None
     if args.cont:

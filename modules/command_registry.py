@@ -173,6 +173,12 @@ class CommandRegistry:
                 'category': 'advanced',
                 'default_enabled': True,
                 'requires_args': False
+            },
+            '/reload': {
+                'description': 'Hot-reload modules (clear cache and reimport)',
+                'category': 'advanced',
+                'default_enabled': True,
+                'requires_args': False
             }
         }
 

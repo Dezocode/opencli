@@ -1316,6 +1316,48 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
+            # Handle /reload command - hot-reload modules and clear cache
+            if user_input.startswith('/reload'):
+                try:
+                    from .cache_manager import get_cache_manager
+                except (ImportError, ValueError):
+                    from cache_manager import get_cache_manager
+
+                app.write("[cyan]▸ Reloading OpenCLI modules...[/cyan]\n\n")
+
+                manager = get_cache_manager()
+
+                # Check for stale cache first
+                stale = manager.find_all_stale_cache()
+                if stale:
+                    app.write(f"[yellow]! Found {len(stale)} modules with stale cache[/yellow]\n")
+                    for s in stale[:5]:  # Show first 5
+                        age = int(s['age_seconds'])
+                        app.write(f"  [dim]{s['module']} (source {age}s newer)[/dim]\n")
+                    if len(stale) > 5:
+                        app.write(f"  [dim]... and {len(stale) - 5} more[/dim]\n")
+                    app.write("\n")
+
+                # Clear cache
+                app.write("[dim]Clearing Python bytecode cache...[/dim]\n")
+                result = manager.clear_cache(verbose=False)
+                app.write(f"[green]✓ Removed {result['pyc_files']} .pyc files, {result['pycache_dirs']} __pycache__ dirs[/green]\n\n")
+
+                # Reload modules
+                app.write("[dim]Reloading modules...[/dim]\n")
+                reload_result = manager.reload_modules()
+
+                if reload_result['errors']:
+                    app.write(f"[yellow]⚠ Reloaded {reload_result['count']} modules with {len(reload_result['errors'])} errors[/yellow]\n")
+                    for err in reload_result['errors'][:3]:
+                        app.write(f"  [red]{err['module']}: {err['error']}[/red]\n")
+                else:
+                    app.write(f"[green]✓ Reloaded {reload_result['count']} modules successfully[/green]\n")
+
+                app.write("\n[dim]Modules reloaded. Changes to command handlers, utilities, etc. are now active.[/dim]\n\n")
+
+                return
+
             # Handle /local command - local model recommendations
             if user_input.startswith('/local'):
                 try:
