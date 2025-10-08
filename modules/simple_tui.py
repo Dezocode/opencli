@@ -615,24 +615,7 @@ Session: {self.session.session_id[:8]} | Ready
         """Handle permission response from MultiLineInput"""
         # Check if this is a local model selection
         if hasattr(self.session, '_awaiting_local_model_selection') and self.session._awaiting_local_model_selection:
-            self.session._awaiting_local_model_selection = False
-
-            # Clear the permission prompt
-            try:
-                prompt_input = self.query_one("#prompt-input")
-                prompt_input.permission_prompt_data = None
-                prompt_input.permission_selected_option = 0
-                prompt_input.refresh()
-            except Exception:
-                pass
-
-            # Get the selected model data
-            option_data = event.option.get('data', {})
-            model_name = option_data.get('model', '')
-            pull_command = option_data.get('command', '')
-            is_installed = option_data.get('installed', False)
-
-            # Check if user cancelled
+            # Import PermissionResponse
             try:
                 from modules.permission_prompt import PermissionResponse
             except ImportError:
@@ -643,28 +626,39 @@ Session: {self.session.session_id[:8]} | Ready
                 except:
                     return
 
+            # Check if user cancelled
             if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_local_model_selection = False
+                if hasattr(self.session, '_local_context'):
+                    del self.session._local_context
+                if hasattr(self.session, '_local_step'):
+                    del self.session._local_step
+                if hasattr(self.session, '_local_selections'):
+                    del self.session._local_selections
+
+                # Clear the permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except Exception:
+                    pass
+
                 self.write("\n[dim]Model installation cancelled[/dim]\n\n")
                 return
 
-            # If already installed, skip pulling
-            if is_installed:
-                self.write(f"\n[green]✓ {model_name} is already installed[/green]\n\n")
-                self.write("[dim]You can use this model with Ollama[/dim]\n")
-                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
-                return
+            # Get current step
+            current_step = getattr(self.session, '_local_step', 'setup_type')
+            option_data = event.option.get('data', {})
 
-            if not pull_command:
-                self.write("\n[red]✗ No install command found[/red]\n\n")
-                return
+            # Initialize selections if not exists
+            if not hasattr(self.session, '_local_selections'):
+                self.session._local_selections = {}
 
-            # Execute the ollama pull command
-            self.write(f"\n[cyan]▸ Installing {model_name}...[/cyan]\n\n")
-            self.write(f"[dim]Running: {pull_command}[/dim]\n\n")
-
-            # Run the command asynchronously
+            # Handle multi-step workflow
             import asyncio
-            asyncio.create_task(self._run_ollama_pull(pull_command, model_name))
+            asyncio.create_task(self._handle_local_model_step(current_step, option_data))
             return
 
         # Get the async permission handler
@@ -718,6 +712,213 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': {}
             }
             handler.handle_response(response_data)
+
+    async def _handle_local_model_step(self, current_step: str, option_data: dict) -> None:
+        """Handle multi-step local model selection workflow"""
+        try:
+            from modules.permission_prompt import PermissionResponse
+        except ImportError:
+            try:
+                import importlib
+                perm_prompt = importlib.import_module('permission_prompt')
+                PermissionResponse = perm_prompt.PermissionResponse
+            except:
+                return
+
+        # Get context
+        if not hasattr(self.session, '_local_context'):
+            self.write("\n[red]✗ Context lost[/red]\n\n")
+            return
+
+        ctx = self.session._local_context
+        recs = ctx['recs']
+        is_installed = ctx['is_installed']
+
+        # Clear current prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass
+
+        # STEP 1: Setup type selected
+        if current_step == 'setup_type':
+            setup_type = option_data.get('setup_type')
+            self.session._local_selections['setup_type'] = setup_type
+
+            if setup_type == 'single':
+                # Show single model options
+                self.write("\n[cyan]▸ Single model setup selected[/cyan]\n\n")
+
+                # Build single model options
+                options = []
+                primary = recs['single_model']['primary']
+                primary_installed = is_installed(primary['name'])
+
+                options.append({
+                    'text': f"{primary['name']} - Recommended" + (" [green]✓ Installed[/green]" if primary_installed else ""),
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {
+                        'model': primary['name'],
+                        'pull_command': f"ollama pull {primary['name']}",
+                        'installed': primary_installed
+                    }
+                })
+
+                # Alternative if exists
+                if 'alternative' in recs['single_model']:
+                    alt = recs['single_model']['alternative']
+                    alt_installed = is_installed(alt['name'])
+                    options.append({
+                        'text': f"{alt['name']} - Alternative" + (" [green]✓ Installed[/green]" if alt_installed else ""),
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {
+                            'model': alt['name'],
+                            'pull_command': f"ollama pull {alt['name']}",
+                            'installed': alt_installed
+                        }
+                    })
+
+                options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+                prompt_data = {
+                    'title': 'Select Single Model',
+                    'message': 'Choose which model to install:',
+                    'details': {},
+                    'options': options
+                }
+
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+                self.session._local_step = 'single_model_select'
+
+            elif setup_type == 'dual':
+                # Show planner selection
+                self.write("\n[cyan]▸ Dual model setup selected[/cyan]\n\n")
+                self.write("[dim]Step 1/2: Select planner model[/dim]\n\n")
+
+                # Build planner options
+                options = []
+                if 'dual_model' in recs:
+                    planner = recs['dual_model']['planner']
+                    planner_installed = is_installed(planner['name'])
+
+                    options.append({
+                        'text': f"{planner['name']} - Recommended" + (" [green]✓ Installed[/green]" if planner_installed else ""),
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {
+                            'model': planner['name'],
+                            'pull_command': f"ollama pull {planner['name']}",
+                            'installed': planner_installed
+                        }
+                    })
+
+                options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+                prompt_data = {
+                    'title': 'Select Planner Model',
+                    'message': 'Choose the planner model for task decomposition:',
+                    'details': {},
+                    'options': options
+                }
+
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+                self.session._local_step = 'planner_select'
+
+        # STEP 2a: Single model selected - execute
+        elif current_step == 'single_model_select':
+            model_name = option_data.get('model', '')
+            pull_command = option_data.get('pull_command', '')
+            installed = option_data.get('installed', False)
+
+            self.session._awaiting_local_model_selection = False
+
+            if installed:
+                self.write(f"\n[green]✓ {model_name} is already installed[/green]\n\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+            else:
+                self.write(f"\n[cyan]▸ Installing {model_name}...[/cyan]\n\n")
+                self.write(f"[dim]Running: {pull_command}[/dim]\n\n")
+                await self._run_ollama_pull(pull_command, model_name)
+
+        # STEP 2b: Planner selected for dual - show coder selection
+        elif current_step == 'planner_select':
+            planner_model = option_data.get('model', '')
+            planner_command = option_data.get('pull_command', '')
+            planner_installed = option_data.get('installed', False)
+
+            self.session._local_selections['planner'] = {
+                'model': planner_model,
+                'command': planner_command,
+                'installed': planner_installed
+            }
+
+            self.write("[dim]Step 2/2: Select coder model[/dim]\n\n")
+
+            # Build coder options
+            options = []
+            if 'dual_model' in recs:
+                coder = recs['dual_model']['coder']
+                coder_installed = is_installed(coder['name'])
+
+                options.append({
+                    'text': f"{coder['name']} - Recommended" + (" [green]✓ Installed[/green]" if coder_installed else ""),
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {
+                        'model': coder['name'],
+                        'pull_command': f"ollama pull {coder['name']}",
+                        'installed': coder_installed
+                    }
+                })
+
+            options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+            prompt_data = {
+                'title': 'Select Coder Model',
+                'message': 'Choose the coder model for precise edits:',
+                'details': {},
+                'options': options
+            }
+
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+            self.session._local_step = 'coder_select'
+
+        # STEP 3: Coder selected for dual - execute both
+        elif current_step == 'coder_select':
+            coder_model = option_data.get('model', '')
+            coder_command = option_data.get('pull_command', '')
+            coder_installed = option_data.get('installed', False)
+
+            self.session._awaiting_local_model_selection = False
+
+            # Get planner from selections
+            planner_data = self.session._local_selections.get('planner', {})
+
+            self.write("\n[cyan]▸ Installing dual model setup...[/cyan]\n\n")
+
+            # Install planner if needed
+            if not planner_data.get('installed', False):
+                self.write(f"[dim]1/2 Installing planner: {planner_data['model']}[/dim]\n\n")
+                await self._run_ollama_pull(planner_data['command'], planner_data['model'])
+            else:
+                self.write(f"[green]✓ Planner already installed: {planner_data['model']}[/green]\n\n")
+
+            # Install coder if needed
+            if not coder_installed:
+                self.write(f"[dim]2/2 Installing coder: {coder_model}[/dim]\n\n")
+                await self._run_ollama_pull(coder_command, coder_model)
+            else:
+                self.write(f"[green]✓ Coder already installed: {coder_model}[/green]\n\n")
+
+            self.write("\n[green]✓ Dual model setup complete![/green]\n\n")
+            self.write("[dim]Configure as provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
 
     async def _run_ollama_pull(self, pull_command: str, model_name: str) -> None:
         """Execute ollama pull command and stream output"""

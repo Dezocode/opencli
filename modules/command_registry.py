@@ -155,6 +155,24 @@ class CommandRegistry:
                 'category': 'spec-driven',
                 'default_enabled': True,
                 'requires_args': False
+            },
+            '/local': {
+                'description': 'Local model recommendations for Ollama',
+                'category': 'basic',
+                'default_enabled': True,
+                'requires_args': False
+            },
+            '/debug': {
+                'description': 'Toggle debug mode',
+                'category': 'advanced',
+                'default_enabled': True,
+                'requires_args': False
+            },
+            '/performance': {
+                'description': 'Performance monitoring controls',
+                'category': 'advanced',
+                'default_enabled': True,
+                'requires_args': False
             }
         }
 

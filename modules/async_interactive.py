@@ -1399,9 +1399,6 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 tier = caps['tier']
                 recs = get_recommendations(tier, caps['is_apple_silicon'])
 
-                # Build recommendation list for prompt
-                recommendations = []
-
                 # Helper to check if model is already installed
                 def is_installed(model_name):
                     # Check both exact match and base name (without :tag)
@@ -1410,51 +1407,68 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             return True
                     return False
 
-                # Primary single-model recommendation
+                # Store context for multi-step selection
+                session._local_context = {
+                    'tier': tier,
+                    'caps': caps,
+                    'recs': recs,
+                    'existing_models': existing_models,
+                    'is_installed': is_installed
+                }
+
+                # STEP 1: Show setup type selection (Single vs Dual)
+                try:
+                    from .permission_prompt import PermissionResponse
+                except (ImportError, ValueError):
+                    from permission_prompt import PermissionResponse
+
+                setup_options = []
+
+                # Single model option
                 primary = recs['single_model']['primary']
-                installed_badge = " [green]✓ Installed[/green]" if is_installed(primary['name']) else ""
-                recommendations.append({
-                    'name': primary['name'],
-                    'description': f"{primary['size']} - {primary['why'][:60]}...{installed_badge}",
-                    'pull_command': f"ollama pull {primary['name']}",
-                    'installed': is_installed(primary['name'])
+                single_desc = f"Best for beginners - {primary['name']} ({primary['size']})"
+                setup_options.append({
+                    'text': f"Single model - {single_desc}",
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {'setup_type': 'single'}
                 })
 
-                # Dual-model recommendations if available
+                # Dual model option if available
                 if 'dual_model' in recs:
                     planner = recs['dual_model']['planner']
                     coder = recs['dual_model']['coder']
-
-                    planner_installed = is_installed(planner['name'])
-                    coder_installed = is_installed(coder['name'])
-
-                    recommendations.append({
-                        'name': f"{planner['name']} (planner)",
-                        'description': f"{planner['size']} - {planner['why'][:50]}..." + (" [green]✓ Installed[/green]" if planner_installed else ""),
-                        'pull_command': f"ollama pull {planner['name']}",
-                        'installed': planner_installed
+                    dual_desc = f"Advanced - Planner ({planner['size']}) + Coder ({coder['size']})"
+                    setup_options.append({
+                        'text': f"Dual model - {dual_desc}",
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {'setup_type': 'dual'}
                     })
 
-                    recommendations.append({
-                        'name': f"{coder['name']} (coder)",
-                        'description': f"{coder['size']} - {coder['why'][:50]}..." + (" [green]✓ Installed[/green]" if coder_installed else ""),
-                        'pull_command': f"ollama pull {coder['name']}",
-                        'installed': coder_installed
-                    })
+                # Cancel option
+                setup_options.append({
+                    'text': 'Cancel',
+                    'response': PermissionResponse.CANCEL
+                })
 
-                # Alternative if available
-                if 'alternative' in recs.get('single_model', {}):
-                    alt = recs['single_model']['alternative']
-                    alt_installed = is_installed(alt['name'])
-                    recommendations.append({
-                        'name': f"{alt['name']} (alternative)",
-                        'description': f"{alt['size']} - {alt['why'][:50]}..." + (" [green]✓ Installed[/green]" if alt_installed else ""),
-                        'pull_command': f"ollama pull {alt['name']}",
-                        'installed': alt_installed
-                    })
+                # Get tier description
+                tier_descriptions = {
+                    'green': 'High capability - Can run 32B models smoothly',
+                    'yellow': 'Medium capability - Best with 14B models',
+                    'red': 'Basic capability - Recommended 7B models'
+                }
+                tier_desc = tier_descriptions.get(tier, 'Unknown tier')
 
-                # Create permission prompt using template
-                prompt_data = PermissionTemplates.local_models(tier, caps, recommendations)
+                # Create step 1 prompt
+                prompt_data = {
+                    'title': 'Local Model Setup',
+                    'message': 'Choose your setup type:\n\nSingle model: One model for all tasks\nDual model: Separate planner and coder (recommended for complex work)',
+                    'details': {
+                        'System': f"{caps['os']} ({caps['arch']})",
+                        'RAM': f"{caps['ram_gb']}GB",
+                        'Tier': f"{tier.upper()} - {tier_desc}"
+                    },
+                    'options': setup_options
+                }
 
                 # Show permission prompt in MultiLineInput buffer
                 try:
@@ -1465,12 +1479,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     # Set flag to handle response
                     session._awaiting_local_model_selection = True
+                    session._local_step = 'setup_type'
                 except Exception as e:
                     app.write(f"[red]✗ Could not show model selection: {e}[/red]\n\n")
-                    app.write("Run manually:\n")
-                    for rec in recommendations:
-                        app.write(f"  {rec['pull_command']}\n")
-                    app.write("\n")
 
                 return
 
