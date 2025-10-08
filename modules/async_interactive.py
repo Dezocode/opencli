@@ -22,6 +22,14 @@ from stream_buffer import StreamBuffer, BufferStatusDisplay
 import uuid
 from copy import deepcopy
 
+try:
+    from .tool_call_utils import extract_tool_calls_from_text
+except (ImportError, ValueError):
+    try:
+        from tool_call_utils import extract_tool_calls_from_text  # type: ignore
+    except ImportError:
+        extract_tool_calls_from_text = None
+
 
 # CRITICAL: Async wrapper for app.write() to prevent UI blocking
 async def async_write(app, text, end="\n"):
@@ -44,9 +52,24 @@ async def write_markdown_response(app, markdown_text):
         # Render markdown ONCE (not incrementally)
         rendered = content._markdown_renderer.render(markdown_text)
 
+        # Add ✦ symbol to assistant messages
+        from rich.text import Text
+        from rich.style import Style
+        try:
+            from .frontier_colors import FRONTIER_COLORS
+        except (ImportError, ValueError):
+            try:
+                from frontier_colors import FRONTIER_COLORS
+            except ImportError:
+                FRONTIER_COLORS = {"ai_name": "#89B8C2"}
+
+        message_with_symbol = Text()
+        message_with_symbol.append("✦ ", style=Style(color=FRONTIER_COLORS["ai_name"]))
+        message_with_symbol.append_text(rendered)
+
         # Add to content display
         if hasattr(content, '_lines'):
-            content._lines.append(rendered)
+            content._lines.append(message_with_symbol)
 
             # Rebuild display with all lines
             from rich.text import Text
@@ -797,6 +820,24 @@ async def interactive_async(config, session=None, initial_prompt=None):
         except Exception as e:
             print(f"Warning: Agent manager initialization failed: {e}")
 
+    # Initialize Refactoring Orchestrator with permission handler
+    refactor_orchestrator = None
+    get_orchestrator = None
+    try:
+        from .refactor_orchestrator import get_orchestrator
+    except (ImportError, ValueError):
+        try:
+            from refactor_orchestrator import get_orchestrator
+        except ImportError:
+            get_orchestrator = None
+
+    if get_orchestrator is not None:
+        try:
+            permission_handler = AsyncPermissionHandler(app) if TOOL_PERMISSIONS else None
+            refactor_orchestrator = get_orchestrator(permission_handler=permission_handler)
+        except Exception as e:
+            print(f"Warning: Refactoring orchestrator initialization failed: {e}")
+
     # Initialize Spec-Kit goal tracking system
     spec_memory = None
     goal_tracker = None
@@ -1154,6 +1195,34 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write("[yellow]📊 Performance monitoring disabled[/yellow]\n\n")
                 except Exception as e:
                     app.write(f"[red]Error: Could not toggle performance monitor: {e}[/red]\n\n")
+
+                return
+
+            # Handle /refactor-status command - toggle refactoring statusline
+            if user_input.startswith('/refactor-status'):
+                try:
+                    from textual.widgets import Static
+                    from simple_tui import RefactoringStatusLine
+
+                    refactor_statusline = app.query_one(RefactoringStatusLine)
+                    is_enabled = refactor_statusline.toggle()
+
+                    if is_enabled:
+                        app.write("[green]⚙️  Refactoring statusline enabled[/green]\n\n")
+                        app.write("[dim]Live statusline showing:\n")
+                        app.write("  • ⚙️  System status (active/idle)\n")
+                        app.write("  • 📝 Current operation and file\n")
+                        app.write("  • 📊 Progress percentage\n")
+                        app.write("  • 🔴 Violations found (v:*)\n")
+                        app.write("  • 🐚 Active test shells\n")
+                        app.write("  • ✓/✗ Test results\n")
+                        app.write("  • 🧪 Venv health status\n")
+                        app.write("  • 🛡️  UI protection status\n\n")
+                        app.write("Use [cyan]/refactor auto start[/cyan] to begin monitoring\n\n")
+                    else:
+                        app.write("[yellow]⚙️  Refactoring statusline disabled[/yellow]\n\n")
+                except Exception as e:
+                    app.write(f"[red]Error: Could not toggle refactoring statusline: {e}[/red]\n\n")
 
                 return
 
@@ -1560,10 +1629,138 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     return
 
+                # /refactor auto start/stop - Intelligent monitoring
+                elif subcommand == "auto":
+                    if not refactor_orchestrator:
+                        app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
+                        return
+
+                    if args == "start":
+                        # Start monitoring in background (non-blocking)
+                        app.write("[cyan]⚙️  Starting intelligent refactoring system...[/cyan]\n\n")
+                        result = refactor_orchestrator.start_monitoring()
+                        if result["success"]:
+                            app.write("[green]✓ Intelligent refactoring system active[/green]\n")
+                            app.write("[dim]  • Watching files for violations[/dim]\n")
+                            app.write("[dim]  • Monitoring performance[/dim]\n")
+                            app.write("[dim]  • Self-healing enabled[/dim]\n\n")
+
+                            # Auto-enable status line
+                            try:
+                                from simple_tui import RefactoringStatusLine
+                                refactor_statusline = app.query_one(RefactoringStatusLine)
+                                if not refactor_statusline.enabled:
+                                    refactor_statusline.enabled = True
+                                    refactor_statusline.refresh()
+                                    app.write("[dim]  • Status line enabled[/dim]\n\n")
+                            except Exception:
+                                pass
+                        else:
+                            app.write(f"[red]✗ {result['error']}[/red]\n\n")
+                    elif args == "stop":
+                        refactor_orchestrator.stop_monitoring()
+                        app.write("[yellow]⏸  Refactoring system stopped[/yellow]\n\n")
+                    else:
+                        app.write("[yellow]Usage: /refactor auto [start|stop][/yellow]\n\n")
+
+                    return
+
+                # /refactor validate - Architecture compliance
+                elif subcommand == "validate":
+                    if not refactor_orchestrator:
+                        app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
+                        return
+
+                    app.write("[cyan]⚙️  Validating architecture compliance...[/cyan]\n\n")
+                    report = refactor_orchestrator.validator.validate_all()
+
+                    status_symbol = "✓" if report.is_compliant() else "✗"
+                    status_color = "green" if report.is_compliant() else "red"
+                    app.write(f"[bold {status_color}]{status_symbol} ARCHITECTURE COMPLIANCE[/bold {status_color}]\n\n")
+                    app.write(f"Files Checked: {len(report.violations) + 1}\n")
+                    app.write(f"Errors: {len([v for v in report.violations if v.severity == 'error'])}\n")
+                    app.write(f"Warnings: {len([v for v in report.violations if v.severity == 'warning'])}\n\n")
+
+                    if report.violations:
+                        errors = [v for v in report.violations if v.severity == "error"]
+                        if errors:
+                            app.write("[bold red]🔴 ERRORS:[/bold red]\n\n")
+                            for violation in errors[:5]:  # Show first 5
+                                app.write(f"  {violation.file}:{violation.line or '?'}\n")
+                                app.write(f"    Rule: {violation.rule_type}\n")
+                                app.write(f"    {violation.message}\n")
+                                if violation.suggestion:
+                                    app.write(f"    [dim]💡 {violation.suggestion}[/dim]\n")
+                                app.write("\n")
+
+                        warnings = [v for v in report.violations if v.severity == "warning"]
+                        if warnings:
+                            app.write("[bold yellow]🟡 WARNINGS:[/bold yellow]\n\n")
+                            for violation in warnings[:5]:  # Show first 5
+                                app.write(f"  {violation.file}:{violation.line or '?'}\n")
+                                app.write(f"    {violation.message}\n\n")
+                    else:
+                        app.write("[green]✓ All checks passed[/green]\n\n")
+
+                    return
+
+                # /refactor concurrency <file> - Concurrency analysis
+                elif subcommand == "concurrency":
+                    if not refactor_orchestrator:
+                        app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
+                        return
+
+                    if not args:
+                        app.write("[red]Error: Please specify a file path[/red]\n\n")
+                        app.write("[dim]Usage: /refactor concurrency <file-path>[/dim]\n\n")
+                        return
+
+                    try:
+                        from .concurrency_analyzer import ConcurrencyAnalyzer
+                    except (ImportError, ValueError):
+                        from concurrency_analyzer import ConcurrencyAnalyzer
+
+                    app.write(f"[cyan]⚙️  Analyzing concurrency: {args}[/cyan]\n\n")
+                    analyzer = ConcurrencyAnalyzer(args)
+                    report = analyzer.analyze()
+
+                    app.write("[bold cyan]🧵 CONCURRENCY ANALYSIS[/bold cyan]\n\n")
+                    app.write(f"Total Issues: {len(report.issues)}\n\n")
+
+                    if not report.issues:
+                        app.write("[green]✓ No concurrency issues detected[/green]\n\n")
+                        return
+
+                    critical = [i for i in report.issues if i.severity == "critical"]
+                    if critical:
+                        app.write("[bold red]🔴 CRITICAL ISSUES:[/bold red]\n\n")
+                        for issue in critical:
+                            app.write(f"  {issue.file}:{issue.line} in {issue.function}\n")
+                            app.write(f"    Type: {issue.issue_type}\n")
+                            app.write(f"    {issue.description}\n")
+                            app.write(f"    Fix: {issue.suggested_fix}\n")
+                            if issue.auto_fixable:
+                                app.write(f"    [green]✨ Auto-fixable[/green]\n")
+                            app.write("\n")
+
+                    warnings = [i for i in report.issues if i.severity == "warning"]
+                    if warnings:
+                        app.write("[bold yellow]🟡 WARNINGS:[/bold yellow]\n\n")
+                        for issue in warnings[:5]:  # Show first 5
+                            app.write(f"  {issue.file}:{issue.line} in {issue.function}\n")
+                            app.write(f"    {issue.description}\n\n")
+
+                    return
+
                 else:
                     app.write("[bold cyan]🔧 Refactoring Commands[/bold cyan]\n\n")
                     app.write("[bold]Code Analysis:[/bold]\n")
-                    app.write("  /refactor suggest-split <file>  - Suggest how to split a file\n\n")
+                    app.write("  /refactor suggest-split <file>  - Suggest how to split a file\n")
+                    app.write("  /refactor validate              - Validate architecture compliance\n")
+                    app.write("  /refactor concurrency <file>    - Analyze concurrency issues\n\n")
+                    app.write("[bold]Intelligent Monitoring:[/bold]\n")
+                    app.write("  /refactor auto start            - Start automated refactoring\n")
+                    app.write("  /refactor auto stop             - Stop automated refactoring\n\n")
                     app.write("[bold]Performance Profiling:[/bold]\n")
                     app.write("  /refactor profile start         - Start performance profiling\n")
                     app.write("  /refactor profile stop          - Stop and show report\n")
@@ -2612,34 +2809,26 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                     app.write(f"[dim]🐛 STREAM: Full response length: {len(full_response)} chars[/dim]\n")
 
-                # Parse tool calls from JSON text (for providers like Gemini that output JSON instead of structured tool_calls)
-                if full_response and not tool_calls_dict:
-                    import re
-                    import json as json_module
-
-                    # Look for JSON with tool_calls in the response
-                    json_match = re.search(r'\{[\s\S]*"tool_calls"[\s\S]*\}', full_response)
-                    if json_match:
-                        try:
-                            parsed = json_module.loads(json_match.group(0))
-                            if "tool_calls" in parsed and isinstance(parsed["tool_calls"], list):
-                                # Convert JSON tool_calls to delta format
-                                for idx, tc in enumerate(parsed["tool_calls"]):
-                                    if isinstance(tc, dict) and "function" in tc:
-                                        func = tc["function"]
-                                        tool_calls_dict[idx] = {
-                                            "id": tc.get("id", f"call_{idx}"),
-                                            "type": "function",
-                                            "name": func.get("name", ""),
-                                            "arguments": json_module.dumps(func.get("arguments", func.get("parameters", {})))
-                                        }
-                                if session.debug_mode:
-                                    app.write(f"[dim]🔍 DEBUG: Parsed {len(tool_calls_dict)} tool calls from JSON text[/dim]\n")
-                                # Clear full_response since it was just tool call JSON
-                                full_response = ""
-                        except Exception as e:
-                            if session.debug_mode:
-                                app.write(f"[dim]⚠️  Failed to parse tool calls from JSON: {e}[/dim]\n")
+                if full_response and not tool_calls_dict and extract_tool_calls_from_text:
+                    parsed_calls, cleaned_text = extract_tool_calls_from_text(full_response)
+                    if parsed_calls:
+                        start_idx = len(tool_calls_dict)
+                        for offset, call in enumerate(parsed_calls):
+                            name = call.get("name", "")
+                            arguments_dict = call.get("arguments", {})
+                            try:
+                                arguments_json = json.dumps(arguments_dict)
+                            except TypeError:
+                                arguments_json = json.dumps({})
+                            tool_calls_dict[start_idx + offset] = {
+                                "id": call.get("id", f"text_{start_idx + offset}"),
+                                "type": "function",
+                                "name": name,
+                                "arguments": arguments_json
+                            }
+                        if session.debug_mode:
+                            app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
+                        full_response = cleaned_text
 
                 # Render markdown ONCE from complete response (no incremental rendering)
                 if full_response and not tool_calls_dict:
@@ -2998,6 +3187,27 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
+
+                            if full_response and not tool_calls_dict_continuation and extract_tool_calls_from_text:
+                                parsed_calls, cleaned_text = extract_tool_calls_from_text(full_response)
+                                if parsed_calls:
+                                    start_idx = len(tool_calls_dict_continuation)
+                                    for offset, call in enumerate(parsed_calls):
+                                        name = call.get("name", "")
+                                        arguments_dict = call.get("arguments", {})
+                                        try:
+                                            arguments_json = json.dumps(arguments_dict)
+                                        except TypeError:
+                                            arguments_json = json.dumps({})
+                                        tool_calls_dict_continuation[start_idx + offset] = {
+                                            "id": call.get("id", f"text_cont_{start_idx + offset}"),
+                                            "type": "function",
+                                            "name": name,
+                                            "arguments": arguments_json
+                                        }
+                                    if session.debug_mode:
+                                        app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
+                                    full_response = cleaned_text
 
                             # Render markdown ONCE from complete response (no incremental rendering)
                             if full_response and not tool_calls_dict_continuation:
