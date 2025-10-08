@@ -341,10 +341,7 @@ class StreamingDisplay(Static):
         if self._selecting:
             self._selecting = False
 
-            # Rebuild display to show final selection highlight
-            self._rebuild_display()
-
-            # Copy selection to clipboard
+            # Copy selection to clipboard (no visual highlighting to preserve markdown formatting)
             self._copy_selection()
 
             # DEBUG
@@ -355,16 +352,14 @@ class StreamingDisplay(Static):
                 pass
 
     def watch_selection_start(self, old_value, new_value):
-        """Reactive watcher - trigger re-render when selection changes"""
-        if old_value != new_value and not self._selecting:
-            self._rebuild_display()
+        """Reactive watcher - disabled to preserve markdown formatting"""
+        # Visual selection highlighting disabled to preserve Rich Text formatting
+        pass
 
     def watch_selection_end(self, old_value, new_value):
-        """Reactive watcher - trigger re-render when selection changes"""
-        # During drag, skip rebuilds for performance
-        # Selection highlight will show on mouse up
-        if old_value != new_value and not self._selecting:
-            self._rebuild_display()
+        """Reactive watcher - disabled to preserve markdown formatting"""
+        # Visual selection highlighting disabled to preserve Rich Text formatting
+        pass
 
 
     def _apply_selection_highlight(self, content: Text, line_number: int) -> Text:
