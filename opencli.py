@@ -305,13 +305,26 @@ def load_config():
     # DON'T merge existing defaultHeaders - they may be from a different provider
     # Each provider gets fresh headers based on provider_defaults
 
-    if provider == "openrouter":
-        site_url = os.getenv("OPENROUTER_SITE_URL")
-        app_name = os.getenv("OPENROUTER_APP_NAME")
-        if site_url:
-            headers["HTTP-Referer"] = site_url
-        if app_name:
-            headers["X-Title"] = app_name
+    # OpenRouter: Fetch per-model headers from API pages
+    if provider == "openrouter" and model_id:
+        try:
+            from modules.openrouter_headers import OpenRouterHeaderManager
+            header_mgr = OpenRouterHeaderManager()
+
+            # Fetch model-specific headers
+            model_headers = header_mgr.get_headers_for_model(model_id)
+
+            # Merge with any existing headers from overrides
+            headers.update(model_headers)
+
+        except Exception:
+            # Fall back to environment variables
+            site_url = os.getenv("OPENROUTER_SITE_URL")
+            app_name = os.getenv("OPENROUTER_APP_NAME")
+            if site_url:
+                headers["HTTP-Referer"] = site_url
+            if app_name:
+                headers["X-Title"] = app_name
 
     # Persist merged headers
     if headers:

@@ -187,10 +187,50 @@ class ModelManager:
         return self.config.get("provider")
 
     def get_provider_headers(self, provider: str, model_id: Optional[str] = None) -> Dict:
-        """Build effective headers for provider/model combination."""
+        """
+        Build effective headers for provider/model combination.
+
+        For OpenRouter models, fetches per-model headers from API pages.
+        For other providers, uses default headers + overrides.
+        """
+        # OpenRouter: Fetch per-model headers from API pages
+        if provider == "openrouter" and model_id:
+            try:
+                # Import here to avoid circular dependency
+                try:
+                    from .openrouter_headers import OpenRouterHeaderManager
+                except ImportError:
+                    from openrouter_headers import OpenRouterHeaderManager
+
+                header_mgr = OpenRouterHeaderManager()
+                headers = header_mgr.get_headers_for_model(model_id)
+
+                # Apply any user overrides on top of fetched headers
+                overrides = self.config.get("providerOverrides", {})
+                provider_overrides = overrides.get(provider, {})
+
+                # Provider-level overrides
+                base_override = provider_overrides.get("headers") or {}
+                if isinstance(base_override, dict):
+                    headers.update(base_override)
+
+                # Model-specific overrides
+                model_overrides = provider_overrides.get("models") or {}
+                specific = model_overrides.get(model_id)
+                if isinstance(specific, dict):
+                    headers.update(specific)
+
+                return headers
+
+            except Exception as e:
+                # Fall back to default behavior on any error
+                pass
+
+        # Default behavior for non-OpenRouter providers or fallback
         settings = self.get_provider_settings(provider)
         headers = deepcopy(settings.get("default_headers") or {})
 
+        # Apply overrides from config.json:providerOverrides
         overrides = self.config.get("providerOverrides", {})
         provider_overrides = overrides.get(provider, {}) if isinstance(overrides, dict) else {}
 
@@ -198,6 +238,7 @@ class ModelManager:
         if isinstance(base_override, dict):
             headers.update(base_override)
 
+        # Model-specific overrides
         if model_id:
             model_overrides = provider_overrides.get("models") or {}
             if isinstance(model_overrides, dict):
@@ -205,6 +246,7 @@ class ModelManager:
                 if isinstance(specific, dict):
                     headers.update(specific)
 
+        # Environment variable overrides for OpenRouter (fallback only)
         if provider == "openrouter":
             site_url = os.getenv("OPENROUTER_SITE_URL")
             app_name = os.getenv("OPENROUTER_APP_NAME")

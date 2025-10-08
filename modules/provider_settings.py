@@ -10,6 +10,9 @@ from copy import deepcopy
 from typing import Dict, Any
 
 # Allow users to override OpenRouter header metadata via environment variables.
+# NOTE: These are fallback defaults only. OpenRouter headers are now dynamically
+# fetched from per-model API pages by OpenRouterHeaderManager.
+# See: modules/openrouter_headers.py
 _OPENROUTER_SITE = os.getenv("OPENROUTER_SITE_URL") or "https://github.com/Dezocode/opencli"
 _OPENROUTER_APP = os.getenv("OPENROUTER_APP_NAME") or "OpenCLI"
 
@@ -21,9 +24,11 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "models_endpoint": "https://openrouter.ai/api/v1/models",
         "key_patterns": ["sk-or-", "OPENROUTER"],
         "request_format": "openai-chat",
+        # NOTE: default_headers are fallback only. Per-model headers are fetched
+        # dynamically from https://openrouter.ai/{model_id}/api
         "default_headers": {
-            "HTTP-Referer": _OPENROUTER_SITE,
-            "X-Title": _OPENROUTER_APP
+            "HTTP-Referer": _OPENROUTER_SITE,  # Fallback default
+            "X-Title": _OPENROUTER_APP          # Fallback default
         }
     },
     "anthropic": {
