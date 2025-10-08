@@ -268,22 +268,61 @@ class StreamingDisplay(Static):
         if not self._selection_start or not self._selection_end:
             return ""
 
-        # Get all text content
-        all_text = []
+        # Get all text content as lines
+        all_lines = []
         for line in self._lines:
             if isinstance(line, Text):
-                all_text.append(line.plain)
+                all_lines.append(line.plain)
             else:
-                all_text.append(str(line))
+                all_lines.append(str(line))
 
         if self._current_stream:
-            all_text.append(self._current_stream)
+            # Render markdown to get plain text
+            rendered_stream = self._markdown_renderer.render(self._current_stream)
+            all_lines.append(rendered_stream.plain)
 
-        full_text = "\\n".join(all_text)
+        if not all_lines:
+            return ""
 
-        # For now, return all text (simple implementation)
-        # TODO: Implement proper character-level selection based on coordinates
-        return full_text
+        # Extract coordinates
+        start_x, start_y = self._selection_start
+        end_x, end_y = self._selection_end
+
+        # Normalize coordinates (handle dragging up or down)
+        if start_y > end_y or (start_y == end_y and start_x > end_x):
+            start_x, start_y, end_x, end_y = end_x, end_y, start_x, start_y
+
+        # Clamp to valid line ranges
+        start_y = max(0, min(start_y, len(all_lines) - 1))
+        end_y = max(0, min(end_y, len(all_lines) - 1))
+
+        selected_lines = []
+
+        # Single line selection
+        if start_y == end_y:
+            line = all_lines[start_y]
+            start_x = max(0, min(start_x, len(line)))
+            end_x = max(0, min(end_x, len(line)))
+            selected_lines.append(line[start_x:end_x])
+
+        # Multi-line selection
+        else:
+            for i in range(start_y, end_y + 1):
+                line = all_lines[i]
+
+                if i == start_y:
+                    # First line - from start_x to end
+                    start_x = max(0, min(start_x, len(line)))
+                    selected_lines.append(line[start_x:])
+                elif i == end_y:
+                    # Last line - from beginning to end_x
+                    end_x = max(0, min(end_x, len(line)))
+                    selected_lines.append(line[:end_x])
+                else:
+                    # Middle lines - entire line
+                    selected_lines.append(line)
+
+        return "\n".join(selected_lines)
 
     def _copy_selection(self):
         """Copy selected text to clipboard"""

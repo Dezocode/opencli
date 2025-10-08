@@ -7,6 +7,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Static, Input, RichLog, TextArea
 from textual.reactive import reactive
+from textual import events
+from textual.geometry import Offset
 from rich.text import Text
 from datetime import datetime
 import os
@@ -248,6 +250,11 @@ class OpenCLITUI(App):
 
     # Force ANSI colors mode and disable dark mode
     ENABLE_COMMAND_PALETTE = False
+
+    # Global text selection state
+    _selection_start = None
+    _selection_end = None
+    _is_selecting = False
 
     CSS = """
     Screen {
@@ -826,6 +833,124 @@ Session: {self.session.session_id[:8]} | Ready
         if self.input_future and not self.input_future.done():
             self.input_future.set_exception(KeyboardInterrupt())
         self.exit()
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Start text selection on mouse down"""
+        self._is_selecting = True
+        self._selection_start = (event.x, event.y)
+        self._selection_end = (event.x, event.y)
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Update text selection during drag"""
+        if self._is_selecting:
+            self._selection_end = (event.x, event.y)
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Complete text selection and auto-copy to clipboard"""
+        if self._is_selecting:
+            self._is_selecting = False
+            self._copy_selected_text()
+            # Clear selection after copy
+            self._selection_start = None
+            self._selection_end = None
+
+    def _copy_selected_text(self) -> None:
+        """Extract selected text from screen and copy to clipboard"""
+        if not self._selection_start or not self._selection_end:
+            return
+
+        try:
+            # Get screen text from render buffer
+            selected_text = self._extract_text_from_selection()
+
+            if selected_text and selected_text.strip():
+                # Copy to system clipboard
+                import subprocess
+                import platform
+
+                system = platform.system()
+                if system == "Darwin":  # macOS
+                    process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+                    process.communicate(selected_text.encode('utf-8'))
+                elif system == "Linux":
+                    try:
+                        process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+                        process.communicate(selected_text.encode('utf-8'))
+                    except FileNotFoundError:
+                        try:
+                            process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
+                            process.communicate(selected_text.encode('utf-8'))
+                        except FileNotFoundError:
+                            pass  # No clipboard tool available
+                elif system == "Windows":
+                    process = subprocess.Popen(['clip'], stdin=subprocess.PIPE, shell=True)
+                    process.communicate(selected_text.encode('utf-8'))
+        except Exception:
+            pass  # Silently ignore clipboard errors
+
+    def _extract_text_from_selection(self) -> str:
+        """Extract text from screen buffer based on selection coordinates"""
+        if not self._selection_start or not self._selection_end:
+            return ""
+
+        try:
+            # Get screen buffer from console
+            console = self.console
+            if not console:
+                return ""
+
+            # Normalize coordinates (handle dragging in any direction)
+            start_x, start_y = self._selection_start
+            end_x, end_y = self._selection_end
+
+            if start_y > end_y or (start_y == end_y and start_x > end_x):
+                start_x, start_y, end_x, end_y = end_x, end_y, start_x, start_y
+
+            # Get rendered text from all visible widgets
+            # This is a simplified approach - we'll get text from the screen buffer
+            lines = []
+
+            # Try to get content from the content widget
+            try:
+                content_widget = self.query_one("#content")
+                if hasattr(content_widget, '_lines'):
+                    # RichLog or StreamingDisplay
+                    for line in content_widget._lines:
+                        if isinstance(line, Text):
+                            lines.append(line.plain)
+                        else:
+                            lines.append(str(line))
+            except Exception:
+                pass
+
+            if not lines:
+                return ""
+
+            # Extract selected lines
+            selected_lines = []
+            for i in range(start_y, min(end_y + 1, len(lines))):
+                if i < 0 or i >= len(lines):
+                    continue
+
+                line = lines[i]
+
+                if start_y == end_y:
+                    # Single line selection
+                    selected_lines.append(line[max(0, start_x):min(len(line), end_x)])
+                elif i == start_y:
+                    # First line
+                    selected_lines.append(line[max(0, start_x):])
+                elif i == end_y:
+                    # Last line
+                    selected_lines.append(line[:min(len(line), end_x)])
+                else:
+                    # Middle lines
+                    selected_lines.append(line)
+
+            return "\n".join(selected_lines)
+
+        except Exception:
+            return ""
 
     def _start_queue_thread(self):
         """Start background thread to process write queue independently"""
