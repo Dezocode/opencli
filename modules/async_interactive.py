@@ -11,6 +11,9 @@ import queue
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import httpx
 from openai import AsyncOpenAI
 from simple_tui import OpenCLITUI
 from stream_buffer import StreamBuffer, BufferStatusDisplay
@@ -118,6 +121,177 @@ def normalize_tool_call_messages(messages):
     return normalized
 
 # Debug function loaded (print statement removed - use /debug to enable debug mode)
+
+
+def _flatten_message_content(content) -> str:
+    """Convert message content into plain text for provider formats."""
+    if content is None:
+        return ""
+
+    if isinstance(content, list):
+        parts = []
+        for segment in content:
+            if isinstance(segment, dict):
+                if segment.get("type") == "text":
+                    parts.append(segment.get("text", ""))
+                else:
+                    parts.append(json.dumps(segment))
+            else:
+                parts.append(str(segment))
+        return "\n".join(p for p in parts if p)
+
+    return str(content)
+
+
+def convert_messages_for_anthropic(messages: List[Dict]) -> Tuple[str, List[Dict]]:
+    """
+    Convert OpenAI-style messages into Anthropic's Messages format.
+
+    Returns:
+        system_prompt: Unified system prompt string (or empty)
+        conversation: List of message dicts for Anthropic API
+    """
+    system_segments: List[str] = []
+    conversation: List[Dict] = []
+
+    for msg in messages:
+        role = msg.get("role")
+        text = _flatten_message_content(msg.get("content"))
+
+        if role == "system":
+            if text:
+                system_segments.append(text)
+            continue
+
+        if role == "tool":
+            tool_id = msg.get("tool_call_id")
+            prefix = f"Tool result ({tool_id}):" if tool_id else "Tool result:"
+            text = f"{prefix}\n{text}" if text else prefix
+            role = "user"
+
+        tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+        if role == "assistant" and tool_calls and not text:
+            call_lines = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    func = tc.get("function", {})
+                    name = func.get("name", "tool")
+                    arguments = func.get("arguments", "")
+                    args_text = arguments if isinstance(arguments, str) else json.dumps(arguments)
+                    call_lines.append(f"[Tool call] {name}({args_text})")
+            if call_lines:
+                text = "\n".join(call_lines)
+
+        if role not in ("user", "assistant"):
+            role = "user"
+
+        conversation.append({
+            "role": role,
+            "content": [{"type": "text", "text": text}]
+        })
+
+    system_prompt = "\n\n".join(system_segments).strip()
+    return system_prompt, conversation
+
+
+def extract_openrouter_policy_error(error: Exception) -> Optional[str]:
+    """Check if exception indicates an OpenRouter data policy mismatch."""
+    text = str(error)
+    if not text:
+        return None
+
+    normalized = text.replace("\n", " ")
+    marker = "No endpoints found matching your data"
+    if marker in normalized:
+        return normalized
+
+    # Try to inspect response payload if available
+    payload = getattr(error, "response", None)
+    if payload:
+        try:
+            error_json = payload.json()
+            message = error_json.get("error", {}).get("message")
+            if message:
+                normalized_msg = message.replace("\n", " ")
+                if marker in normalized_msg:
+                    return normalized_msg
+        except Exception:
+            pass
+
+    return None
+
+
+async def perform_anthropic_request(
+    messages: List[Dict],
+    session,
+    config: Dict,
+    *,
+    timeout: Optional[float] = None
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Execute a request against the Anthropic Messages API.
+
+    Returns:
+        (success, response_text, error_message)
+    """
+    system_prompt, conversation = convert_messages_for_anthropic(messages)
+
+    if not conversation:
+        return False, None, "No conversation messages available for Anthropic request"
+
+    api_key = config.get("apiKey")
+    if not api_key:
+        return False, None, "Anthropic API key missing from configuration"
+
+    # Derive sensible token limit
+    max_tokens = config.get("anthropicMaxTokens")
+    if not isinstance(max_tokens, int) or max_tokens <= 0:
+        max_tokens = min(4096, max(config.get("contextWindow", 128000) // 4, 1024))
+
+    payload: Dict = {
+        "model": session.model or config.get("model"),
+        "messages": conversation,
+        "max_tokens": max_tokens,
+    }
+
+    if system_prompt:
+        payload["system"] = system_prompt
+
+    base_url = (config.get("baseURL") or "").rstrip("/")
+    if not base_url:
+        return False, None, "Anthropic base URL missing from configuration"
+
+    default_headers = config.get("defaultHeaders") or {}
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": default_headers.get("anthropic-version", "2023-06-01"),
+    }
+
+    # Allow additional user-defined headers
+    for key, value in default_headers.items():
+        headers.setdefault(key, value)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{base_url}/messages",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as e:
+        return False, None, f"Anthropic API error: {e.response.status_code} {e.response.text}"
+    except Exception as e:
+        return False, None, f"Anthropic request failed: {e}"
+
+    text_parts: List[str] = []
+    for block in data.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            text_parts.append(block.get("text", ""))
+
+    reply_text = "\n".join(part for part in text_parts if part).strip()
+    return True, reply_text, None
 
 try:
     from .frontier_colors import FRONTIER_COLORS
@@ -450,15 +624,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
         {"type": "function", "function": {"name": "Grep", "description": "Search files for pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
     ]
 
-    # Create async OpenAI client with OpenRouter headers
-    client = AsyncOpenAI(
-        base_url=config["baseURL"],
-        api_key=config["apiKey"],
-        default_headers={
-            "HTTP-Referer": "https://github.com/Dezocode/opencli",
-            "X-Title": "OpenCLI"
-        }
-    )
+    def create_async_client(current_config):
+        """Factory to create AsyncOpenAI client with provider defaults."""
+        headers = current_config.get("defaultHeaders") or None
+        return AsyncOpenAI(
+            base_url=current_config["baseURL"],
+            api_key=current_config["apiKey"],
+            default_headers=headers
+        )
+
+    # Create async client with provider-specific headers
+    client = create_async_client(config)
 
     # Initialize permission manager (same as fallback mode)
     TOOL_PERMISSIONS = False
@@ -575,6 +751,61 @@ async def interactive_async(config, session=None, initial_prompt=None):
     # Setup message handler
     async def handle_user_input(user_input: str):
         """Handle user input and generate response"""
+        nonlocal client
+
+        # Handle pending provider header prompts before other logic
+        if hasattr(session, '_pending_header_update') and session._pending_header_update:
+            pending = session._pending_header_update
+            fields = pending.get("fields", [])
+            index = pending.get("index", 0)
+            if index < len(fields):
+                field = fields[index]
+                value = user_input.strip()
+                current_headers = pending.get("current", {}) or {}
+
+                if not value and field in current_headers:
+                    value = current_headers[field]
+
+                pending.setdefault("collected", {})[field] = value
+                pending["index"] = index + 1
+
+                if hasattr(app, 'stream_display'):
+                    app.stream_display.remove_permission_prompt()
+
+                if pending["index"] < len(fields):
+                    next_field = fields[pending["index"]]
+                    current_value = pending.get("current", {}).get(next_field, "")
+                    if hasattr(app, 'stream_display'):
+                        app.stream_display.add_permission_prompt({
+                            "title": "Configure Provider Headers",
+                            "message": f"Enter value for {next_field}. Leave blank to keep existing value.",
+                            "details": {
+                                "current": current_value or "[unset]"
+                            },
+                            "options": []
+                        })
+                    else:
+                        app.write(f"[cyan]Enter value for {next_field} (leave blank to keep existing):[/cyan]\n")
+                else:
+                    provider_id = pending.get("provider", "openrouter")
+                    collected = {k: v for k, v in pending.get("collected", {}).items() if v}
+
+                    try:
+                        model_mgr.update_provider_headers(provider_id, collected, None)
+                        config.update(model_mgr.config)
+                        app.config = config
+                        client = create_async_client(config)
+                        if collected:
+                            app.write(f"[green]✓ Updated {provider_id} headers.[/green]\n")
+                        else:
+                            app.write(f"[yellow]⚠️ No header changes applied.[/yellow]\n")
+                        app.write("[dim]Re-run your last message to continue streaming.[/dim]\n\n")
+                    except Exception as e:
+                        app.write(f"[red]Failed to update headers: {e}[/red]\n\n")
+
+                    session._pending_header_update = None
+
+            return
 
         # Handle exit commands
         if user_input.lower() in ['exit', 'quit', '/exit', '/quit']:
@@ -596,11 +827,15 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                model_mgr = ModelManager()
+                local_model_mgr = ModelManager()
                 result = model_mgr.switch_model(session, model_id)
 
                 if result["success"]:
                     app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
+
+                    # Refresh runtime config from model manager
+                    config.update(model_mgr.config)
+                    app.config = config
 
                     # Show pricing info
                     if "pricing" in result:
@@ -626,9 +861,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if pricing_parts:
                             app.write(f"[dim]💰 Pricing: {', '.join(pricing_parts)}[/dim]\n\n")
 
-                    # Update client
-                    client.base_url = config["baseURL"]
-                    client.api_key = config["apiKey"]
+                    # Recreate client with new provider headers
+                    client = create_async_client(config)
                     app.update_status()
                 else:
                     app.write(f"[red]✗ {result['error']}[/red]\n\n")
@@ -810,18 +1044,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 if not args:
                     # Refresh models from OpenRouter to get latest rankings/pricing
-                    keys = model_mgr.get_configured_keys()
+                    keys = local_model_mgr.get_configured_keys()
                     if "openrouter" in keys:
                         app.write("[dim]Refreshing models from OpenRouter...[/dim]\n")
-                        result = await model_mgr.fetch_models_from_openrouter(keys["openrouter"])
+                        result = await local_model_mgr.fetch_models_from_openrouter(keys["openrouter"])
                         if result["success"]:
-                            model_mgr.register_models("openrouter", result["models"])
+                            local_model_mgr.register_models("openrouter", result["models"])
                             app.write("[dim]✓ Updated {count} models[/dim]\n\n".format(count=result["count"]))
 
                     # Show available models (only those with keys)
-                    current = model_mgr.get_current_model(session)
-                    models = model_mgr.list_available_models()
-                    recent = model_mgr.get_recent_models()
+                    current = local_model_mgr.get_current_model(session)
+                    models = local_model_mgr.list_available_models()
+                    recent = local_model_mgr.get_recent_models()
 
                     if not models:
                         app.write("[yellow]⚠ No models available[/yellow]\n\n")
@@ -830,7 +1064,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         return
 
                     # Get provider info
-                    providers = model_mgr.get_providers()
+                    providers = local_model_mgr.get_providers()
                     provider_names = {p["id"]: p["name"] for p in providers}
 
                     # Show recently used models first
@@ -951,6 +1185,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     if result["success"]:
                         app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
 
+                        # Refresh runtime config
+                        config.update(model_mgr.config)
+                        app.config = config
+
                         # Show pricing info if available
                         if "pricing" in result:
                             pricing = result["pricing"]
@@ -977,10 +1215,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if pricing_parts:
                                 app.write(f"[dim]💰 Pricing: {', '.join(pricing_parts)}[/dim]\n\n")
 
-                        # Update client
-                        client.base_url = config["baseURL"]
-                        client.api_key = config["apiKey"]
-
+                        # Recreate client with new provider headers
+                        client = create_async_client(config)
                         app.update_status()
                     else:
                         app.write(f"[red]✗ {result['error']}[/red]\n\n")
@@ -1557,6 +1793,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
+            nonlocal client, model_mgr
             try:
                 # STALL DEBUG: Starting message preparation
                 if session.debug_mode:
@@ -1616,35 +1853,140 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # CRITICAL FIX: Yield control to event loop before heavy API call
                 await asyncio.sleep(0)
 
-                try:
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
-
-                    # Create the API call - COMPLETELY CLEAN
-                    # NO tools parameter, NO extra_body, NOTHING
-                    # Tools are in system message context - AI responds naturally
-                    api_call = client.chat.completions.create(
-                        model=session.model or config["model"],
-                        messages=messages_with_context,
-                        stream=True
+                request_format = config.get("requestFormat", "openai-chat")
+                if request_format == "anthropic-messages":
+                    success, reply_text, error_msg = await perform_anthropic_request(
+                        messages_with_context,
+                        session,
+                        config,
+                        timeout=api_timeout
                     )
 
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+                    if not success:
+                        restore_ui_state(error_msg or "Anthropic request failed")
+                        return
 
-                    # No timeout - let it run indefinitely (user's choice)
-                    if api_timeout:
-                        response = await asyncio.wait_for(api_call, timeout=api_timeout)
-                    else:
-                        response = await api_call
+                    if reply_text:
+                        session.add("assistant", reply_text)
+                        await asyncio.to_thread(session.save)
+                        await write_markdown_response(app, reply_text)
+                        app.write("\n")
 
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
-                except asyncio.TimeoutError:
-                    timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
-                    app.write(f"[red]❌ API request timed out after {timeout_msg}[/red]\n")
-                    app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
                     restore_ui_state()
+                    return
+
+                if request_format != "openai-chat":
+                    restore_ui_state(f"Unsupported provider request format: {request_format}")
+                    return
+
+                async def handle_policy_error(error_text: str) -> str:
+                    provider_id = model_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
+                    current_headers = config.get("defaultHeaders", {}) or {}
+
+                    # Suggested headers from environment overrides (if provided)
+                    proposed = {}
+                    site_url = os.getenv("OPENROUTER_SITE_URL")
+                    app_name = os.getenv("OPENROUTER_APP_NAME")
+                    if site_url:
+                        proposed["HTTP-Referer"] = site_url
+                    if app_name:
+                        proposed["X-Title"] = app_name
+                    if not proposed:
+                        proposed = None
+
+                    handler = getattr(app, 'permission_handler', None)
+                    allowed = True
+                    if handler:
+                        allowed, _ = await handler.check_and_prompt(
+                            "ConfigureHeaders",
+                            {
+                                "provider": provider_id,
+                                "model": session.model or config.get("model"),
+                                "issue": error_text,
+                                "current_headers": current_headers,
+                                "proposed_headers": proposed
+                            },
+                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                        )
+
+                    if not allowed:
+                        restore_ui_state("Provider headers unchanged.")
+                        return "denied"
+
+                    if proposed and any(current_headers.get(k) != v for k, v in proposed.items()):
+                        model_mgr.update_provider_headers(provider_id, proposed, None)
+                        config.update(model_mgr.config)
+                        app.config = config
+                        app.write("[green]✓ Applied provider headers from environment overrides.[/green]\n")
+                        return "updated"
+
+                    session._pending_header_update = {
+                        "provider": provider_id,
+                        "fields": ["HTTP-Referer", "X-Title"],
+                        "index": 0,
+                        "current": current_headers,
+                        "collected": {}
+                    }
+                    restore_ui_state("Streaming paused: update provider headers to continue.")
+                    if hasattr(app, 'stream_display'):
+                        app.stream_display.add_permission_prompt({
+                            "title": "Configure Provider Headers",
+                            "message": "Enter value for HTTP-Referer. Leave blank to keep existing value.",
+                            "details": {
+                                "current": current_headers.get("HTTP-Referer", "[unset]")
+                            },
+                            "options": []
+                        })
+                    else:
+                        app.write("[cyan]Enter value for HTTP-Referer (leave blank to keep existing):[/cyan]\n")
+                    return "await"
+
+                response = None
+                attempt = 0
+                while True:
+                    attempt += 1
+                    try:
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: Creating API request object (attempt {attempt})...[/dim]\n")
+
+                        # Create the API call - COMPLETELY CLEAN
+                        api_call = client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=messages_with_context,
+                            stream=True
+                        )
+
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+
+                        # No timeout - let it run indefinitely (user's choice)
+                        if api_timeout:
+                            response = await asyncio.wait_for(api_call, timeout=api_timeout)
+                        else:
+                            response = await api_call
+
+                        if session.debug_mode:
+                            app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
+                        break
+                    except asyncio.TimeoutError:
+                        timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
+                        app.write(f"[red]❌ API request timed out after {timeout_msg}[/red]\n")
+                        app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
+                        restore_ui_state()
+                        return
+                    except Exception as e:
+                        policy_error = extract_openrouter_policy_error(e)
+                        if policy_error:
+                            remediation = await handle_policy_error(policy_error)
+                            if remediation == "updated" and attempt < 3:
+                                client = create_async_client(config)
+                                continue
+                            if remediation in ("await", "denied"):
+                                return
+                        restore_ui_state(f"Streaming Error: {e}")
+                        return
+
+                if not response:
                     return
 
                 full_response = ""
