@@ -579,12 +579,12 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
 
     try:
         if debug_mode and app:
-            app.write(f"[dim]🐛 TOOL EXEC: Entering execute_tool_async for {name}[/dim]\n")
+            app.write(f"[dim]TOOL: Entering execute_tool_async for {name}[/dim]\n")
 
         if name == "Read":
             # Run file I/O in thread pool to avoid blocking
             if debug_mode and app:
-                app.write(f"[dim]🐛 TOOL EXEC: About to read file {args['file_path']}[/dim]\n")
+                app.write(f"[dim]TOOL: About to read file {args['file_path']}[/dim]\n")
             return await asyncio.to_thread(execute_read, args["file_path"])
 
         elif name == "Write":
@@ -596,10 +596,10 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
         elif name == "Bash":
             # Use async subprocess for bash commands
             if debug_mode and app:
-                app.write(f"[dim]🐛 TOOL EXEC: About to run bash command: {args['command']}[/dim]\n")
+                app.write(f"[dim]TOOL: About to run bash command: {args['command']}[/dim]\n")
             result = await execute_bash_async(args["command"], args.get("description"), current_dir=current_dir)
             if debug_mode and app:
-                app.write(f"[dim]🐛 TOOL EXEC: Bash command returned[/dim]\n")
+                app.write(f"[dim]TOOL: Bash command returned[/dim]\n")
             return result
 
         elif name == "Glob":
@@ -621,12 +621,12 @@ def execute_tool(name, args, permission_manager=None, current_dir=None, app=None
 
     # CRITICAL DEBUG - This should NOT be called in TUI mode!
     import sys
-    sys.stderr.write(f"\n⚠️⚠️⚠️ SYNC execute_tool CALLED (WRONG!): {name}\n")
+    sys.stderr.write(f"\n!!! SYNC execute_tool CALLED (WRONG!): {name}\n")
     sys.stderr.write(f"This is the OLD synchronous version - TUI should use execute_tool_async!\n")
     sys.stderr.flush()
 
     if app:
-        app.write(f"[red]⚠️ SYNC execute_tool called for {name} - should use async version![/red]\n")
+        app.write(f"[red]! SYNC execute_tool called for {name} - should use async version![/red]\n")
 
     # Execute the tool (no permission checks in sync version - TUI should use async!)
     tools = {
@@ -967,7 +967,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if collected:
                             app.write(f"[green]✓ Updated {provider_id} headers.[/green]\n")
                         else:
-                            app.write(f"[yellow]⚠️ No header changes applied.[/yellow]\n")
+                            app.write(f"[yellow]! No header changes applied.[/yellow]\n")
                         app.write("[dim]Re-run your last message to continue streaming.[/dim]\n\n")
                     except Exception as e:
                         app.write(f"[red]Failed to update headers: {e}[/red]\n\n")
@@ -1125,11 +1125,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 session.debug_mode = not session.debug_mode
                 status = "enabled" if session.debug_mode else "disabled"
                 color = "green" if session.debug_mode else "yellow"
-                app.write(f"[{color}]🐛 Debug mode {status}[/{color}]\n\n")
+                app.write(f"[{color}]Debug mode {status}[/{color}]\n\n")
                 if session.debug_mode:
                     app.write("[dim]Debug logs will show:\n")
-                    app.write("  • 🐛 STALL DEBUG - Async operation boundaries\n")
-                    app.write("  • 🔍 DEBUG - Message structure and API calls\n")
+                    app.write("  • DEBUG STALL DEBUG - Async operation boundaries\n")
+                    app.write("  • → DEBUG - Message structure and API calls\n")
                     app.write("  • 🚨 EXTREME DEBUG - Full JSON payloads\n\n")
                 return
 
@@ -1160,13 +1160,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     status = "enabled" if session.fast_mode else "disabled"
                     color = "green" if session.fast_mode else "yellow"
 
-                    app.write(f"[{color}]⚡ Fast mode {status}[/{color}]\n\n")
+                    app.write(f"[{color}]» Fast mode {status}[/{color}]\n\n")
                     if session.fast_mode:
                         app.write("[dim]Optimizations enabled:\n")
                         app.write("  • Skipped markdown post-processing\n")
                         app.write("  • Raw text rendering only\n")
                         app.write("  • Maximum token throughput\n\n")
-                        app.write("⚠️ Note: Markdown formatting will not render\n\n")
+                        app.write("! Note: Markdown formatting will not render\n\n")
                     else:
                         app.write("[dim]Markdown rendering restored\n\n")
                     return
@@ -1182,17 +1182,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     is_enabled = perf_statusline.toggle()
 
                     if is_enabled:
-                        app.write("[green]📊 Performance monitoring enabled[/green]\n\n")
+                        app.write("[green]▪ Performance monitoring enabled[/green]\n\n")
                         app.write("[dim]Live statusline active beneath prompt showing:\n")
-                        app.write("  • 🟢 CPU usage and trend (↗️↘️→)\n")
-                        app.write("  • 💾 Memory usage (MB)\n")
-                        app.write("  • 🧵 Thread count\n")
-                        app.write("  • ⚡ Token streaming speed (tok/s)\n")
-                        app.write("  • 🔴 Current bottlenecks (if any)\n\n")
+                        app.write("  • CPU usage and trend (↗️↘️→)\n")
+                        app.write("  • Memory usage (MB)\n")
+                        app.write("  • Thread count\n")
+                        app.write("  • » Token streaming speed (tok/s)\n")
+                        app.write("  • Bottlenecks (if any)\n\n")
                         app.write("Use [cyan]/performance report[/cyan] for detailed analysis\n")
                         app.write("Use [cyan]/performance fast[/cyan] to toggle fast mode\n\n")
                     else:
-                        app.write("[yellow]📊 Performance monitoring disabled[/yellow]\n\n")
+                        app.write("[yellow]▪ Performance monitoring disabled[/yellow]\n\n")
                 except Exception as e:
                     app.write(f"[red]Error: Could not toggle performance monitor: {e}[/red]\n\n")
 
@@ -1400,7 +1400,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             prompt_cost = pricing.get("prompt", "?")
                             completion_cost = pricing.get("completion", "?")
 
-                            app.write(f"[yellow]⚠️  PAID MODEL WARNING[/yellow]\n\n")
+                            app.write(f"[yellow]! PAID MODEL WARNING[/yellow]\n\n")
                             app.write(f"Model: [bold]{selected_model['name']}[/bold]\n")
 
                             if prompt_cost != "?":
@@ -1470,26 +1470,32 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     try:
                         from simple_tui import RefactoringStatusLine
                         refactor_statusline = app.query_one(RefactoringStatusLine)
-                        is_enabled = refactor_statusline.toggle()
 
-                        if is_enabled:
-                            app.write("[green]⚙️  Refactoring statusline enabled[/green]\n\n")
-                            app.write("[dim]Live statusline showing:\n")
-                            app.write("  • ⚙️  System status (active/idle)\n")
-                            app.write("  • 📝 Current operation and file\n")
-                            app.write("  • 📊 Progress percentage\n")
-                            app.write("  • 🔴 Violations found (v:*)\n")
-                            app.write("  • 🐚 Active test shells\n")
-                            app.write("  • ✓/✗ Test results\n")
-                            app.write("  • 🧪 Venv health status\n")
-                            app.write("  • 🛡️  UI protection status\n\n")
+                        # Check orchestrator availability
+                        if not refactor_statusline.orchestrator:
+                            app.write("[red]Error: Refactoring orchestrator not initialized[/red]\n")
+                            app.write("[dim]Missing dependencies or configuration issue[/dim]\n\n")
                         else:
-                            app.write("[yellow]⚙️  Refactoring statusline disabled[/yellow]\n\n")
+                            is_enabled = refactor_statusline.toggle()
+
+                            if is_enabled:
+                                app.write("[green]Refactoring monitoring enabled[/green]\n\n")
+                                app.write("[dim]Statusline active - showing:\n")
+                                app.write("  • System status\n")
+                                app.write("  • Current operation\n")
+                                app.write("  • Violations found\n")
+                                app.write("  • Test results\n")
+                                app.write("  • Venv health\n")
+                                app.write("  • UI protection\n\n")
+                            else:
+                                app.write("[yellow]Refactoring monitoring disabled[/yellow]\n\n")
                     except Exception as e:
-                        app.write(f"[red]Error: Could not toggle refactoring statusline: {e}[/red]\n\n")
+                        import traceback
+                        app.write(f"[red]Error: {e}[/red]\n")
+                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n\n")
 
                     # Show quick command reference
-                    app.write("[bold cyan]🔧 Quick Commands:[/bold cyan]\n\n")
+                    app.write("[bold cyan]▸ Quick Commands:[/bold cyan]\n\n")
                     app.write("[bold]Get Started:[/bold]\n")
                     app.write("  [cyan]/refactor auto start[/cyan]        - Start automated monitoring\n")
                     app.write("  [cyan]/refactor validate[/cyan]          - Check architecture compliance\n\n")
@@ -1525,7 +1531,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     stats = result["stats"]
                     clusters = result["clusters"]
 
-                    app.write(f"[bold cyan]📊 Refactoring Analysis: {args}[/bold cyan]\n\n")
+                    app.write(f"[bold cyan]▪ Refactoring Analysis: {args}[/bold cyan]\n\n")
                     app.write(f"[bold]File Stats:[/bold]\n")
                     app.write(f"  Total Lines: {stats['total_lines']}\n")
                     app.write(f"  Functions: {stats['function_count']}\n")
@@ -1555,12 +1561,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write("[green]✓ Performance profiling started[/green]\n\n")
                     elif args == "stop":
                         stats = profiler.stop_profiling()
-                        app.write("[bold cyan]📊 PERFORMANCE PROFILE[/bold cyan]\n\n")
+                        app.write("[bold cyan]▪ PERFORMANCE PROFILE[/bold cyan]\n\n")
                         app.write(f"Total Calls: {stats.total_calls:,}\n")
                         app.write(f"Total Time: {stats.total_time:.3f}s\n\n")
 
                         if stats.budget_violations:
-                            app.write("[bold red]⚠️  PERFORMANCE BUDGET VIOLATIONS:[/bold red]\n")
+                            app.write("[bold red]! PERFORMANCE BUDGET VIOLATIONS:[/bold red]\n")
                             for violation in stats.budget_violations:
                                 app.write(f"  {violation.function}: {violation.actual_time:.1f}ms ")
                                 app.write(f"(budget: {violation.budget_time:.1f}ms)\n")
@@ -1596,13 +1602,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     profiler = get_profiler()
                     blocked = profiler.detect_blocking_threads()
 
-                    app.write("[bold cyan]🔍 BLOCKING THREAD DETECTION[/bold cyan]\n\n")
+                    app.write("[bold cyan]BLOCKING THREAD DETECTION[/bold cyan]\n\n")
 
                     if not blocked:
                         app.write("[green]✓ No blocked threads detected[/green]\n\n")
                         return
 
-                    app.write(f"[bold red]⚠️  FOUND {len(blocked)} POTENTIALLY BLOCKED THREADS:[/bold red]\n\n")
+                    app.write(f"[bold red]! FOUND {len(blocked)} POTENTIALLY BLOCKED THREADS:[/bold red]\n\n")
                     for thread in blocked:
                         app.write(f"[red]● {thread.name}[/red]\n")
                         app.write(f"  ID: {thread.thread_id}\n")
@@ -1645,7 +1651,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     if args == "start":
                         # Start monitoring in background (non-blocking)
-                        app.write("[cyan]⚙️  Starting intelligent refactoring system...[/cyan]\n\n")
+                        app.write("[cyan]▸️  Starting intelligent refactoring system...[/cyan]\n\n")
                         result = refactor_orchestrator.start_monitoring()
                         if result["success"]:
                             app.write("[green]✓ Intelligent refactoring system active[/green]\n")
@@ -1667,7 +1673,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write(f"[red]✗ {result['error']}[/red]\n\n")
                     elif args == "stop":
                         refactor_orchestrator.stop_monitoring()
-                        app.write("[yellow]⏸  Refactoring system stopped[/yellow]\n\n")
+                        app.write("[yellow]‖ Refactoring system stopped[/yellow]\n\n")
                     else:
                         app.write("[yellow]Usage: /refactor auto [start|stop][/yellow]\n\n")
 
@@ -1679,7 +1685,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
                         return
 
-                    app.write("[cyan]⚙️  Validating architecture compliance...[/cyan]\n\n")
+                    app.write("[cyan]▸️  Validating architecture compliance...[/cyan]\n\n")
                     report = refactor_orchestrator.validator.validate_all()
 
                     status_symbol = "✓" if report.is_compliant() else "✗"
@@ -1698,7 +1704,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write(f"    Rule: {violation.rule_type}\n")
                                 app.write(f"    {violation.message}\n")
                                 if violation.suggestion:
-                                    app.write(f"    [dim]💡 {violation.suggestion}[/dim]\n")
+                                    app.write(f"    [dim]→ {violation.suggestion}[/dim]\n")
                                 app.write("\n")
 
                         warnings = [v for v in report.violations if v.severity == "warning"]
@@ -1728,7 +1734,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     except (ImportError, ValueError):
                         from concurrency_analyzer import ConcurrencyAnalyzer
 
-                    app.write(f"[cyan]⚙️  Analyzing concurrency: {args}[/cyan]\n\n")
+                    app.write(f"[cyan]▸️  Analyzing concurrency: {args}[/cyan]\n\n")
                     analyzer = ConcurrencyAnalyzer(args)
                     report = analyzer.analyze()
 
@@ -1762,7 +1768,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # /refactor help - Show help
                 elif subcommand == "help":
-                    app.write("[bold cyan]🔧 Refactoring Commands[/bold cyan]\n\n")
+                    app.write("[bold cyan]▸ Refactoring Commands[/bold cyan]\n\n")
                     app.write("[bold]Toggle Statusline:[/bold]\n")
                     app.write("  /refactor                       - Toggle refactoring statusline\n\n")
                     app.write("[bold]Code Analysis:[/bold]\n")
@@ -1802,7 +1808,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     result = manager.start()
 
                     if result["status"] == "already_running":
-                        app.write("[yellow]⚠️  Auto-refactoring is already running[/yellow]\n\n")
+                        app.write("[yellow]! Auto-refactoring is already running[/yellow]\n\n")
                         return
 
                     app.write("[green]✓ Auto-refactoring started[/green]\n\n")
@@ -1816,7 +1822,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     result = manager.stop()
 
                     if result["status"] == "not_running":
-                        app.write("[yellow]⚠️  Auto-refactoring is not running[/yellow]\n\n")
+                        app.write("[yellow]! Auto-refactoring is not running[/yellow]\n\n")
                         return
 
                     app.write("[green]✓ Auto-refactoring stopped[/green]\n\n")
@@ -2217,7 +2223,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Show injection logs summary
                     if hasattr(session, 'shell_injector') and session.shell_injector:
                         summary = session.shell_injector.get_log_summary()
-                        app.write("[cyan]📊 Shell Injection Logs[/cyan]\n\n")
+                        app.write("[cyan]▪ Shell Injection Logs[/cyan]\n\n")
                         app.write(f"Total Messages: {summary['total_messages']}\n")
                         app.write(f"Log File: {summary['log_file']}\n\n")
 
@@ -2439,10 +2445,10 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
         # Auto-save session state (non-blocking)
         if session.debug_mode:
-            app.write(f"[dim]🐛 STALL DEBUG: Saving user message...[/dim]\n")
+            app.write(f"[dim]DEBUG: Saving user message...[/dim]\n")
         await asyncio.to_thread(session.save)
         if session.debug_mode:
-            app.write(f"[dim]🐛 STALL DEBUG: User message save COMPLETED, starting AI response...[/dim]\n")
+            app.write(f"[dim]DEBUG: User message save COMPLETED, starting AI response...[/dim]\n")
 
         # Stream response in separate thread to avoid blocking UI
         def restore_ui_state(error_msg: str = None):
@@ -2453,8 +2459,8 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                     app.finish_stream()
                 if error_msg:
-                    app.write(f"\n[red]❌ {error_msg}[/red]\n")
-                app.write("\n[yellow]⚠️ You can continue chatting.[/yellow]\n\n")
+                    app.write(f"\n[red]✗ {error_msg}[/red]\n")
+                app.write("\n[yellow]! You can continue chatting.[/yellow]\n\n")
                 app.update_status()
             except:
                 pass  # Ignore errors in error handler
@@ -2465,12 +2471,12 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
             try:
                 # STALL DEBUG: Starting message preparation
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: Starting message preparation...[/dim]\n")
+                    app.write(f"[dim]DEBUG: Starting message preparation...[/dim]\n")
 
                 # Prepare messages with system context (same as fallback mode)
                 if agent_manager:
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Using agent_manager.prepare_messages...[/dim]\n")
+                        app.write(f"[dim]DEBUG: Using agent_manager.prepare_messages...[/dim]\n")
                     # Use agent manager for context - RUN IN THREAD TO PREVENT BLOCKING!
                     messages_with_context = await asyncio.to_thread(
                         agent_manager.prepare_messages,
@@ -2480,10 +2486,10 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         session.session_id
                     )
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: agent_manager.prepare_messages COMPLETED[/dim]\n")
+                        app.write(f"[dim]DEBUG: agent_manager.prepare_messages COMPLETED[/dim]\n")
                 else:
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Using prepare_messages_with_context...[/dim]\n")
+                        app.write(f"[dim]DEBUG: Using prepare_messages_with_context...[/dim]\n")
                     # Fallback to basic context preparation WITH GOAL TRACKING (NOW ASYNC!)
                     messages_with_context = await prepare_messages_with_context(
                         session.messages,
@@ -2492,7 +2498,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         goal_tracker=goal_tracker
                     )
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: prepare_messages_with_context COMPLETED[/dim]\n")
+                        app.write(f"[dim]DEBUG: prepare_messages_with_context COMPLETED[/dim]\n")
 
                 # Debug: Show system message is being sent (only in debug mode)
                 if session.debug_mode and messages_with_context and messages_with_context[0].get('role') == 'system':
@@ -2500,7 +2506,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 # Debug: Log message structure for debugging (only if debug mode enabled)
                 if session.debug_mode:
-                    app.write(f"[dim]🔍 DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                    app.write(f"[dim]DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
                     for i, msg in enumerate(messages_with_context):
                         role = msg.get('role', 'unknown')
                         has_tool_calls = 'tool_calls' in msg
@@ -2515,8 +2521,8 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 # NO TIMEOUT - Let AI run as long as needed (user's choice)
                 api_timeout = None
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: About to call API (no timeout - unlimited)...[/dim]\n")
-                    app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+                    app.write(f"[dim]DEBUG: About to call API (no timeout - unlimited)...[/dim]\n")
+                    app.write(f"[dim]DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
 
                 # CRITICAL FIX: Yield control to event loop before heavy API call
                 await asyncio.sleep(0)
@@ -2598,17 +2604,17 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         except (ImportError, ValueError):
                             from uptime_checker import check_model_uptime, is_model_healthy, get_user_recommendation
 
-                        app.write("[dim]🔍 Checking model availability...[/dim]\n")
+                        app.write("[dim]Checking model availability...[/dim]\n")
 
                         success, uptime, status_msg = await check_model_uptime(model_id)
 
                         if success and uptime is not None:
-                            app.write(f"[dim]📊 {status_msg}[/dim]\n\n")
+                            app.write(f"[dim]▪ {status_msg}[/dim]\n\n")
 
                             # Show warning if model is degraded, but still allow user to proceed
                             if not is_model_healthy(uptime):
                                 recommendation = get_user_recommendation(uptime, model_id)
-                                app.write(f"[yellow]⚠️  Warning: Low Model Availability[/yellow]\n\n")
+                                app.write(f"[yellow]! Warning: Low Model Availability[/yellow]\n\n")
                                 app.write(f"{recommendation}\n\n")
                                 app.write("[dim]You can still try to configure headers below, but the error may be due to model downtime.[/dim]\n\n")
                         else:
@@ -2663,7 +2669,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             except (ImportError, ValueError):
                                 from header_autoconfig import auto_configure_headers
 
-                            app.write("[dim]🔍 Auto-configuring headers from model API page...[/dim]\n")
+                            app.write("[dim]Auto-configuring headers from model API page...[/dim]\n")
 
                             success, new_headers, message = await auto_configure_headers(model_id, current_headers)
 
@@ -2716,7 +2722,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     attempt += 1
                     try:
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: Creating API request object (attempt {attempt})...[/dim]\n")
+                            app.write(f"[dim]DEBUG: Creating API request object (attempt {attempt})...[/dim]\n")
 
                         # Create the API call - COMPLETELY CLEAN
                         api_call = client.chat.completions.create(
@@ -2726,7 +2732,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         )
 
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+                            app.write(f"[dim]DEBUG: API request created, waiting for response...[/dim]\n")
 
                         # No timeout - let it run indefinitely (user's choice)
                         if api_timeout:
@@ -2735,12 +2741,12 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             response = await api_call
 
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
+                            app.write(f"[dim]DEBUG: API call returned, starting to stream...[/dim]\n")
                         break
                     except asyncio.TimeoutError:
                         timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
-                        app.write(f"[red]❌ API request timed out after {timeout_msg}[/red]\n")
-                        app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
+                        app.write(f"[red]✗ API request timed out after {timeout_msg}[/red]\n")
+                        app.write("[yellow]! The API did not respond. Check your connection or try again.[/yellow]\n")
                         restore_ui_state()
                         return
                     except Exception as e:
@@ -2791,7 +2797,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                     if session.debug_mode and chunk_count % 10 == 0:
                         elapsed = current_time - last_chunk_time
-                        app.write(f"[dim]🐛 STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
+                        app.write(f"[dim]STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
                         last_chunk_time = current_time
 
                     if app.should_exit:
@@ -2801,7 +2807,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     if chunk.choices and session.debug_mode:
                         finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
                         if finish_reason:
-                            app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
+                            app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
 
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if not delta:
@@ -2831,8 +2837,8 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 await drain_task  # Wait for all buffered content to be displayed
 
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
-                    app.write(f"[dim]🐛 STREAM: Full response length: {len(full_response)} chars[/dim]\n")
+                    app.write(f"[dim]STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                    app.write(f"[dim]STREAM: Full response length: {len(full_response)} chars[/dim]\n")
 
                 if full_response and not tool_calls_dict and extract_tool_calls_from_text:
                     parsed_calls, cleaned_text = extract_tool_calls_from_text(full_response)
@@ -2852,7 +2858,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                 "arguments": arguments_json
                             }
                         if session.debug_mode:
-                            app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
+                            app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
                         full_response = cleaned_text
 
                 # Finish streaming and render markdown BEFORE removing buffer status
@@ -2868,11 +2874,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 if tool_calls_dict:
                     # Finish any streaming content first
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
+                        app.write(f"[dim]POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
                     if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                         app.finish_stream()
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: finish_stream done (tool path)[/dim]\n")
+                        app.write(f"[dim]POST-STREAM: finish_stream done (tool path)[/dim]\n")
                     app.write("\n")
                     # CRITICAL: Yield after write
                     await asyncio.sleep(0)
@@ -2895,13 +2901,13 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     }
                     session.messages.append(assistant_msg)
                     if session.debug_mode:
-                        app.write(f"[dim]🔍 DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
+                        app.write(f"[dim]DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
 
                     # Execute each tool WITH GOAL SANITY VALIDATION (ASYNC - NO BLOCKING!)
                     for tc in tool_calls:
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 Starting tool execution: {tc.function.name}[/dim]\n")
-                        app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                            app.write(f"[dim]TOOL: {tc.function.name}[/dim]\n")
+                        app.write(f"[dim]▸ {tc.function.name}[/dim]\n")
 
                         args = json.loads(tc.function.arguments)
 
@@ -2912,7 +2918,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                             # Show sanity check result in verbose/debug mode
                             if session.debug_mode or not sanity_check[0]:
-                                status = "✅" if sanity_check[0] else "⚠️"
+                                status = "✓" if sanity_check[0] else "!"
                                 app.write(f"[dim]{status} Goal Check: {sanity_check[1]}[/dim]\n")
 
                         # PERMISSION CHECK - Non-blocking, fail-open if errors
@@ -2954,16 +2960,16 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                                             if not allowed:
                                                 # Permission denied - skip tool execution
-                                                result = f"❌ Operation cancelled by user"
+                                                result = f"✗ Operation cancelled by user"
                                                 session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                                                 continue  # Skip to next tool call
                                     else:
-                                        app.write(f"[yellow]⚠️ handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
+                                        app.write(f"[yellow]! handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
                                 else:
-                                    app.write(f"[yellow]⚠️ Could not import get_global_handler[/yellow]\n")
+                                    app.write(f"[yellow]! Could not import get_global_handler[/yellow]\n")
                             except Exception as e:
                                 # Permission check failed - show error for now
-                                app.write(f"[red]⚠️ Permission check error: {e}[/red]\n")
+                                app.write(f"[red]! Permission check error: {e}[/red]\n")
                                 pass
 
                         # Execute tool ASYNCHRONOUSLY - no blocking!
@@ -2981,7 +2987,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         except Exception as e:
                             result = f"Tool execution error: {str(e)}"
                             if session.debug_mode:
-                                app.write(f"[dim]⚠️ {tc.function.name} failed: {e}[/dim]\n")
+                                app.write(f"[dim]! {tc.function.name} failed: {e}[/dim]\n")
 
                         # Record tool execution in goal tracker
                         if goal_tracker:
@@ -2990,12 +2996,12 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         # Check result size and truncate if needed
                         result_size = len(str(result))
                         if session.debug_mode:
-                            app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
+                            app.write(f"[dim]Result size: {result_size:,} chars[/dim]\n")
                         await asyncio.sleep(0)  # Yield BEFORE writing large result
 
                         # Truncate extremely large results
                         if result_size > 50000:
-                            app.write(f"[yellow]⚠️ Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
+                            app.write(f"[yellow]! Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
                             result_display = str(result)[:50000] + f"\n\n... [TRUNCATED {result_size - 50000:,} chars]"
                         else:
                             result_display = result
@@ -3007,15 +3013,15 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
                         session.messages.append(tool_msg)
                         if session.debug_mode:
-                            app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
+                            app.write(f"[dim]DEBUG: Added tool result for {tc.id}[/dim]\n")
                         await asyncio.sleep(0)  # Yield after each tool result added
 
                     # Save session with tool results (non-blocking)
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: About to save session after tools...[/dim]\n")
+                        app.write(f"[dim]DEBUG: About to save session after tools...[/dim]\n")
                     await asyncio.to_thread(session.save)
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Session save COMPLETED[/dim]\n")
+                        app.write(f"[dim]DEBUG: Session save COMPLETED[/dim]\n")
 
                     # Continue conversation - LOOP until API sends EOS token (finish_reason: "stop")
                     app.write("\n[dim]Continuing with tool results...[/dim]\n")
@@ -3029,12 +3035,12 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             continuation_round += 1
 
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 CONTINUATION ROUND #{continuation_round}: Preparing messages...[/dim]\n")
+                                app.write(f"[dim]DEBUG CONTINUATION ROUND #{continuation_round}: Preparing messages...[/dim]\n")
         
                             # Recursive call to get AI's response to tool results
                             # Debug: Show session messages before processing (only if debug mode enabled)
                             if session.debug_mode:
-                                app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
+                                app.write(f"[dim]→ DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
                                 for i, msg in enumerate(session.messages):
                                     role = msg.get('role', 'unknown')
                                     has_tool_calls = 'tool_calls' in msg
@@ -3046,7 +3052,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             try:
                                 if agent_manager:
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: Using agent manager for continuation...[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Using agent manager for continuation...[/dim]\n")
                                     # RUN IN THREAD TO PREVENT BLOCKING THE EVENT LOOP!
                                     messages_with_context = await asyncio.to_thread(
                                         agent_manager.prepare_messages,
@@ -3056,10 +3062,10 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         session.session_id
                                     )
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: agent_manager continuation COMPLETED[/dim]\n")
+                                        app.write(f"[dim]DEBUG: agent_manager continuation COMPLETED[/dim]\n")
                                 else:
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: Using fallback context for continuation...[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Using fallback context for continuation...[/dim]\n")
                                     messages_with_context = await prepare_messages_with_context(
                                         session.messages,
                                         config,
@@ -3067,17 +3073,17 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         goal_tracker=goal_tracker
                                     )
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: Fallback context continuation COMPLETED[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Fallback context continuation COMPLETED[/dim]\n")
                             except Exception as e:
                                 if session.debug_mode:
-                                    app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
+                                    app.write(f"[dim]→ DEBUG ERROR in message preparation: {e}[/dim]\n")
                                 import traceback
                                 app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                                 return
         
                             # Debug: Log continuation message structure (only if debug mode enabled)
                             if session.debug_mode:
-                                app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                                app.write(f"[dim]→ DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
                                 for i, msg in enumerate(messages_with_context):
                                     role = msg.get('role', 'unknown')
                                     has_tool_calls = 'tool_calls' in msg
@@ -3094,15 +3100,15 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             await asyncio.sleep(0)  # Yield to UI
     
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
-                                app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+                                app.write(f"[dim]DEBUG: About to call continuation API...[/dim]\n")
+                                app.write(f"[dim]DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
     
                             # CRITICAL FIX: Yield control to event loop before heavy API call
                             await asyncio.sleep(0)
         
                             try:
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Creating API request object...[/dim]\n")
         
                                 # Create the API call - COMPLETELY CLEAN
                                 # NO tools parameter, NO extra_body, NOTHING
@@ -3114,7 +3120,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                 )
         
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")
 
                                 # No timeout - let it run indefinitely
                                 if api_timeout:
@@ -3123,23 +3129,23 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                     response = await api_call
 
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Continuation API returned, streaming...[/dim]\n")
                             except asyncio.TimeoutError:
                                 timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
-                                app.write(f"[red]❌ Continuation API request timed out after {timeout_msg}[/red]\n")
-                                app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
+                                app.write(f"[red]✗ Continuation API request timed out after {timeout_msg}[/red]\n")
+                                app.write("[yellow]! The API did not respond to tool results. Try again.[/yellow]\n")
                                 restore_ui_state()
                                 return
                             except Exception as api_error:
                                 # CRITICAL: Catch ALL API errors (422, network, etc.)
-                                app.write(f"\n[red]❌ API Error (continuation round {continuation_round}):[/red]\n")
+                                app.write(f"\n[red]✗ API Error (continuation round {continuation_round}):[/red]\n")
                                 app.write(f"[red]{str(api_error)}[/red]\n\n")
 
                                 if session.debug_mode:
                                     import traceback
                                     app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
 
-                                app.write("[yellow]⚠️ API rejected the tool results. Check message format.[/yellow]\n")
+                                app.write("[yellow]! API rejected the tool results. Check message format.[/yellow]\n")
                                 restore_ui_state()
                                 return
 
@@ -3184,7 +3190,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                     if chunk.choices and chunk.choices[0].finish_reason:
                                         finish_reason_continuation = chunk.choices[0].finish_reason
                                         if session.debug_mode:
-                                            app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
+                                            app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
 
                                     delta = chunk.choices[0].delta if chunk.choices else None
                                     if not delta:
@@ -3210,7 +3216,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                                 except Exception as chunk_error:
                                     # CRITICAL: Don't let chunk errors kill the entire stream
-                                    app.write(f"\n[red]⚠️ Chunk #{chunk_count} error: {chunk_error}[/red]\n")
+                                    app.write(f"\n[red]! Chunk #{chunk_count} error: {chunk_error}[/red]\n")
                                     if session.debug_mode:
                                         import traceback
                                         app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
@@ -3222,9 +3228,9 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             await drain_task_cont  # Wait for all buffered content to be displayed
 
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
-                                app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
-                                app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
+                                app.write(f"[dim]CONTINUATION: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                                app.write(f"[dim]CONTINUATION: Full response length: {len(full_response)} chars[/dim]\n")
+                                app.write(f"[dim]CONTINUATION: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
 
                             if full_response and not tool_calls_dict_continuation and extract_tool_calls_from_text:
                                 parsed_calls, cleaned_text = extract_tool_calls_from_text(full_response)
@@ -3244,7 +3250,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                             "arguments": arguments_json
                                         }
                                     if session.debug_mode:
-                                        app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
                                     full_response = cleaned_text
 
                             # Finish streaming and render markdown BEFORE removing buffer status
@@ -3259,7 +3265,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                             if tool_calls_dict_continuation:
                                 if session.debug_mode:
-                                    app.write(f"\n[dim]🐛 RECURSIVE TOOLS: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
+                                    app.write(f"\n[dim]RECURSIVE: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
                                     for idx, tc_data in tool_calls_dict_continuation.items():
                                         app.write(f"[dim]  Tool #{idx}: {tc_data['name']}[/dim]\n")
         
@@ -3286,8 +3292,8 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                 # Execute each continuation tool
                                 for tc in tool_calls_continuation:
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
-                                    app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                                        app.write(f"[dim]DEBUG RECURSIVE: Executing {tc.function.name}[/dim]\n")
+                                    app.write(f"[dim]▸ {tc.function.name}[/dim]\n")
                                     args = json.loads(tc.function.arguments)
 
                                     # PERMISSION CHECK - Non-blocking, fail-open if errors
@@ -3329,16 +3335,16 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                                                         if not allowed:
                                                             # Permission denied - skip tool execution
-                                                            result = f"❌ Operation cancelled by user"
+                                                            result = f"✗ Operation cancelled by user"
                                                             session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                                                             continue  # Skip to next tool call
                                                 else:
-                                                    app.write(f"[yellow]⚠️ handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
+                                                    app.write(f"[yellow]! handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
                                             else:
-                                                app.write(f"[yellow]⚠️ Could not import get_global_handler[/yellow]\n")
+                                                app.write(f"[yellow]! Could not import get_global_handler[/yellow]\n")
                                         except Exception as e:
                                             # Permission check failed - show error for now
-                                            app.write(f"[red]⚠️ Permission check error: {e}[/red]\n")
+                                            app.write(f"[red]! Permission check error: {e}[/red]\n")
                                             pass
 
                                     # Execute tool
@@ -3358,12 +3364,12 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
     
                                     # Show result size and truncate if needed
                                     result_size = len(str(result))
-                                    app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
+                                    app.write(f"[dim]Result size: {result_size:,} chars[/dim]\n")
                                     await asyncio.sleep(0)  # Yield BEFORE writing large result
     
                                     # Truncate extremely large results
                                     if result_size > 50000:
-                                        app.write(f"[yellow]⚠️ Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
+                                        app.write(f"[yellow]! Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
                                         result_display = str(result)[:50000] + f"\n\n... [TRUNCATED {result_size - 50000:,} chars]"
                                     else:
                                         result_display = result
@@ -3391,7 +3397,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                 await asyncio.to_thread(session.save)
         
                                 if session.debug_mode:
-                                    app.write(f"\n[dim]🐛 RECURSIVE: Tools executed, looping for another API call...[/dim]\n")
+                                    app.write(f"\n[dim]DEBUG RECURSIVE: Tools executed, looping for another API call...[/dim]\n")
         
                                 app.write("\n[dim]Continuing with more tool results...[/dim]\n")
                                 await asyncio.sleep(0)  # Yield before next loop iteration
@@ -3401,36 +3407,36 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
         
                             # No tool calls in this response - check finish_reason to know what to do
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 LOOP: No tool calls, finish_reason: {finish_reason_continuation}[/dim]\n")
+                                app.write(f"[dim]DEBUG LOOP: No tool calls, finish_reason: {finish_reason_continuation}[/dim]\n")
     
                             # Only exit on EOS token (finish_reason: "stop")
                             if finish_reason_continuation != "stop":
                                 # Not done yet - continue streaming
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 LOOP: No stop token, continuing loop...[/dim]\n")
+                                    app.write(f"[dim]DEBUG LOOP: No stop token, continuing loop...[/dim]\n")
                                 continue
     
                             # finish_reason == "stop" - EOS token, conversation complete
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 LOOP: EOS token received, exiting continuation loop[/dim]\n")
+                                app.write(f"[dim]DEBUG LOOP: EOS token received, exiting continuation loop[/dim]\n")
         
                             # Finish and save continuation (EOS reached)
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: About to call finish_stream...[/dim]\n")
                             if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                                 app.finish_stream()
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
                             app.write("\n\n")
                             # CRITICAL: Yield after write
                             await asyncio.sleep(0)
         
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner...[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: About to stop_spinner...[/dim]\n")
                             if hasattr(app, 'stop_spinner'):
                                 app.stop_spinner()
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: stop_spinner done[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: stop_spinner done[/dim]\n")
         
                             # Only save if we have content
                             if full_response.strip():
@@ -3439,21 +3445,21 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                     "content": full_response
                                 })
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Saving continuation response...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Saving continuation response...[/dim]\n")
                                 await asyncio.to_thread(session.save)
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Continuation save COMPLETED[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Continuation save COMPLETED[/dim]\n")
                                 app.update_status()
     
                             break  # Exit the continuation loop
     
                         # End of while loop - all continuation rounds complete
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
+                            app.write(f"[dim]DEBUG LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
 
                         # Warn if safety limit was hit
                         if continuation_round >= max_continuation_rounds:
-                            app.write(f"[yellow]⚠️ Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
+                            app.write(f"[yellow]! Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
 
                     except Exception as e:
                         # CRITICAL: Gracefully handle continuation errors instead of freezing
@@ -3469,11 +3475,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 # No tool calls - regular response
                 # Finish streaming to process markdown FIRST (before adding newlines)
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (regular path)...[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: About to call finish_stream (regular path)...[/dim]\n")
                 if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                     app.finish_stream()
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: finish_stream done (regular path)[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: finish_stream done (regular path)[/dim]\n")
 
                 # Then add spacing after rendered markdown
                 app.write("\n\n")
@@ -3482,11 +3488,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 # Stop spinner - API response complete
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner (regular path)...[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: About to stop_spinner (regular path)...[/dim]\n")
                 if hasattr(app, 'stop_spinner'):
                     app.stop_spinner()
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: stop_spinner done (regular path)[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: stop_spinner done (regular path)[/dim]\n")
 
                 # Save response
                 session.messages.append({
@@ -3496,10 +3502,10 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
 
                 # Auto-save session state (non-blocking)
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: Saving regular response...[/dim]\n")
+                    app.write(f"[dim]DEBUG: Saving regular response...[/dim]\n")
                 await asyncio.to_thread(session.save)
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: Regular response save COMPLETED[/dim]\n")
+                    app.write(f"[dim]DEBUG: Regular response save COMPLETED[/dim]\n")
 
                 # Broadcast response to IPC clients
                 if hasattr(session, 'ipc_server') and session.ipc_server and session.ipc_server.running:
@@ -3521,7 +3527,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 app.update_status()
 
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: ✅ Stream AI response FULLY COMPLETED[/dim]\n")
+                    app.write(f"[dim]DEBUG: ✓ Stream AI response FULLY COMPLETED[/dim]\n")
 
             except Exception as e:
                 # Show error with traceback
