@@ -310,6 +310,16 @@ def load_config():
 def create_openai_client(config):
     """Create OpenAI-compatible client with provider-specific headers."""
     headers = config.get("defaultHeaders") or None
+    provider = config.get("provider", "openrouter")
+
+    # Debug logging for Google
+    if provider == "google":
+        import sys
+        print(f"\n🔍 DEBUG - Creating Google client:", file=sys.stderr)
+        print(f"  Base URL: {config['baseURL']}", file=sys.stderr)
+        print(f"  API Key: {config['apiKey'][:20]}...{config['apiKey'][-4:]}", file=sys.stderr)
+        print(f"  Headers: {headers}", file=sys.stderr)
+        print(f"  Model: {config.get('model')}\n", file=sys.stderr)
 
     # All providers use standard OpenAI client now (Google uses OpenAI-compatible endpoint)
     return OpenAI(
