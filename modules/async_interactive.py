@@ -1198,34 +1198,6 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
-            # Handle /refactor-status command - toggle refactoring statusline
-            if user_input.startswith('/refactor-status'):
-                try:
-                    from textual.widgets import Static
-                    from simple_tui import RefactoringStatusLine
-
-                    refactor_statusline = app.query_one(RefactoringStatusLine)
-                    is_enabled = refactor_statusline.toggle()
-
-                    if is_enabled:
-                        app.write("[green]⚙️  Refactoring statusline enabled[/green]\n\n")
-                        app.write("[dim]Live statusline showing:\n")
-                        app.write("  • ⚙️  System status (active/idle)\n")
-                        app.write("  • 📝 Current operation and file\n")
-                        app.write("  • 📊 Progress percentage\n")
-                        app.write("  • 🔴 Violations found (v:*)\n")
-                        app.write("  • 🐚 Active test shells\n")
-                        app.write("  • ✓/✗ Test results\n")
-                        app.write("  • 🧪 Venv health status\n")
-                        app.write("  • 🛡️  UI protection status\n\n")
-                        app.write("Use [cyan]/refactor auto start[/cyan] to begin monitoring\n\n")
-                    else:
-                        app.write("[yellow]⚙️  Refactoring statusline disabled[/yellow]\n\n")
-                except Exception as e:
-                    app.write(f"[red]Error: Could not toggle refactoring statusline: {e}[/red]\n\n")
-
-                return
-
             # Handle /model command locally
             if user_input.startswith('/model'):
                 try:
@@ -1489,16 +1461,52 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
             # Handle /refactor command - code analysis and refactoring
             if user_input.startswith('/refactor'):
+                parts = user_input.split(maxsplit=2)
+                subcommand = parts[1] if len(parts) > 1 else None
+                args = parts[2] if len(parts) > 2 else None
+
+                # If no subcommand, toggle the statusline AND show help
+                if not subcommand:
+                    try:
+                        from simple_tui import RefactoringStatusLine
+                        refactor_statusline = app.query_one(RefactoringStatusLine)
+                        is_enabled = refactor_statusline.toggle()
+
+                        if is_enabled:
+                            app.write("[green]⚙️  Refactoring statusline enabled[/green]\n\n")
+                            app.write("[dim]Live statusline showing:\n")
+                            app.write("  • ⚙️  System status (active/idle)\n")
+                            app.write("  • 📝 Current operation and file\n")
+                            app.write("  • 📊 Progress percentage\n")
+                            app.write("  • 🔴 Violations found (v:*)\n")
+                            app.write("  • 🐚 Active test shells\n")
+                            app.write("  • ✓/✗ Test results\n")
+                            app.write("  • 🧪 Venv health status\n")
+                            app.write("  • 🛡️  UI protection status\n\n")
+                        else:
+                            app.write("[yellow]⚙️  Refactoring statusline disabled[/yellow]\n\n")
+                    except Exception as e:
+                        app.write(f"[red]Error: Could not toggle refactoring statusline: {e}[/red]\n\n")
+
+                    # Show quick command reference
+                    app.write("[bold cyan]🔧 Quick Commands:[/bold cyan]\n\n")
+                    app.write("[bold]Get Started:[/bold]\n")
+                    app.write("  [cyan]/refactor auto start[/cyan]        - Start automated monitoring\n")
+                    app.write("  [cyan]/refactor validate[/cyan]          - Check architecture compliance\n\n")
+                    app.write("[bold]Analysis:[/bold]\n")
+                    app.write("  [cyan]/refactor suggest-split <file>[/cyan]  - Suggest how to split a file\n")
+                    app.write("  [cyan]/refactor concurrency <file>[/cyan]    - Analyze concurrency issues\n\n")
+                    app.write("[bold]More:[/bold]\n")
+                    app.write("  [cyan]/refactor help[/cyan]              - Show all commands\n\n")
+
+                    return
+
                 try:
                     from .auto_refactor import get_auto_refactor_manager
                     from .profiler import get_profiler
                 except (ImportError, ValueError):
                     from auto_refactor import get_auto_refactor_manager
                     from profiler import get_profiler
-
-                parts = user_input.split(maxsplit=2)
-                subcommand = parts[1] if len(parts) > 1 else None
-                args = parts[2] if len(parts) > 2 else None
 
                 # /refactor suggest-split <file>
                 if subcommand == "suggest-split":
@@ -1752,8 +1760,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     return
 
-                else:
+                # /refactor help - Show help
+                elif subcommand == "help":
                     app.write("[bold cyan]🔧 Refactoring Commands[/bold cyan]\n\n")
+                    app.write("[bold]Toggle Statusline:[/bold]\n")
+                    app.write("  /refactor                       - Toggle refactoring statusline\n\n")
                     app.write("[bold]Code Analysis:[/bold]\n")
                     app.write("  /refactor suggest-split <file>  - Suggest how to split a file\n")
                     app.write("  /refactor validate              - Validate architecture compliance\n")
@@ -1767,6 +1778,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     app.write("  /refactor threads               - Analyze thread states\n")
                     app.write("  /refactor blocking              - Detect blocked threads\n")
                     app.write("  /refactor budget <func> <ms>    - Set performance budget\n\n")
+                    return
+
+                else:
+                    app.write(f"[red]Unknown /refactor subcommand: {subcommand}[/red]\n\n")
+                    app.write("Use [cyan]/refactor help[/cyan] to see all commands\n\n")
 
                 return
 
@@ -2747,13 +2763,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 chunk_count = 0
                 last_chunk_time = asyncio.get_event_loop().time()
 
-                # Create stream buffer and status display
-                stream_buffer = StreamBuffer(chars_per_batch=20, batch_delay_ms=50)
-                status_display = BufferStatusDisplay(app, stream_buffer)
-
-                # Start buffer and status animation
-                stream_buffer.start()
-                await status_display.start()
+                # Note: StreamBuffer removed - writing chunks directly for immediate display
 
                 async for chunk in response:
                     # CRITICAL: Yield at start of each chunk to keep UI responsive
@@ -2768,7 +2778,6 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                         last_chunk_time = current_time
 
                     if app.should_exit:
-                        stream_buffer.interrupt()
                         break
 
                     # Check for finish_reason and errors
@@ -2797,13 +2806,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     # Handle content
                     if delta.content:
                         full_response += delta.content
-                        # Buffer the content instead of writing immediately
-                        await stream_buffer.add_chunk(delta.content)
-
-                # Finish receiving and stop status
-                stream_buffer.finish_receiving()
-                await status_display.stop()
-                status_display.write_final_status()
+                        # Write chunk directly to display for immediate streaming
+                        if hasattr(app, '_resolve_content_widget'):
+                            content_widget = app._resolve_content_widget()
+                            if content_widget and hasattr(content_widget, 'write_stream'):
+                                content_widget.write_stream(delta.content)
 
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -2830,9 +2837,10 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
                         full_response = cleaned_text
 
-                # Render markdown ONCE from complete response (no incremental rendering)
+                # Finish streaming and render markdown
                 if full_response and not tool_calls_dict:
-                    await write_markdown_response(app, full_response)
+                    if hasattr(app, 'finish_stream'):
+                        app.finish_stream()
                     app.write("\n")
 
                 # Check if we have tool calls
@@ -3121,13 +3129,7 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             chunk_count = 0
                             last_chunk_time = asyncio.get_event_loop().time()
 
-                            # Create stream buffer and status display for continuation
-                            stream_buffer_cont = StreamBuffer(chars_per_batch=20, batch_delay_ms=50)
-                            status_display_cont = BufferStatusDisplay(app, stream_buffer_cont)
-
-                            # Start buffer and status animation
-                            stream_buffer_cont.start()
-                            await status_display_cont.start()
+                            # Note: StreamBuffer removed - writing chunks directly for immediate display
 
                             async for chunk in response:
                                 # CRITICAL: Yield at start of each chunk to keep UI responsive
@@ -3138,7 +3140,6 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                     current_time = asyncio.get_event_loop().time()
 
                                     if app.should_exit:
-                                        stream_buffer_cont.interrupt()
                                         break
 
                                     # Capture finish_reason (CRITICAL for knowing when to stop!)
@@ -3166,8 +3167,11 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                     # Handle content
                                     if delta.content:
                                         full_response += delta.content
-                                        # Buffer the content instead of writing immediately
-                                        await stream_buffer_cont.add_chunk(delta.content)
+                                        # Write chunk directly to display for immediate streaming
+                                        if hasattr(app, '_resolve_content_widget'):
+                                            content_widget = app._resolve_content_widget()
+                                            if content_widget and hasattr(content_widget, 'write_stream'):
+                                                content_widget.write_stream(delta.content)
 
                                 except Exception as chunk_error:
                                     # CRITICAL: Don't let chunk errors kill the entire stream
@@ -3177,11 +3181,6 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                                     # Continue processing next chunk
                                     await asyncio.sleep(0)
-
-                            # Finish receiving and stop status
-                            stream_buffer_cont.finish_receiving()
-                            await status_display_cont.stop()
-                            status_display_cont.write_final_status()
 
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -3209,9 +3208,10 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
                                     full_response = cleaned_text
 
-                            # Render markdown ONCE from complete response (no incremental rendering)
+                            # Finish streaming and render markdown
                             if full_response and not tool_calls_dict_continuation:
-                                await write_markdown_response(app, full_response)
+                                if hasattr(app, 'finish_stream'):
+                                    app.finish_stream()
                                 app.write("\n")
 
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!

@@ -173,8 +173,12 @@ class StreamingDisplay(Static):
                 # Apply style
                 self._lines.append(Text(text_str, style=style))
             else:
-                # Parse markup like [green]...[/green]
-                self._lines.append(Text.from_markup(text_str))
+                # Try to parse markup like [green]...[/green], fall back to plain text
+                try:
+                    self._lines.append(Text.from_markup(text_str))
+                except Exception:
+                    # If markup parsing fails (e.g., ambiguous color names), use plain text
+                    self._lines.append(Text(text_str))
 
         # Rebuild display with selection highlighting
         display_text = Text()
