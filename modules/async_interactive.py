@@ -2196,7 +2196,27 @@ async def interactive_async(config, session=None, initial_prompt=None):
         tool_context = ""
         if TOOLS:
             import json
-            tool_context = f"\n\n<opentools>\n{json.dumps(TOOLS, indent=2)}\n</opentools>"
+            tool_context = f"""
+
+<opentools>
+You have direct access to these tools. Call them using tool_calls in your response:
+
+{json.dumps(TOOLS, indent=2)}
+
+HOW TO USE TOOLS:
+1. When user asks you to do something, CALL THE TOOL directly
+2. Don't explain what you're going to do - just call it
+3. Respond with tool_calls using the exact schema above
+4. The system will execute and return results to you
+
+Example:
+User: "list files"
+You: {{"tool_calls": [{{"name": "Bash", "parameters": {{"command": "ls -la"}}}}]}}
+System: [returns file list]
+You: "Here are your files: ..."
+
+DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
+</opentools>"""
 
         session.messages.append({
             "role": "user",
@@ -2288,6 +2308,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 await asyncio.sleep(0)
 
                 request_format = config.get("requestFormat", "openai-chat")
+
+                # DEBUG: Print detected request format
+                import sys
+                print(f"\n[DEBUG REQUEST FORMAT] Detected: '{request_format}'", file=sys.stderr)
+                print(f"[DEBUG REQUEST FORMAT] Provider: '{config.get('provider')}'", file=sys.stderr)
+                print(f"[DEBUG REQUEST FORMAT] Model: '{config.get('model')}'", file=sys.stderr)
+                print(f"[DEBUG REQUEST FORMAT] BaseURL: '{config.get('baseURL')}'", file=sys.stderr)
+
                 if request_format == "anthropic-messages":
                     success, reply_text, error_msg = await perform_anthropic_request(
                         messages_with_context,
