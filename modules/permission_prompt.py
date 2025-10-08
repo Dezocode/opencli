@@ -475,7 +475,7 @@ class PermissionTemplates:
             'target': target_file,
             'functions': ', '.join(functions) if len(', '.join(functions)) < 80 else f"{len(functions)} functions",
             'lines': f"~{estimated_lines} lines",
-            'tests': '✅ PASSED' if test_passed else '⚠️  NOT VERIFIED' if not test_results else '❌ FAILED'
+            'tests': '✓ PASSED' if test_passed else '! NOT VERIFIED' if not test_results else '✗ FAILED'
         }
 
         message = f"Auto-refactoring suggests extracting functions to improve code organization.\n\n{rationale}\n\nDo you want to apply this refactoring?"
@@ -499,4 +499,63 @@ class PermissionTemplates:
                     'response': PermissionResponse.DENY
                 }
             ]
+        }
+
+    @staticmethod
+    def local_models(tier: str, capabilities: dict, recommendations: list) -> dict:
+        """Create local model recommendations prompt"""
+        # Build system info
+        ram = capabilities.get('ram_gb', '?')
+        gpu = capabilities.get('gpu_type', 'Unknown')
+        arch = capabilities.get('arch', '?')
+        os_name = capabilities.get('os', '?')
+
+        tier_desc = {
+            'green': 'High capability - Can run 32B models smoothly',
+            'yellow': 'Medium capability - Best with 14B models',
+            'red': 'Basic capability - Recommended 7B models'
+        }.get(tier, 'Unknown tier')
+
+        # Build details
+        details = {
+            'System': f"{os_name} ({arch})",
+            'RAM': f"{ram}GB",
+            'GPU': gpu,
+            'Tier': f"{tier.upper()} - {tier_desc}"
+        }
+
+        # Build message with recommendations
+        message = "System capability detected. Recommended models for code editing:\n\n"
+        for rec in recommendations:
+            model_name = rec.get('name', '')
+            model_desc = rec.get('description', '')
+            message += f"  • {model_name}\n    {model_desc}\n"
+
+        message += "\nSelect a model to install:"
+
+        # Build options from recommendations
+        options = []
+        for rec in recommendations:
+            model_name = rec.get('name', '')
+            pull_cmd = rec.get('pull_command', f"ollama pull {model_name}")
+            options.append({
+                'text': f"{model_name}",
+                'response': PermissionResponse.ALLOW_ONCE,
+                'data': {
+                    'model': model_name,
+                    'command': pull_cmd
+                }
+            })
+
+        # Add cancel option
+        options.append({
+            'text': 'Cancel - Don\'t install anything',
+            'response': PermissionResponse.CANCEL
+        })
+
+        return {
+            'title': 'Local Model Recommendations',
+            'message': message,
+            'details': details,
+            'options': options
         }

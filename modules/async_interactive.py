@@ -1316,6 +1316,85 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
+            # Handle /local command - local model recommendations
+            if user_input.startswith('/local'):
+                try:
+                    from .system_capability import SystemCapability
+                    from .model_recommendations import get_recommendations, get_ollama_pull_commands
+                    from .permission_prompt import PermissionTemplates
+                except (ImportError, ValueError):
+                    from system_capability import SystemCapability
+                    from model_recommendations import get_recommendations, get_ollama_pull_commands
+                    from permission_prompt import PermissionTemplates
+
+                app.write("[cyan]▸ Detecting system capabilities...[/cyan]\n\n")
+
+                # Detect system capabilities
+                sys_cap = SystemCapability()
+                caps = sys_cap.detect_capabilities()
+
+                # Get recommendations based on tier
+                tier = caps['tier']
+                recs = get_recommendations(tier, caps['is_apple_silicon'])
+
+                # Build recommendation list for prompt
+                recommendations = []
+
+                # Primary single-model recommendation
+                primary = recs['single_model']['primary']
+                recommendations.append({
+                    'name': primary['name'],
+                    'description': f"{primary['size']} - {primary['why'][:60]}...",
+                    'pull_command': f"ollama pull {primary['name']}"
+                })
+
+                # Dual-model recommendations if available
+                if 'dual_model' in recs:
+                    planner = recs['dual_model']['planner']
+                    coder = recs['dual_model']['coder']
+
+                    recommendations.append({
+                        'name': f"{planner['name']} (planner)",
+                        'description': f"{planner['size']} - {planner['why'][:50]}...",
+                        'pull_command': f"ollama pull {planner['name']}"
+                    })
+
+                    recommendations.append({
+                        'name': f"{coder['name']} (coder)",
+                        'description': f"{coder['size']} - {coder['why'][:50]}...",
+                        'pull_command': f"ollama pull {coder['name']}"
+                    })
+
+                # Alternative if available
+                if 'alternative' in recs.get('single_model', {}):
+                    alt = recs['single_model']['alternative']
+                    recommendations.append({
+                        'name': f"{alt['name']} (alternative)",
+                        'description': f"{alt['size']} - {alt['why'][:50]}...",
+                        'pull_command': f"ollama pull {alt['name']}"
+                    })
+
+                # Create permission prompt using template
+                prompt_data = PermissionTemplates.local_models(tier, caps, recommendations)
+
+                # Show permission prompt in MultiLineInput buffer
+                try:
+                    prompt_input = app.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = prompt_data
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+
+                    # Set flag to handle response
+                    session._awaiting_local_model_selection = True
+                except Exception as e:
+                    app.write(f"[red]✗ Could not show model selection: {e}[/red]\n\n")
+                    app.write("Run manually:\n")
+                    for rec in recommendations:
+                        app.write(f"  {rec['pull_command']}\n")
+                    app.write("\n")
+
+                return
+
             # Handle /model command locally
             if user_input.startswith('/model'):
                 try:

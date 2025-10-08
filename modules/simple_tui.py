@@ -111,6 +111,72 @@ class PerformanceStatusLine(Static):
         return False
 
 
+class RefactoringStatusLine(Static):
+    """Live refactoring system statusline (bottom of screen)"""
+
+    enabled = reactive(False)
+
+    def __init__(self, session):
+        super().__init__()
+        self.session = session
+        self._update_interval = None
+        self.orchestrator = None
+
+    def on_mount(self) -> None:
+        """Initialize refactoring orchestrator when mounted"""
+        # Import orchestrator
+        try:
+            from .refactor_orchestrator import get_orchestrator
+        except (ImportError, ValueError):
+            try:
+                from refactor_orchestrator import get_orchestrator
+            except ImportError:
+                return
+
+        try:
+            self.orchestrator = get_orchestrator()
+        except Exception:
+            pass
+
+        # Lightweight: Update every 2 seconds to minimize overhead
+        self._update_interval = self.set_interval(2.0, self._update_display)
+
+    def _update_display(self) -> None:
+        """Periodic update callback - lightweight (2 sec)"""
+        if self.enabled and self.orchestrator and self.orchestrator._monitoring:
+            self.refresh()
+
+    def render(self) -> Text:
+        """Render refactoring statusline"""
+        if not self.enabled or not self.orchestrator or not self.orchestrator._monitoring:
+            return Text("")  # Hidden when disabled
+
+        # Get statusline from orchestrator
+        status_str = self.orchestrator.get_status_line()
+
+        if not status_str:
+            return Text("")
+
+        # Convert Rich markup to Text
+        try:
+            return Text.from_markup(status_str)
+        except:
+            return Text(status_str)
+
+    def toggle(self) -> bool:
+        """Toggle refactoring monitoring on/off, returns new state"""
+        if self.orchestrator:
+            if self.orchestrator._monitoring:
+                self.orchestrator.stop_monitoring()
+                self.enabled = False
+            else:
+                result = self.orchestrator.start_monitoring()
+                self.enabled = result.get("success", False)
+            self.refresh()
+            return self.enabled
+        return False
+
+
 class StatusLine(Static):
     """Fixed status line showing session info with IPC activity spinner"""
 
@@ -309,6 +375,13 @@ class OpenCLITUI(App):
         color: auto;
     }
 
+    RefactoringStatusLine {
+        height: 1;
+        padding: 0 1;
+        background: $background;
+        color: auto;
+    }
+
     #prompt-container {
         height: auto;
         layout: vertical;
@@ -457,6 +530,7 @@ class OpenCLITUI(App):
                 # Multi-line input with integrated spinner
                 yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
             yield PerformanceStatusLine(self.session)
+            yield RefactoringStatusLine(self.session)
 
     def on_mount(self) -> None:
         """Initialize"""
@@ -539,6 +613,52 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
+        # Check if this is a local model selection
+        if hasattr(self.session, '_awaiting_local_model_selection') and self.session._awaiting_local_model_selection:
+            self.session._awaiting_local_model_selection = False
+
+            # Clear the permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except Exception:
+                pass
+
+            # Get the selected model data
+            option_data = event.option.get('data', {})
+            model_name = option_data.get('model', '')
+            pull_command = option_data.get('command', '')
+
+            # Check if user cancelled
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.write("\n[dim]Model installation cancelled[/dim]\n\n")
+                return
+
+            if not pull_command:
+                self.write("\n[red]✗ No install command found[/red]\n\n")
+                return
+
+            # Execute the ollama pull command
+            self.write(f"\n[cyan]▸ Installing {model_name}...[/cyan]\n\n")
+            self.write(f"[dim]Running: {pull_command}[/dim]\n\n")
+
+            # Run the command asynchronously
+            import asyncio
+            asyncio.create_task(self._run_ollama_pull(pull_command, model_name))
+            return
+
         # Get the async permission handler
         try:
             from async_permissions import get_global_handler
@@ -590,6 +710,61 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': {}
             }
             handler.handle_response(response_data)
+
+    async def _run_ollama_pull(self, pull_command: str, model_name: str) -> None:
+        """Execute ollama pull command and stream output"""
+        import asyncio
+        import subprocess
+
+        try:
+            # Parse command (should be "ollama pull model:tag")
+            parts = pull_command.split()
+            if len(parts) < 3 or parts[0] != "ollama" or parts[1] != "pull":
+                self.write(f"[red]✗ Invalid command format: {pull_command}[/red]\n\n")
+                return
+
+            # Run ollama pull with streaming output
+            process = await asyncio.create_subprocess_exec(
+                *parts,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Stream output line by line
+            async def read_stream(stream, prefix=""):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8').rstrip()
+                    if text:
+                        self.write(f"{prefix}{text}\n")
+
+            # Read both stdout and stderr concurrently
+            await asyncio.gather(
+                read_stream(process.stdout, "[dim]  "),
+                read_stream(process.stderr, "[dim red]  ")
+            )
+
+            # Wait for process to complete
+            await process.wait()
+
+            if process.returncode == 0:
+                self.write(f"\n[green]✓ {model_name} installed successfully![/green]\n\n")
+                self.write("[dim]You can now use this model with Ollama[/dim]\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Installation failed (exit code {process.returncode})[/red]\n\n")
+                self.write("[dim]Make sure Ollama is installed and running:[/dim]\n")
+                self.write("[dim]  Install: https://ollama.ai/[/dim]\n")
+                self.write("[dim]  Start: ollama serve[/dim]\n\n")
+
+        except FileNotFoundError:
+            self.write(f"\n[red]✗ Ollama command not found[/red]\n\n")
+            self.write("[dim]Install Ollama first:[/dim]\n")
+            self.write("[dim]  https://ollama.ai/[/dim]\n\n")
+        except Exception as e:
+            self.write(f"\n[red]✗ Error: {e}[/red]\n\n")
 
     async def _handle_user_message(self, user_input: str, widget) -> None:
         """Common handler for user messages"""
