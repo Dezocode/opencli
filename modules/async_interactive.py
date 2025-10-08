@@ -1045,11 +1045,25 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 local_model_mgr = ModelManager()
 
-                # Parse args
-                parts = user_input.split(maxsplit=1)
+                # Parse args with flags
+                parts = user_input.split()
                 args = parts[1] if len(parts) > 1 else None
 
-                if not args:
+                # Parse filter flags
+                show_free_only = '--free' in parts
+                search_term = None
+                provider_filter = None
+                page_size = 20  # Default page size
+
+                for i, part in enumerate(parts):
+                    if part == '--search' and i + 1 < len(parts):
+                        search_term = parts[i + 1].lower()
+                    elif part == '--provider' and i + 1 < len(parts):
+                        provider_filter = parts[i + 1].lower()
+                    elif part == '--all':
+                        page_size = 9999  # Show all
+
+                if not args or args.startswith('--'):
                     # Refresh models from OpenRouter to get latest rankings/pricing
                     keys = local_model_mgr.get_configured_keys()
                     if "openrouter" in keys:
@@ -1095,9 +1109,50 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                         app.write("\n")
 
-                    app.write("[bold cyan]📋 All Available Models:[/bold cyan]\n\n")
+                    # Apply filters
+                    filtered_models = []
+                    for model in models:
+                        # Check if free
+                        pricing = model.get("pricing", {})
+                        is_free = ":free" in model["id"] or pricing.get("prompt") == "0"
 
-                    for idx, model in enumerate(models, 1):
+                        # Apply free filter
+                        if show_free_only and not is_free:
+                            continue
+
+                        # Apply provider filter
+                        provider = model.get("provider", "unknown")
+                        if provider_filter and provider_filter not in provider.lower():
+                            continue
+
+                        # Apply search filter
+                        if search_term:
+                            searchable = f"{model['name']} {model['id']}".lower()
+                            if search_term not in searchable:
+                                continue
+
+                        filtered_models.append(model)
+
+                    # Show filter info
+                    filters_active = []
+                    if show_free_only:
+                        filters_active.append("[green]free only[/green]")
+                    if provider_filter:
+                        filters_active.append(f"[cyan]provider:{provider_filter}[/cyan]")
+                    if search_term:
+                        filters_active.append(f"[yellow]search:{search_term}[/yellow]")
+
+                    filter_str = f" ({', '.join(filters_active)})" if filters_active else ""
+
+                    # Pagination
+                    total_models = len(filtered_models)
+                    display_models = filtered_models[:page_size]
+
+                    app.write(f"[bold cyan]📋 Available Models{filter_str}:[/bold cyan] {total_models} total\n\n")
+
+                    # Batch build output for performance
+                    output_lines = []
+                    for idx, model in enumerate(display_models, 1):
                         marker = "→" if model["id"] == current else " "
                         context = f"{model['context']//1000}K" if model['context'] else "?"
                         provider = model.get("provider", "unknown")
@@ -1108,11 +1163,23 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         is_free = ":free" in model["id"] or pricing.get("prompt") == "0"
                         free_badge = " [green]FREE[/green]" if is_free else ""
 
-                        app.write(f"{marker} [bold]{idx}.[/bold] {model['name']}{free_badge}\n")
-                        app.write(f"     ID: [dim]{model['id']}[/dim]\n")
-                        app.write(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
+                        output_lines.append(f"{marker} [bold]{idx}.[/bold] {model['name']}{free_badge}\n")
+                        output_lines.append(f"     ID: [dim]{model['id']}[/dim]\n")
+                        output_lines.append(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
 
-                    app.write("\n[dim]Usage: /model <number> or /model r<number> (recent)  or  /model add[/dim]\n\n")
+                    # Single write instead of hundreds
+                    app.write("".join(output_lines))
+
+                    # Show pagination info
+                    if total_models > page_size:
+                        app.write(f"[dim]Showing {page_size} of {total_models} models[/dim]\n")
+                        app.write(f"[dim]Use [cyan]/model --all[/cyan] to see all[/dim]\n\n")
+
+                    app.write("[dim]Usage: /model <number> or /model r<number> (recent) or /model <model-id>[/dim]\n")
+                    app.write("[dim]Filters: /model --free | /model --search <term> | /model --provider <name>[/dim]\n")
+                    if filters_active:
+                        app.write("[dim yellow]Note: Numbers shown are for filtered list. Use model ID for filtered selection.[/dim]\n")
+                    app.write("\n")
 
                 elif args == "add":
                     # Interactive API key setup
