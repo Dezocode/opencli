@@ -2829,7 +2829,6 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                 # Finish receiving and wait for drain to complete
                 stream_buffer.finish_receiving()
                 await drain_task  # Wait for all buffered content to be displayed
-                await status_display.stop()
 
                 if session.debug_mode:
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -2856,11 +2855,14 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
                         full_response = cleaned_text
 
-                # Finish streaming and render markdown
+                # Finish streaming and render markdown BEFORE removing buffer status
                 if full_response and not tool_calls_dict:
                     if hasattr(app, 'finish_stream'):
                         app.finish_stream()
                     app.write("\n")
+
+                # Remove buffer status AFTER markdown is displayed (prevents black flash)
+                await status_display.stop()
 
                 # Check if we have tool calls
                 if tool_calls_dict:
@@ -3218,7 +3220,6 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                             # Finish receiving and wait for drain to complete
                             stream_buffer_cont.finish_receiving()
                             await drain_task_cont  # Wait for all buffered content to be displayed
-                            await status_display_cont.stop()
 
                             if session.debug_mode:
                                 app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
@@ -3246,11 +3247,14 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                                         app.write(f"[dim]🔍 DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
                                     full_response = cleaned_text
 
-                            # Finish streaming and render markdown
+                            # Finish streaming and render markdown BEFORE removing buffer status
                             if full_response and not tool_calls_dict_continuation:
                                 if hasattr(app, 'finish_stream'):
                                     app.finish_stream()
                                 app.write("\n")
+
+                            # Remove buffer status AFTER markdown is displayed (prevents black flash)
+                            await status_display_cont.stop()
 
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                             if tool_calls_dict_continuation:
