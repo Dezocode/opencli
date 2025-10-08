@@ -247,11 +247,26 @@ def load_config():
         provider_defaults = get_provider_defaults(provider)
         config["provider"] = provider
 
-    if not config.get("baseURL") and provider_defaults.get("base_url"):
-        config["baseURL"] = provider_defaults["base_url"]
+    # Auto-migrate stale configs to new provider defaults
+    if provider_defaults.get("base_url"):
+        current_base_url = config.get("baseURL", "")
+        expected_base_url = provider_defaults["base_url"]
 
+        # For Google, auto-migrate from old endpoint to OpenAI-compatible
+        if provider == "google" and "openai" not in current_base_url:
+            config["baseURL"] = expected_base_url
+            print(f"🔄 Migrated Google endpoint to OpenAI-compatible: {expected_base_url}")
+        elif not config.get("baseURL"):
+            config["baseURL"] = expected_base_url
+
+    # Always use provider's request format (override stale values)
     if provider_defaults.get("request_format"):
-        config["requestFormat"] = provider_defaults["request_format"]
+        old_format = config.get("requestFormat")
+        new_format = provider_defaults["request_format"]
+        if old_format != new_format:
+            config["requestFormat"] = new_format
+            if old_format:
+                print(f"🔄 Updated request format: {old_format} → {new_format}")
 
     # Build effective headers (provider defaults -> overrides -> environment)
     provider_overrides = config.get("providerOverrides") or {}
