@@ -128,8 +128,13 @@ class StreamingDisplay(Static):
             self._current_stream = ""
             self._streaming = False
 
+            # Add ✦ symbol to assistant messages
+            message_with_symbol = Text()
+            message_with_symbol.append("✦ ", style=Style(color=FRONTIER_COLORS["ai_name"]))
+            message_with_symbol.append_text(rendered)
+
             # Add the rendered markdown to lines
-            self._lines.append(rendered)
+            self._lines.append(message_with_symbol)
 
             # Rebuild display with all lines
             display_text = Text()
