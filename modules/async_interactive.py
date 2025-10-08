@@ -1880,8 +1880,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     return
 
                 async def handle_policy_error(error_text: str) -> str:
-                    nonlocal model_mgr
-                    provider_id = model_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
+                    # Create local ModelManager to avoid scope issues
+                    try:
+                        from .model_manager import ModelManager
+                    except (ImportError, ValueError):
+                        from model_manager import ModelManager
+
+                    local_mgr = ModelManager()
+                    provider_id = local_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
                     current_headers = config.get("defaultHeaders", {}) or {}
 
                     # Suggested headers from environment overrides (if provided)
@@ -1915,8 +1921,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         return "denied"
 
                     if proposed and any(current_headers.get(k) != v for k, v in proposed.items()):
-                        model_mgr.update_provider_headers(provider_id, proposed, None)
-                        config.update(model_mgr.config)
+                        local_mgr.update_provider_headers(provider_id, proposed, None)
+                        config.update(local_mgr.config)
                         app.config = config
                         app.write("[green]✓ Applied provider headers from environment overrides.[/green]\n")
                         return "updated"
