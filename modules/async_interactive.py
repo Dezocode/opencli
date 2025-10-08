@@ -1887,6 +1887,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     return
 
                 async def handle_policy_error(error_text: str) -> str:
+                    # Import needed modules (deep nesting loses module scope)
+                    import os
+
                     # Create local ModelManager to avoid scope issues
                     try:
                         from .model_manager import ModelManager
