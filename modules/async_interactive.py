@@ -2611,6 +2611,35 @@ DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
                     app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
                     app.write(f"[dim]🐛 STREAM: Full response length: {len(full_response)} chars[/dim]\n")
 
+                # Parse tool calls from JSON text (for providers like Gemini that output JSON instead of structured tool_calls)
+                if full_response and not tool_calls_dict:
+                    import re
+                    import json as json_module
+
+                    # Look for JSON with tool_calls in the response
+                    json_match = re.search(r'\{[\s\S]*"tool_calls"[\s\S]*\}', full_response)
+                    if json_match:
+                        try:
+                            parsed = json_module.loads(json_match.group(0))
+                            if "tool_calls" in parsed and isinstance(parsed["tool_calls"], list):
+                                # Convert JSON tool_calls to delta format
+                                for idx, tc in enumerate(parsed["tool_calls"]):
+                                    if isinstance(tc, dict) and "function" in tc:
+                                        func = tc["function"]
+                                        tool_calls_dict[idx] = {
+                                            "id": tc.get("id", f"call_{idx}"),
+                                            "type": "function",
+                                            "name": func.get("name", ""),
+                                            "arguments": json_module.dumps(func.get("arguments", func.get("parameters", {})))
+                                        }
+                                if session.debug_mode:
+                                    app.write(f"[dim]🔍 DEBUG: Parsed {len(tool_calls_dict)} tool calls from JSON text[/dim]\n")
+                                # Clear full_response since it was just tool call JSON
+                                full_response = ""
+                        except Exception as e:
+                            if session.debug_mode:
+                                app.write(f"[dim]⚠️  Failed to parse tool calls from JSON: {e}[/dim]\n")
+
                 # Render markdown ONCE from complete response (no incremental rendering)
                 if full_response and not tool_calls_dict:
                     await write_markdown_response(app, full_response)
