@@ -366,15 +366,10 @@ async def perform_google_request(
             "parts": [{"text": system_instruction}]
         }
 
-    # Build endpoint URL
-    endpoint = f"{base_url}/models/{model_id}:generateContent"
-
-    # Debug: Show endpoint and headers
-    print(f"[DEBUG Google] Endpoint: {endpoint}", file=sys.stderr)
-    print(f"[DEBUG Google] Model ID: {model_id}", file=sys.stderr)
+    # Build endpoint URL with API key as query parameter
+    endpoint = f"{base_url}/models/{model_id}:generateContent?key={api_key}"
 
     headers = {
-        "x-goog-api-key": api_key,
         "Content-Type": "application/json",
     }
 
@@ -2178,10 +2173,25 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                 return
 
-        # Add to session
+        # Add to session with tool context
+        # Import TOOLS from opencli
+        try:
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from opencli import TOOLS
+        except:
+            TOOLS = []
+
+        # Format tool context to append to every user message
+        tool_context = ""
+        if TOOLS:
+            import json
+            tool_context = f"\n\n<opentools>\n{json.dumps(TOOLS, indent=2)}\n</opentools>"
+
         session.messages.append({
             "role": "user",
-            "content": user_input
+            "content": user_input + tool_context
         })
 
         # Auto-save session state (non-blocking)
