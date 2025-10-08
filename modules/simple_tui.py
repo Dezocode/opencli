@@ -7,6 +7,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Static, Input, RichLog, TextArea
 from textual.reactive import reactive
+from textual import events
+from textual.geometry import Offset
 from rich.text import Text
 from datetime import datetime
 import os
@@ -21,6 +23,14 @@ try:
     from .multiline_input import MultiLineInput
 except (ImportError, ValueError):
     from multiline_input import MultiLineInput
+
+# Import command suggestion system
+try:
+    from .command_suggestions import CommandSuggestionBuffer, CommandMatch
+    from .command_registry import CommandRegistry
+except (ImportError, ValueError):
+    from command_suggestions import CommandSuggestionBuffer, CommandMatch
+    from command_registry import CommandRegistry
 
 # Import custom modules - relative imports since we're in modules/ dir
 try:
@@ -103,6 +113,72 @@ class PerformanceStatusLine(Static):
                 self.enabled = False
             else:
                 self.perf_monitor.start()
+                self.enabled = True
+            self.refresh()
+            return self.enabled
+        return False
+
+
+class RefactoringStatusLine(Static):
+    """Live refactoring system statusline (bottom of screen)"""
+
+    enabled = reactive(False)
+
+    def __init__(self, session):
+        super().__init__()
+        self.session = session
+        self._update_interval = None
+        self.orchestrator = None
+
+    def on_mount(self) -> None:
+        """Initialize refactoring orchestrator when mounted"""
+        # Import orchestrator
+        try:
+            from .refactor_orchestrator import get_orchestrator
+        except (ImportError, ValueError):
+            try:
+                from refactor_orchestrator import get_orchestrator
+            except ImportError:
+                return
+
+        try:
+            self.orchestrator = get_orchestrator()
+        except Exception:
+            pass
+
+        # Lightweight: Update every 2 seconds to minimize overhead
+        self._update_interval = self.set_interval(2.0, self._update_display)
+
+    def _update_display(self) -> None:
+        """Periodic update callback - lightweight (2 sec)"""
+        if self.enabled and self.orchestrator and self.orchestrator._monitoring:
+            self.refresh()
+
+    def render(self) -> Text:
+        """Render refactoring statusline"""
+        if not self.enabled or not self.orchestrator or not self.orchestrator._monitoring:
+            return Text("")  # Hidden when disabled
+
+        # Get statusline from orchestrator
+        status_str = self.orchestrator.get_status_line()
+
+        if not status_str:
+            return Text("")
+
+        # Convert Rich markup to Text
+        try:
+            return Text.from_markup(status_str)
+        except:
+            return Text(status_str)
+
+    def toggle(self) -> bool:
+        """Toggle refactoring monitoring on/off, returns new state"""
+        if self.orchestrator:
+            if self.orchestrator._monitoring:
+                self.orchestrator.stop_monitoring()
+                self.enabled = False
+            else:
+                self.orchestrator.start_monitoring()
                 self.enabled = True
             self.refresh()
             return self.enabled
@@ -249,6 +325,11 @@ class OpenCLITUI(App):
     # Force ANSI colors mode and disable dark mode
     ENABLE_COMMAND_PALETTE = False
 
+    # Global text selection state
+    _selection_start = None
+    _selection_end = None
+    _is_selecting = False
+
     CSS = """
     Screen {
         layout: vertical;
@@ -302,6 +383,13 @@ class OpenCLITUI(App):
         color: auto;
     }
 
+    RefactoringStatusLine {
+        height: 1;
+        padding: 0 1;
+        background: $background;
+        color: auto;
+    }
+
     #prompt-container {
         height: auto;
         layout: vertical;
@@ -345,6 +433,21 @@ class OpenCLITUI(App):
 
     MultiLineInput:focus {
         border: round #6B9E78;
+    }
+
+    #command-suggestions {
+        width: 1fr;
+        height: auto;
+        max-height: 12;
+        margin: 0;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
+    .hidden {
+        display: none;
     }
     """
 
@@ -449,7 +552,10 @@ class OpenCLITUI(App):
             with Container(id="prompt-container"):
                 # Multi-line input with integrated spinner
                 yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
+                # Command suggestion buffer (initially hidden)
+                yield CommandSuggestionBuffer(id="command-suggestions", classes="hidden")
             yield PerformanceStatusLine(self.session)
+            yield RefactoringStatusLine(self.session)
 
     def on_mount(self) -> None:
         """Initialize"""
@@ -532,9 +638,53 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
-        import sys
-        sys.stderr.write(f"\n🔒 Permission response received: {event.option}\n")
-        sys.stderr.flush()
+        # Check if this is a local model selection
+        if hasattr(self.session, '_awaiting_local_model_selection') and self.session._awaiting_local_model_selection:
+            # Import PermissionResponse
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_local_model_selection = False
+                if hasattr(self.session, '_local_context'):
+                    del self.session._local_context
+                if hasattr(self.session, '_local_step'):
+                    del self.session._local_step
+                if hasattr(self.session, '_local_selections'):
+                    del self.session._local_selections
+
+                # Clear the permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except Exception:
+                    pass
+
+                self.write("\n[dim]Model installation cancelled[/dim]\n\n")
+                return
+
+            # Get current step
+            current_step = getattr(self.session, '_local_step', 'setup_type')
+            option_data = event.option.get('data', {})
+
+            # Initialize selections if not exists
+            if not hasattr(self.session, '_local_selections'):
+                self.session._local_selections = {}
+
+            # Handle multi-step workflow
+            import asyncio
+            asyncio.create_task(self._handle_local_model_step(current_step, option_data))
+            return
 
         # Get the async permission handler
         try:
@@ -545,8 +695,6 @@ Session: {self.session.session_id[:8]} | Ready
                 async_perms = importlib.import_module('async_permissions')
                 get_global_handler = async_perms.get_global_handler
             except:
-                sys.stderr.write(f"⚠️ Cannot import async_permissions\n")
-                sys.stderr.flush()
                 return
 
         handler = get_global_handler()
@@ -557,16 +705,9 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': event.option.get('data', {})
             }
             handler.handle_response(response_data)
-        else:
-            sys.stderr.write(f"⚠️ No global handler found\n")
-            sys.stderr.flush()
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
-        import sys
-        sys.stderr.write(f"\n🔒 Permission cancelled\n")
-        sys.stderr.flush()
-
         # Get the async permission handler
         try:
             from async_permissions import get_global_handler
@@ -596,6 +737,397 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': {}
             }
             handler.handle_response(response_data)
+
+    # ========================================================================
+    # COMMAND SUGGESTION HANDLERS
+    # ========================================================================
+
+    def on_multi_line_input_show_command_suggestions(self, event: MultiLineInput.ShowCommandSuggestions) -> None:
+        """Handle slash command typed - show/update command suggestions"""
+        # DEBUG LOGGING
+        import os
+        if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+            with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                f.write(f"[SimpleTUI] Received ShowCommandSuggestions('{event.query}')\n")
+
+        try:
+            # Get command suggestion buffer
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Found suggestions buffer\n")
+
+            # Get command registry
+            registry = CommandRegistry()
+
+            # Search commands based on query
+            query = event.query
+
+            # Get feature flags for filtering
+            feature_flags = {
+                'AGENT_SYSTEM': True,  # TODO: Get from config
+                'UPGRADE_SYSTEM': True,
+                'TOOL_PERMISSIONS': True
+            }
+
+            # Search commands
+            matches = registry.search_commands(query, feature_flags=feature_flags)
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Found {len(matches)} matches\n")
+
+            # Convert to CommandMatch objects
+            command_matches = [
+                CommandMatch(
+                    name=m['name'],
+                    description=m['description'],
+                    category=m['category'],
+                    score=m['score'],
+                    usage_count=m['usage_count']
+                )
+                for m in matches
+            ]
+
+            # Update suggestion buffer
+            suggestions_buffer.update_suggestions(command_matches, query)
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Updated suggestions buffer\n")
+
+            # Show the buffer
+            suggestions_buffer.remove_class("hidden")
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Removed 'hidden' class from buffer\n")
+
+        except Exception as e:
+            # Log error in debug mode
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] ERROR: {e}\n")
+                    import traceback
+                    f.write(traceback.format_exc())
+            pass
+
+    def on_multi_line_input_hide_command_suggestions(self, event: MultiLineInput.HideCommandSuggestions) -> None:
+        """Handle hiding command suggestions"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+            suggestions_buffer.add_class("hidden")
+            suggestions_buffer.clear()
+        except Exception:
+            pass
+
+    def on_multi_line_input_command_suggestion_navigate(self, event: MultiLineInput.CommandSuggestionNavigate) -> None:
+        """Handle arrow key navigation in command suggestions"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            if event.direction == "up":
+                suggestions_buffer.move_selection_up()
+            elif event.direction == "down":
+                suggestions_buffer.move_selection_down()
+
+        except Exception:
+            pass
+
+    async def on_multi_line_input_command_suggestion_select(self, event: MultiLineInput.CommandSuggestionSelect) -> None:
+        """Handle Enter key with command suggestions active"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+            prompt_input = self.query_one("#prompt-input", MultiLineInput)
+
+            # Get selected command
+            selected = suggestions_buffer.get_selected_command()
+
+            if selected:
+                # Get command registry for usage tracking
+                registry = CommandRegistry()
+
+                # Record usage
+                registry.record_usage(selected.name)
+
+                # Hide suggestions
+                suggestions_buffer.add_class("hidden")
+                suggestions_buffer.clear()
+                prompt_input.suggestions_active = False
+
+                # Execute the command
+                await self._handle_user_message(selected.name, prompt_input)
+
+        except Exception as e:
+            # Silent failure
+            pass
+
+    async def _handle_local_model_step(self, current_step: str, option_data: dict) -> None:
+        """Handle multi-step local model selection workflow"""
+        try:
+            from modules.permission_prompt import PermissionResponse
+        except ImportError:
+            try:
+                import importlib
+                perm_prompt = importlib.import_module('permission_prompt')
+                PermissionResponse = perm_prompt.PermissionResponse
+            except:
+                return
+
+        # Get context
+        if not hasattr(self.session, '_local_context'):
+            self.write("\n[red]✗ Context lost[/red]\n\n")
+            return
+
+        ctx = self.session._local_context
+        recs = ctx['recs']
+        is_installed = ctx['is_installed']
+
+        # Clear current prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass
+
+        # STEP 1: Setup type selected
+        if current_step == 'setup_type':
+            setup_type = option_data.get('setup_type')
+            self.session._local_selections['setup_type'] = setup_type
+
+            if setup_type == 'single':
+                # Show single model options
+                self.write("\n[cyan]▸ Single model setup selected[/cyan]\n\n")
+
+                # Build single model options
+                options = []
+                primary = recs['single_model']['primary']
+                primary_installed = is_installed(primary['name'])
+
+                options.append({
+                    'text': f"{primary['name']} - Recommended" + (" [green]✓ Installed[/green]" if primary_installed else ""),
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {
+                        'model': primary['name'],
+                        'pull_command': f"ollama pull {primary['name']}",
+                        'installed': primary_installed
+                    }
+                })
+
+                # Alternative if exists
+                if 'alternative' in recs['single_model']:
+                    alt = recs['single_model']['alternative']
+                    alt_installed = is_installed(alt['name'])
+                    options.append({
+                        'text': f"{alt['name']} - Alternative" + (" [green]✓ Installed[/green]" if alt_installed else ""),
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {
+                            'model': alt['name'],
+                            'pull_command': f"ollama pull {alt['name']}",
+                            'installed': alt_installed
+                        }
+                    })
+
+                options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+                prompt_data = {
+                    'title': 'Select Single Model',
+                    'message': 'Choose which model to install:',
+                    'details': {},
+                    'options': options
+                }
+
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+                self.session._local_step = 'single_model_select'
+
+            elif setup_type == 'dual':
+                # Show planner selection
+                self.write("\n[cyan]▸ Dual model setup selected[/cyan]\n\n")
+                self.write("[dim]Step 1/2: Select planner model[/dim]\n\n")
+
+                # Build planner options
+                options = []
+                if 'dual_model' in recs:
+                    planner = recs['dual_model']['planner']
+                    planner_installed = is_installed(planner['name'])
+
+                    options.append({
+                        'text': f"{planner['name']} - Recommended" + (" [green]✓ Installed[/green]" if planner_installed else ""),
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {
+                            'model': planner['name'],
+                            'pull_command': f"ollama pull {planner['name']}",
+                            'installed': planner_installed
+                        }
+                    })
+
+                options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+                prompt_data = {
+                    'title': 'Select Planner Model',
+                    'message': 'Choose the planner model for task decomposition:',
+                    'details': {},
+                    'options': options
+                }
+
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+                self.session._local_step = 'planner_select'
+
+        # STEP 2a: Single model selected - execute
+        elif current_step == 'single_model_select':
+            model_name = option_data.get('model', '')
+            pull_command = option_data.get('pull_command', '')
+            installed = option_data.get('installed', False)
+
+            self.session._awaiting_local_model_selection = False
+
+            if installed:
+                self.write(f"\n[green]✓ {model_name} is already installed[/green]\n\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+            else:
+                self.write(f"\n[cyan]▸ Installing {model_name}...[/cyan]\n\n")
+                self.write(f"[dim]Running: {pull_command}[/dim]\n\n")
+                await self._run_ollama_pull(pull_command, model_name)
+
+        # STEP 2b: Planner selected for dual - show coder selection
+        elif current_step == 'planner_select':
+            planner_model = option_data.get('model', '')
+            planner_command = option_data.get('pull_command', '')
+            planner_installed = option_data.get('installed', False)
+
+            self.session._local_selections['planner'] = {
+                'model': planner_model,
+                'command': planner_command,
+                'installed': planner_installed
+            }
+
+            self.write("[dim]Step 2/2: Select coder model[/dim]\n\n")
+
+            # Build coder options
+            options = []
+            if 'dual_model' in recs:
+                coder = recs['dual_model']['coder']
+                coder_installed = is_installed(coder['name'])
+
+                options.append({
+                    'text': f"{coder['name']} - Recommended" + (" [green]✓ Installed[/green]" if coder_installed else ""),
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {
+                        'model': coder['name'],
+                        'pull_command': f"ollama pull {coder['name']}",
+                        'installed': coder_installed
+                    }
+                })
+
+            options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+            prompt_data = {
+                'title': 'Select Coder Model',
+                'message': 'Choose the coder model for precise edits:',
+                'details': {},
+                'options': options
+            }
+
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+            self.session._local_step = 'coder_select'
+
+        # STEP 3: Coder selected for dual - execute both
+        elif current_step == 'coder_select':
+            coder_model = option_data.get('model', '')
+            coder_command = option_data.get('pull_command', '')
+            coder_installed = option_data.get('installed', False)
+
+            self.session._awaiting_local_model_selection = False
+
+            # Get planner from selections
+            planner_data = self.session._local_selections.get('planner', {})
+
+            self.write("\n[cyan]▸ Installing dual model setup...[/cyan]\n\n")
+
+            # Install planner if needed
+            if not planner_data.get('installed', False):
+                self.write(f"[dim]1/2 Installing planner: {planner_data['model']}[/dim]\n\n")
+                await self._run_ollama_pull(planner_data['command'], planner_data['model'])
+            else:
+                self.write(f"[green]✓ Planner already installed: {planner_data['model']}[/green]\n\n")
+
+            # Install coder if needed
+            if not coder_installed:
+                self.write(f"[dim]2/2 Installing coder: {coder_model}[/dim]\n\n")
+                await self._run_ollama_pull(coder_command, coder_model)
+            else:
+                self.write(f"[green]✓ Coder already installed: {coder_model}[/green]\n\n")
+
+            self.write("\n[green]✓ Dual model setup complete![/green]\n\n")
+            self.write("[dim]Configure as provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+
+    async def _run_ollama_pull(self, pull_command: str, model_name: str) -> None:
+        """Execute ollama pull command and stream output"""
+        import asyncio
+        import subprocess
+
+        try:
+            # Parse command (should be "ollama pull model:tag")
+            parts = pull_command.split()
+            if len(parts) < 3 or parts[0] != "ollama" or parts[1] != "pull":
+                self.write(f"[red]✗ Invalid command format: {pull_command}[/red]\n\n")
+                return
+
+            # Run ollama pull with streaming output
+            process = await asyncio.create_subprocess_exec(
+                *parts,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Stream output line by line
+            async def read_stream(stream, prefix=""):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8').rstrip()
+                    if text:
+                        self.write(f"{prefix}{text}\n")
+
+            # Read both stdout and stderr concurrently
+            await asyncio.gather(
+                read_stream(process.stdout, "[dim]  "),
+                read_stream(process.stderr, "[dim red]  ")
+            )
+
+            # Wait for process to complete
+            await process.wait()
+
+            if process.returncode == 0:
+                self.write(f"\n[green]✓ {model_name} installed successfully![/green]\n\n")
+                self.write("[dim]You can now use this model with Ollama[/dim]\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Installation failed (exit code {process.returncode})[/red]\n\n")
+                self.write("[dim]Make sure Ollama is installed and running:[/dim]\n")
+                self.write("[dim]  Install: https://ollama.ai/[/dim]\n")
+                self.write("[dim]  Start: ollama serve[/dim]\n\n")
+
+        except FileNotFoundError:
+            self.write(f"\n[red]✗ Ollama command not found[/red]\n\n")
+            self.write("[dim]Install Ollama first:[/dim]\n")
+            self.write("[dim]  https://ollama.ai/[/dim]\n\n")
+        except Exception as e:
+            self.write(f"\n[red]✗ Error: {e}[/red]\n\n")
 
     async def _handle_user_message(self, user_input: str, widget) -> None:
         """Common handler for user messages"""
@@ -798,46 +1330,24 @@ Session: {self.session.session_id[:8]} | Ready
     def _show_permission_prompt(self, prompt_data: dict) -> None:
         """Show permission prompt inside MultiLineInput"""
         try:
-            import sys
-            sys.stderr.write(f"\n🔒 _show_permission_prompt: Setting data on MultiLineInput\n")
-            sys.stderr.flush()
-
             # Get the MultiLineInput and set permission data on it
             prompt_input = self.query_one("#prompt-input")
             prompt_input.permission_prompt_data = prompt_data
             prompt_input.permission_selected_option = 0
             prompt_input.refresh()
-
-            sys.stderr.write(f"🔒 Permission prompt data set on input\n")
-            sys.stderr.flush()
-
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"⚠️ Error in _show_permission_prompt: {e}\n")
-            import traceback
-            sys.stderr.write(traceback.format_exc())
-            sys.stderr.flush()
+        except Exception:
+            pass  # Silently fail if permission prompt can't be shown
 
     def _hide_permission_prompt(self) -> None:
         """Clear permission prompt from MultiLineInput"""
         try:
-            import sys
-            sys.stderr.write(f"\n🔒 _hide_permission_prompt: Clearing data from MultiLineInput\n")
-            sys.stderr.flush()
-
             # Clear permission data from MultiLineInput
             prompt_input = self.query_one("#prompt-input")
             prompt_input.permission_prompt_data = None
             prompt_input.permission_selected_option = 0
             prompt_input.refresh()
-
-            sys.stderr.write(f"🔒 Permission prompt cleared, input restored\n")
-            sys.stderr.flush()
-
-        except Exception as e:
-            import sys
-            sys.stderr.write(f"⚠️ Error clearing permission prompt: {e}\n")
-            sys.stderr.flush()
+        except Exception:
+            pass  # Silently fail if permission prompt can't be cleared
 
     def action_quit_app(self) -> None:
         """Quit and persist IPC server"""
@@ -861,6 +1371,61 @@ Session: {self.session.session_id[:8]} | Ready
         if self.input_future and not self.input_future.done():
             self.input_future.set_exception(KeyboardInterrupt())
         self.exit()
+
+    # Mouse selection - forward events to StreamingDisplay with coordinate conversion
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Forward mouse down to StreamingDisplay for text selection"""
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                # Convert screen-absolute coords to widget-relative coords
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+
+                # Call handler and capture mouse to receive move events during drag
+                stream_display._handle_mouse_down(widget_x, widget_y)
+                self.capture_mouse(stream_display)
+        except Exception as e:
+            try:
+                with open('/tmp/opencli_app_mouse_debug.txt', 'w') as f:
+                    f.write(f"ERROR forwarding mouse down: {e}\n")
+            except:
+                pass
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Forward ALL mouse move to StreamingDisplay - needed for smooth drag selection"""
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+                stream_display._handle_mouse_move(widget_x, widget_y)
+
+                # DEBUG
+                try:
+                    with open('/tmp/opencli_app_mouse_debug.txt', 'a') as f:
+                        f.write(f"APP MOVE: screen ({event.x},{event.y}) → widget ({widget_x},{widget_y})\n")
+                except:
+                    pass
+        except:
+            pass
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Forward mouse up to StreamingDisplay for text selection"""
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+                stream_display._handle_mouse_up(widget_x, widget_y)
+
+                # Release mouse capture
+                self.release_mouse()
+        except:
+            pass
 
     def _start_queue_thread(self):
         """Start background thread to process write queue independently"""

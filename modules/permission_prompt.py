@@ -406,3 +406,158 @@ class PermissionTemplates:
                 }
             ]
         }
+
+    @staticmethod
+    def configure_headers(provider: str, model: str, issue: str, current_headers: dict, proposed_headers: dict = None) -> dict:
+        """Create provider header configuration prompt"""
+        provider_name = provider or "Provider"
+        current_details = [f"{key}: {value or '[unset]'}" for key, value in (current_headers or {}).items()]
+
+        if proposed_headers:
+            proposed_details = [f"{key}: {value}" for key, value in proposed_headers.items()]
+            message = (
+                f"OpenCLI needs to update {provider_name} headers so this model can stream."\
+                f"\nReason: {issue or 'Provider rejected the request.'}\n\n"
+                "Apply the suggested headers from your environment?"
+            )
+            details = {
+                'provider': provider_name,
+                'model': model or '[unknown model]',
+                'current headers': '\n'.join(current_details) or '[none]',
+                'suggested headers': '\n'.join(proposed_details)
+            }
+        else:
+            message = (
+                f"{provider_name} returned a policy error for this model."\
+                f"\nReason: {issue or 'Provider rejected the request.'}\n\n"
+                "Provide the required header values from your provider privacy settings."
+            )
+            details = {
+                'provider': provider_name,
+                'model': model or '[unknown model]',
+                'current headers': '\n'.join(current_details) or '[none]'
+            }
+
+        options = [
+            {
+                'text': 'Yes, continue',
+                'response': PermissionResponse.ALLOW_ONCE
+            },
+            {
+                'text': 'No, cancel (esc)',
+                'response': PermissionResponse.DENY
+            }
+        ]
+
+        return {
+            'title': 'Configure Provider Headers',
+            'message': message,
+            'details': details,
+            'options': options
+        }
+
+    @staticmethod
+    def code_refactoring(plan: dict, result: dict) -> dict:
+        """Create code refactoring permission prompt"""
+        # Extract info from plan and result
+        source_file = plan.get('source_file', '')
+        target_file = plan.get('target_file', '')
+        functions = plan.get('functions_to_move', [])
+        estimated_lines = plan.get('estimated_lines', 0)
+        rationale = plan.get('rationale', '')
+
+        test_results = result.get('test_results', '')
+        test_passed = 'exit code: 0' in test_results.lower() if test_results else False
+
+        # Create details
+        details = {
+            'source': source_file,
+            'target': target_file,
+            'functions': ', '.join(functions) if len(', '.join(functions)) < 80 else f"{len(functions)} functions",
+            'lines': f"~{estimated_lines} lines",
+            'tests': '✓ PASSED' if test_passed else '! NOT VERIFIED' if not test_results else '✗ FAILED'
+        }
+
+        message = f"Auto-refactoring suggests extracting functions to improve code organization.\n\n{rationale}\n\nDo you want to apply this refactoring?"
+
+        return {
+            'title': 'Code Refactoring',
+            'message': message,
+            'details': details,
+            'options': [
+                {
+                    'text': 'Yes, apply this refactoring',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': "Yes, and don't ask again for refactoring",
+                    'response': PermissionResponse.ALLOW_ALWAYS,
+                    'data': {'tool': 'Refactoring'}
+                },
+                {
+                    'text': 'No, skip this refactoring (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
+
+    @staticmethod
+    def local_models(tier: str, capabilities: dict, recommendations: list) -> dict:
+        """Create local model recommendations prompt"""
+        # Build system info
+        ram = capabilities.get('ram_gb', '?')
+        gpu = capabilities.get('gpu_type', 'Unknown')
+        arch = capabilities.get('arch', '?')
+        os_name = capabilities.get('os', '?')
+
+        tier_desc = {
+            'green': 'High capability - Can run 32B models smoothly',
+            'yellow': 'Medium capability - Best with 14B models',
+            'red': 'Basic capability - Recommended 7B models'
+        }.get(tier, 'Unknown tier')
+
+        # Build details
+        details = {
+            'System': f"{os_name} ({arch})",
+            'RAM': f"{ram}GB",
+            'GPU': gpu,
+            'Tier': f"{tier.upper()} - {tier_desc}"
+        }
+
+        # Build message with recommendations
+        message = "System capability detected. Recommended models for code editing:\n\n"
+        for rec in recommendations:
+            model_name = rec.get('name', '')
+            model_desc = rec.get('description', '')
+            message += f"  • {model_name}\n    {model_desc}\n"
+
+        message += "\nSelect a model to install:"
+
+        # Build options from recommendations
+        options = []
+        for rec in recommendations:
+            model_name = rec.get('name', '')
+            pull_cmd = rec.get('pull_command', f"ollama pull {model_name}")
+            is_installed = rec.get('installed', False)
+            options.append({
+                'text': f"{model_name}",
+                'response': PermissionResponse.ALLOW_ONCE,
+                'data': {
+                    'model': model_name,
+                    'command': pull_cmd,
+                    'installed': is_installed
+                }
+            })
+
+        # Add cancel option
+        options.append({
+            'text': 'Cancel - Don\'t install anything',
+            'response': PermissionResponse.CANCEL
+        })
+
+        return {
+            'title': 'Local Model Recommendations',
+            'message': message,
+            'details': details,
+            'options': options
+        }

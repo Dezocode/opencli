@@ -6,6 +6,7 @@ Designed to not break chat layout
 from textual.widget import Widget
 from textual.message import Message
 from textual.reactive import reactive
+from textual.events import Paste
 from rich.text import Text
 from rich.console import Console
 from rich.style import Style
@@ -50,6 +51,26 @@ class MultiLineInput(Widget):
         """Posted when user cancels permission prompt"""
         pass
 
+    class ShowCommandSuggestions(Message):
+        """Posted when slash command typed - triggers suggestion buffer"""
+        def __init__(self, query: str) -> None:
+            self.query = query
+            super().__init__()
+
+    class HideCommandSuggestions(Message):
+        """Posted when suggestions should be hidden"""
+        pass
+
+    class CommandSuggestionNavigate(Message):
+        """Posted when user navigates in suggestions with arrow keys"""
+        def __init__(self, direction: str) -> None:
+            self.direction = direction  # "up" or "down"
+            super().__init__()
+
+    class CommandSuggestionSelect(Message):
+        """Posted when user presses Enter with suggestions active"""
+        pass
+
     def __init__(self, placeholder: str = "", **kwargs):
         super().__init__(**kwargs)
         self.placeholder = placeholder
@@ -58,6 +79,7 @@ class MultiLineInput(Widget):
         self._cursor_col = 0
         self.can_focus = True
         self._spin_task = None
+        self.suggestions_active = False  # Track if command suggestions are shown
 
     def render(self) -> Text:
         """Render the current input with cursor or permission prompt"""
@@ -181,11 +203,31 @@ class MultiLineInput(Widget):
 
         return lines
 
+    def on_paste(self, event: Paste) -> None:
+        """Handle paste events"""
+        # Don't allow paste during permission prompts
+        if self.permission_prompt_data:
+            event.prevent_default()
+            return
+
+        # Insert pasted text at cursor position
+        pasted_text = event.text
+        # Remove any newlines from pasted text to keep single-line input
+        pasted_text = pasted_text.replace('\n', ' ').replace('\r', '')
+
+        self.value = (
+            self.value[:self.cursor_position] +
+            pasted_text +
+            self.value[self.cursor_position:]
+        )
+        self.cursor_position += len(pasted_text)
+        event.prevent_default()
+
     def on_key(self, event) -> None:
         """Handle key presses"""
         key = event.key
 
-        # PRIORITY: Handle permission prompt navigation if active
+        # PRIORITY 1: Handle permission prompt navigation if active
         if self.permission_prompt_data:
             options = self.permission_prompt_data.get('options', [])
             if key == "up":
@@ -212,8 +254,29 @@ class MultiLineInput(Widget):
                 event.prevent_default()
                 return
 
-        # Don't handle up/down - let parent handle for history
-        if key in ("up", "down"):
+        # PRIORITY 2: Handle command suggestion navigation if active
+        if self.suggestions_active:
+            if key == "up":
+                self.post_message(self.CommandSuggestionNavigate("up"))
+                event.prevent_default()
+                return
+            elif key == "down":
+                self.post_message(self.CommandSuggestionNavigate("down"))
+                event.prevent_default()
+                return
+            elif key == "enter":
+                self.post_message(self.CommandSuggestionSelect())
+                event.prevent_default()
+                return
+            elif key == "escape":
+                self.post_message(self.HideCommandSuggestions())
+                self.suggestions_active = False
+                event.prevent_default()
+                return
+            # For other keys, continue to normal handling (update query)
+
+        # Don't handle up/down for history (only if no suggestions)
+        if key in ("up", "down") and not self.suggestions_active:
             return
 
         # Submit on enter
@@ -294,10 +357,38 @@ class MultiLineInput(Widget):
         self.cursor_position = 0
 
     def watch_value(self, old_value: str, new_value: str) -> None:
-        """Update when value changes"""
+        """Update when value changes - detect slash commands"""
+        # DEBUG LOGGING
+        import os
+        if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+            with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                f.write(f"[watch_value] old='{old_value}' new='{new_value}' starts_with_slash={new_value.startswith('/')}\n")
+
         # Ensure cursor is within bounds
         if self.cursor_position > len(new_value):
             self.cursor_position = len(new_value)
+
+        # Detect slash command input
+        if new_value.startswith('/'):
+            # Show/update command suggestions
+            self.suggestions_active = True
+            self.post_message(self.ShowCommandSuggestions(new_value))
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[watch_value] Posted ShowCommandSuggestions('{new_value}')\n")
+        else:
+            # Hide suggestions if not a slash command
+            if self.suggestions_active:
+                self.suggestions_active = False
+                self.post_message(self.HideCommandSuggestions())
+
+                # DEBUG
+                if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                    with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                        f.write(f"[watch_value] Posted HideCommandSuggestions\n")
+
         self.refresh()
 
     def start_spinner(self) -> None:

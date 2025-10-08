@@ -4,17 +4,60 @@ OpenCLI - OpenRouter CLI with Claude Code capabilities
 A fast, feature-rich terminal interface for OpenRouter API
 """
 
-import os, sys, json, argparse, subprocess, uuid, readline, signal, shutil
+import os, sys, json, argparse, subprocess, uuid, readline, signal, shutil, asyncio
 from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
 
-from modules.tool_call_utils import normalize_tool_call_messages
+# Development mode - prevent .pyc creation if OPENCLI_DEV=1
+if os.getenv('OPENCLI_DEV') == '1':
+    sys.dont_write_bytecode = True
+    os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
+from modules.tool_call_utils import normalize_tool_call_messages, extract_tool_calls_from_text
+
+try:
+    from modules.model_manager import ModelManager
+except ImportError:
+    from model_manager import ModelManager
+
+    try:
+        from modules.async_interactive import extract_openrouter_policy_error
+    except ImportError:
+        try:
+            from async_interactive import extract_openrouter_policy_error
+        except ImportError:
+            extract_openrouter_policy_error = lambda e: None
+
+try:
+    from modules.uptime_checker import (
+        check_model_uptime,
+        is_model_healthy,
+        get_user_recommendation,
+    )
+except ImportError:
+    try:
+        from uptime_checker import (
+            check_model_uptime,
+            is_model_healthy,
+            get_user_recommendation,
+        )
+    except ImportError:
+        check_model_uptime = None
+        is_model_healthy = None
+        get_user_recommendation = None
 
 # Add modules directory to path for imports
 MODULES_DIR = Path.home() / ".opencli" / "modules"
 if MODULES_DIR.exists() and str(MODULES_DIR) not in sys.path:
     sys.path.insert(0, str(MODULES_DIR))
+
+try:
+    from modules.provider_settings import get_provider_defaults
+except ImportError:
+    from provider_settings import get_provider_defaults
+
+OPENROUTER_DEFAULTS = get_provider_defaults("openrouter")
 
 # Agent system imports
 try:
@@ -105,7 +148,11 @@ DEFAULT_CONFIG = {
     "model": "x-ai/grok-4-fast:free",
     "baseURL": "https://openrouter.ai/api/v1",
     "maxTurns": 25,
-    "contextWindow": 128000
+    "contextWindow": 128000,
+    "provider": "openrouter",
+    "requestFormat": OPENROUTER_DEFAULTS.get("request_format", "openai-chat"),
+    "defaultHeaders": OPENROUTER_DEFAULTS.get("default_headers", {}).copy() if OPENROUTER_DEFAULTS.get("default_headers") else {},
+    "providerOverrides": {}
 }
 
 BACKGROUND_TASKS = {}
@@ -129,27 +176,41 @@ PROMPT_STYLE = Style.from_dict({
     'bottom-toolbar.text': 'noinherit',
 }) if RICH_PROMPT else None
 
-def get_api_key():
-    """Get API key from environment or secrets file"""
-    # Try environment variable first
-    key = os.getenv('OPENROUTER_API_KEY')
-    if key:
-        return key
-
-    # Try secrets file
-    if SECRETS_FILE.exists():
+def get_api_key(provider="openrouter"):
+    """Get API key for the specified provider"""
+    # First, try to load from models.json (multi-provider storage)
+    models_file = CONFIG_DIR / "models.json"
+    if models_file.exists():
         try:
-            with open(SECRETS_FILE) as f:
-                data = json.load(f)
-                return data.get('apiKey')
+            with open(models_file) as f:
+                models_data = json.load(f)
+                api_keys = models_data.get("api_keys", {})
+                if provider in api_keys and api_keys[provider]:
+                    return api_keys[provider]
         except:
             pass
 
-    # Prompt user to set it up
-    print("\n⚠️  No OpenRouter API key found!")
-    print("\nSet your API key by either:")
-    print("  1. Export OPENROUTER_API_KEY environment variable")
-    print("  2. Run: opencli --setup\n")
+    # Fallback for openrouter: try environment variable
+    if provider == "openrouter":
+        key = os.getenv('OPENROUTER_API_KEY')
+        if key:
+            return key
+
+        # Try legacy secrets file
+        if SECRETS_FILE.exists():
+            try:
+                with open(SECRETS_FILE) as f:
+                    data = json.load(f)
+                    key = data.get('apiKey')
+                    if key:
+                        return key
+            except:
+                pass
+
+    # No API key found for this provider
+    print(f"\n⚠️  No API key found for provider: {provider}")
+    print(f"\nAdd an API key with: /providers add {provider} YOUR_API_KEY")
+    print(f"Or run: opencli --setup\n")
     sys.exit(1)
 
 def setup_api_key():
@@ -193,9 +254,115 @@ def load_config():
     config = DEFAULT_CONFIG.copy()
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE) as f:
-            config.update(json.load(f))
-    config['apiKey'] = get_api_key()
+            try:
+                config.update(json.load(f))
+            except json.JSONDecodeError:
+                pass
+
+    provider = config.get("provider") or "openrouter"
+    provider_defaults = get_provider_defaults(provider)
+    if not provider_defaults:
+        provider = "openrouter"
+        provider_defaults = get_provider_defaults(provider)
+        config["provider"] = provider
+
+    # Auto-migrate stale configs to new provider defaults
+    config_changed = False
+
+    # Update baseURL if it doesn't match provider default
+    if provider_defaults.get("base_url"):
+        expected_base_url = provider_defaults["base_url"]
+        current_base_url = config.get("baseURL", "")
+
+        if current_base_url != expected_base_url:
+            config["baseURL"] = expected_base_url
+            print(f"🔄 Updated {provider} endpoint: {expected_base_url}")
+            config_changed = True
+
+    # Update request format to match provider
+    if provider_defaults.get("request_format"):
+        expected_format = provider_defaults["request_format"]
+        current_format = config.get("requestFormat", "")
+
+        if current_format != expected_format:
+            config["requestFormat"] = expected_format
+            print(f"🔄 Updated request format for {provider}: {expected_format}")
+            config_changed = True
+
+    # Build effective headers (provider defaults -> overrides -> environment)
+    # IMPORTANT: Start fresh - don't inherit headers from previous provider
+    provider_overrides = config.get("providerOverrides") or {}
+    provider_entry = provider_overrides.get(provider, {}) if isinstance(provider_overrides, dict) else {}
+
+    # Start with ONLY the current provider's default headers
+    headers = dict(provider_defaults.get("default_headers") or {})
+
+    base_override = provider_entry.get("headers")
+    if isinstance(base_override, dict):
+        headers.update(base_override)
+
+    model_id = config.get("model")
+    if model_id:
+        model_override = provider_entry.get("models", {}).get(model_id) if isinstance(provider_entry, dict) else None
+        if isinstance(model_override, dict):
+            headers.update(model_override)
+
+    # DON'T merge existing defaultHeaders - they may be from a different provider
+    # Each provider gets fresh headers based on provider_defaults
+
+    # OpenRouter: Fetch per-model headers from API pages
+    if provider == "openrouter" and model_id:
+        try:
+            from modules.openrouter_headers import OpenRouterHeaderManager
+            header_mgr = OpenRouterHeaderManager()
+
+            # Fetch model-specific headers
+            model_headers = header_mgr.get_headers_for_model(model_id)
+
+            # Merge with any existing headers from overrides
+            headers.update(model_headers)
+
+        except Exception:
+            # Fall back to environment variables
+            site_url = os.getenv("OPENROUTER_SITE_URL")
+            app_name = os.getenv("OPENROUTER_APP_NAME")
+            if site_url:
+                headers["HTTP-Referer"] = site_url
+            if app_name:
+                headers["X-Title"] = app_name
+
+    # Persist merged headers
+    if headers:
+        config["defaultHeaders"] = headers
+    elif "defaultHeaders" in config:
+        del config["defaultHeaders"]
+
+    # Load API key for the active provider
+    config['apiKey'] = get_api_key(provider)
+
+    # Save config back to file if provider settings were auto-updated
+    if config_changed:
+        config_to_save = {k: v for k, v in config.items() if k != 'apiKey'}
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config_to_save, f, indent=2)
+            print(f"💾 Saved updated config to {CONFIG_FILE}")
+        except Exception as e:
+            print(f"⚠️  Could not save config: {e}")
+
     return config
+
+
+def create_openai_client(config):
+    """Create OpenAI-compatible client with provider-specific headers."""
+    headers = config.get("defaultHeaders") or None
+    # All providers use standard OpenAI client (Google uses OpenAI-compatible endpoint)
+    return OpenAI(
+        base_url=config["baseURL"],
+        api_key=config["apiKey"],
+        default_headers=headers
+    )
+
 
 def count_tokens(messages):
     return sum(len(json.dumps(m)) // 4 for m in messages)
@@ -1354,8 +1521,108 @@ def ensure_prompt_at_bottom():
         print("\n" * 3, end='', flush=True)
 
 def interactive(config, session=None, initial=None):
-    client = OpenAI(base_url=config["baseURL"], api_key=config["apiKey"])
+    client = create_openai_client(config)
     session = session or Session(model=config["model"])
+    model_mgr = ModelManager()
+
+    def configure_openrouter_headers_cli(policy_message: str) -> str:
+        provider_id = model_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
+        current_headers = config.get("defaultHeaders", {}) or {}
+        model_id = session.model or config.get("model")
+
+        if provider_id == "openrouter" and model_id and callable(check_model_uptime):
+            print("\n🔍 Checking model availability...")
+            try:
+                try:
+                    success, uptime, status_msg = asyncio.run(check_model_uptime(model_id))
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        success, uptime, status_msg = loop.run_until_complete(check_model_uptime(model_id))
+                    finally:
+                        loop.close()
+
+                if success and uptime is not None:
+                    print(f"📊 {status_msg}\n")
+                    if callable(is_model_healthy) and not is_model_healthy(uptime):
+                        if callable(get_user_recommendation):
+                            recommendation = get_user_recommendation(uptime, model_id)
+                            print(f"⚠️  Warning: Low Model Availability\n\n{recommendation}\n")
+                        else:
+                            print("⚠️  Warning: Low Model Availability\n")
+                else:
+                    print(f"⚠️  Could not fetch uptime: {status_msg}\n")
+            except Exception as uptime_error:
+                print(f"⚠️  Could not fetch uptime: {uptime_error}\n")
+
+        proposed = {}
+        env_referer = os.getenv("OPENROUTER_SITE_URL")
+        env_title = os.getenv("OPENROUTER_APP_NAME")
+        if env_referer:
+            proposed["HTTP-Referer"] = env_referer
+        if env_title:
+            proposed["X-Title"] = env_title
+        if not proposed:
+            proposed = None
+
+        args = {
+            "provider": provider_id,
+            "model": session.model or config.get("model"),
+            "issue": policy_message,
+            "current_headers": current_headers,
+            "proposed_headers": proposed
+        }
+
+        allow_update = True
+        if getattr(session, "permission_manager", None):
+            should_prompt, reason, _ = session.permission_manager.should_prompt(
+                "ConfigureHeaders",
+                args,
+                session.cwd
+            )
+            if should_prompt:
+                print(f"\n⚠️  {policy_message}\n")
+                if proposed:
+                    print("Suggested headers (from environment variables):")
+                    for key, value in proposed.items():
+                        print(f"  • {key}: {value}")
+                else:
+                    print("This OpenRouter model requires HTTP-Referer and X-Title headers.")
+                    print("Provide the values you registered at https://openrouter.ai/settings/privacy.\n")
+                response = input("Allow OpenCLI to update these headers now? [y/N]: ").strip().lower()
+                allow_update = response in ("y", "yes")
+        else:
+            print(f"\n⚠️  {policy_message}\n")
+
+        if not allow_update:
+            print("Headers unchanged. Update your OpenRouter privacy settings or set OPENROUTER_SITE_URL / OPENROUTER_APP_NAME and try again.\n")
+            return "denied"
+
+        if proposed:
+            model_mgr.update_provider_headers(provider_id, proposed, None)
+            config.update(model_mgr.config)
+            print("\n✅ Applied header overrides from environment.\n")
+            return "retry"
+
+        referer_default = current_headers.get("HTTP-Referer", "")
+        title_default = current_headers.get("X-Title", "")
+        referer = input(f"HTTP-Referer [{referer_default}]: ").strip() or referer_default
+        title = input(f"X-Title [{title_default}]: ").strip() or title_default
+
+        new_headers = {}
+        if referer:
+            new_headers["HTTP-Referer"] = referer
+        if title:
+            new_headers["X-Title"] = title
+
+        if not new_headers:
+            print("No header values provided. Headers unchanged.\n")
+            return "denied"
+
+        model_mgr.update_provider_headers(provider_id, new_headers, None)
+        config.update(model_mgr.config)
+        print("\n✅ Updated OpenRouter headers.\n")
+        return "retry"
 
     # Initialize agent manager if available
     agent_manager = None
@@ -1540,13 +1807,51 @@ def interactive(config, session=None, initial=None):
                     session.compact_context(config.get("contextWindow", 128000))
                     prepared_messages = prepare_messages_with_context(session.messages, CONFIG_DIR)
 
-                # Use prepared messages for API call
-                stream = client.chat.completions.create(
-                    model=session.model or config["model"],
-                    messages=prepared_messages,
-                    tools=TOOLS,
-                    stream=True
-                )
+                stream = None
+                policy_abort = False
+                policy_attempt = 0
+                while True:
+                    try:
+                        # Use prepared messages for API call - COMPLETELY CLEAN
+                        # Try with tools parameter first (OpenAI-compatible)
+                        try:
+                            stream = client.chat.completions.create(
+                                model=session.model or config["model"],
+                                messages=prepared_messages,
+                                tools=TOOLS,
+                                stream=True
+                            )
+                        except (TypeError, Exception) as tools_error:
+                            # If tools parameter not supported, try without it
+                            # (fallback for providers that don't support OpenAI tools format)
+                            if "tools" in str(tools_error).lower() or "unexpected" in str(tools_error).lower():
+                                stream = client.chat.completions.create(
+                                    model=session.model or config["model"],
+                                    messages=prepared_messages,
+                                    stream=True
+                                )
+                            else:
+                                raise
+                        break
+                    except Exception as e:
+                        policy_message = extract_openrouter_policy_error(e) if extract_openrouter_policy_error else None
+                        if policy_message:
+                            action = configure_openrouter_headers_cli(policy_message)
+                            if action == "retry":
+                                client = create_openai_client(config)
+                                policy_attempt += 1
+                                if policy_attempt >= 3:
+                                    print("⚠️  Repeated header updates still failed.\n")
+                                    policy_abort = True
+                                    break
+                                continue
+                            else:
+                                policy_abort = True
+                                break
+                        raise
+
+                if policy_abort or stream is None:
+                    break
 
                 full_content = ""
                 tool_calls_dict = {}
@@ -1571,6 +1876,22 @@ def interactive(config, session=None, initial=None):
                     if delta.content:
                         full_content += delta.content
                         print(delta.content, end='', flush=True)
+
+                if not tool_calls_dict:
+                    parsed_calls, cleaned_content = extract_tool_calls_from_text(full_content)
+                    if parsed_calls:
+                        for idx, call in enumerate(parsed_calls):
+                            try:
+                                arguments_json = json.dumps(call.get("arguments", {}))
+                            except TypeError:
+                                arguments_json = json.dumps({})
+                            tool_calls_dict[idx] = {
+                                "id": call.get("id", f"text_{idx}"),
+                                "name": call.get("name", ""),
+                                "arguments": arguments_json,
+                                "type": "function"
+                            }
+                        full_content = cleaned_content
 
                 if tool_calls_dict:
                     print()
@@ -1657,6 +1978,22 @@ def main():
     if args.model:
         config["model"] = args.model
 
+    # Check for stale Python cache on startup
+    try:
+        from modules.cache_manager import get_cache_manager
+        manager = get_cache_manager()
+        stale = manager.find_all_stale_cache()
+
+        if stale and len(stale) > 0:
+            print(f"\n⚠️  WARNING: Found {len(stale)} modules with stale bytecode cache")
+            print("   Your .pyc files are older than source files.")
+            print("   This can cause 'Unknown command' errors or outdated behavior.\n")
+            print("   Recommended: Type '/reload' in the CLI to fix this")
+            print("   Or run: find ~/opencli -name '*.pyc' -delete\n")
+    except Exception:
+        # Cache manager not available or error - silently continue
+        pass
+
     session = None
     if args.cont:
         session = Session.latest()
@@ -1668,7 +2005,7 @@ def main():
     if args.print:
         if not prompt:
             prompt = sys.stdin.read().strip()
-        client = OpenAI(base_url=config["baseURL"], api_key=config["apiKey"])
+        client = create_openai_client(config)
         r = client.chat.completions.create(model=config["model"], messages=[{"role": "user", "content": prompt}])
         print(r.choices[0].message.content)
     else:

@@ -11,6 +11,9 @@ import queue
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import httpx
 from openai import AsyncOpenAI
 from simple_tui import OpenCLITUI
 from stream_buffer import StreamBuffer, BufferStatusDisplay
@@ -18,6 +21,14 @@ from stream_buffer import StreamBuffer, BufferStatusDisplay
 # Inline normalization function to avoid import issues
 import uuid
 from copy import deepcopy
+
+try:
+    from .tool_call_utils import extract_tool_calls_from_text
+except (ImportError, ValueError):
+    try:
+        from tool_call_utils import extract_tool_calls_from_text  # type: ignore
+    except ImportError:
+        extract_tool_calls_from_text = None
 
 
 # CRITICAL: Async wrapper for app.write() to prevent UI blocking
@@ -41,9 +52,24 @@ async def write_markdown_response(app, markdown_text):
         # Render markdown ONCE (not incrementally)
         rendered = content._markdown_renderer.render(markdown_text)
 
+        # Add ✦ symbol to assistant messages
+        from rich.text import Text
+        from rich.style import Style
+        try:
+            from .frontier_colors import FRONTIER_COLORS
+        except (ImportError, ValueError):
+            try:
+                from frontier_colors import FRONTIER_COLORS
+            except ImportError:
+                FRONTIER_COLORS = {"ai_name": "#89B8C2"}
+
+        message_with_symbol = Text()
+        message_with_symbol.append("✦ ", style=Style(color=FRONTIER_COLORS["ai_name"]))
+        message_with_symbol.append_text(rendered)
+
         # Add to content display
         if hasattr(content, '_lines'):
-            content._lines.append(rendered)
+            content._lines.append(message_with_symbol)
 
             # Rebuild display with all lines
             from rich.text import Text
@@ -118,6 +144,298 @@ def normalize_tool_call_messages(messages):
     return normalized
 
 # Debug function loaded (print statement removed - use /debug to enable debug mode)
+
+
+def _flatten_message_content(content) -> str:
+    """Convert message content into plain text for provider formats."""
+    if content is None:
+        return ""
+
+    if isinstance(content, list):
+        parts = []
+        for segment in content:
+            if isinstance(segment, dict):
+                if segment.get("type") == "text":
+                    parts.append(segment.get("text", ""))
+                else:
+                    parts.append(json.dumps(segment))
+            else:
+                parts.append(str(segment))
+        return "\n".join(p for p in parts if p)
+
+    return str(content)
+
+
+def convert_messages_for_anthropic(messages: List[Dict]) -> Tuple[str, List[Dict]]:
+    """
+    Convert OpenAI-style messages into Anthropic's Messages format.
+
+    Returns:
+        system_prompt: Unified system prompt string (or empty)
+        conversation: List of message dicts for Anthropic API
+    """
+    system_segments: List[str] = []
+    conversation: List[Dict] = []
+
+    for msg in messages:
+        role = msg.get("role")
+        text = _flatten_message_content(msg.get("content"))
+
+        if role == "system":
+            if text:
+                system_segments.append(text)
+            continue
+
+        if role == "tool":
+            tool_id = msg.get("tool_call_id")
+            prefix = f"Tool result ({tool_id}):" if tool_id else "Tool result:"
+            text = f"{prefix}\n{text}" if text else prefix
+            role = "user"
+
+        tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else None
+        if role == "assistant" and tool_calls and not text:
+            call_lines = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    func = tc.get("function", {})
+                    name = func.get("name", "tool")
+                    arguments = func.get("arguments", "")
+                    args_text = arguments if isinstance(arguments, str) else json.dumps(arguments)
+                    call_lines.append(f"[Tool call] {name}({args_text})")
+            if call_lines:
+                text = "\n".join(call_lines)
+
+        if role not in ("user", "assistant"):
+            role = "user"
+
+        conversation.append({
+            "role": role,
+            "content": [{"type": "text", "text": text}]
+        })
+
+    system_prompt = "\n\n".join(system_segments).strip()
+    return system_prompt, conversation
+
+
+def extract_openrouter_policy_error(error: Exception) -> Optional[str]:
+    """Check if exception indicates an OpenRouter data policy mismatch."""
+    text = str(error)
+    if not text:
+        return None
+
+    normalized = text.replace("\n", " ")
+    marker = "No endpoints found matching your data"
+    if marker in normalized:
+        return normalized
+
+    # Try to inspect response payload if available
+    payload = getattr(error, "response", None)
+    if payload:
+        try:
+            error_json = payload.json()
+            message = error_json.get("error", {}).get("message")
+            if message:
+                normalized_msg = message.replace("\n", " ")
+                if marker in normalized_msg:
+                    return normalized_msg
+        except Exception:
+            pass
+
+    return None
+
+
+async def perform_anthropic_request(
+    messages: List[Dict],
+    session,
+    config: Dict,
+    *,
+    timeout: Optional[float] = None
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Execute a request against the Anthropic Messages API.
+
+    Returns:
+        (success, response_text, error_message)
+    """
+    system_prompt, conversation = convert_messages_for_anthropic(messages)
+
+    if not conversation:
+        return False, None, "No conversation messages available for Anthropic request"
+
+    api_key = config.get("apiKey")
+    if not api_key:
+        return False, None, "Anthropic API key missing from configuration"
+
+    # Derive sensible token limit
+    max_tokens = config.get("anthropicMaxTokens")
+    if not isinstance(max_tokens, int) or max_tokens <= 0:
+        max_tokens = min(4096, max(config.get("contextWindow", 128000) // 4, 1024))
+
+    payload: Dict = {
+        "model": session.model or config.get("model"),
+        "messages": conversation,
+        "max_tokens": max_tokens,
+    }
+
+    if system_prompt:
+        payload["system"] = system_prompt
+
+    base_url = (config.get("baseURL") or "").rstrip("/")
+    if not base_url:
+        return False, None, "Anthropic base URL missing from configuration"
+
+    default_headers = config.get("defaultHeaders") or {}
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": default_headers.get("anthropic-version", "2023-06-01"),
+    }
+
+    # Allow additional user-defined headers
+    for key, value in default_headers.items():
+        headers.setdefault(key, value)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{base_url}/messages",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as e:
+        return False, None, f"Anthropic API error: {e.response.status_code} {e.response.text}"
+    except Exception as e:
+        return False, None, f"Anthropic request failed: {e}"
+
+    text_parts: List[str] = []
+    for block in data.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            text_parts.append(block.get("text", ""))
+
+    reply_text = "\n".join(part for part in text_parts if part).strip()
+    return True, reply_text, None
+
+
+async def perform_google_request(
+    messages: List[Dict],
+    session,
+    config: Dict,
+    *,
+    timeout: Optional[float] = None
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Execute a request against the Google Gemini API.
+
+    Returns:
+        (success, response_text, error_message)
+    """
+    api_key = config.get("apiKey")
+    if not api_key:
+        return False, None, "Google API key missing from configuration"
+
+    # Debug: Check API key format
+    import sys
+    print(f"\n[DEBUG Google] Full API Key: '{api_key}'", file=sys.stderr)
+    print(f"[DEBUG Google] API Key length: {len(api_key)}", file=sys.stderr)
+    print(f"[DEBUG Google] API Key type: {type(api_key)}", file=sys.stderr)
+
+    base_url = (config.get("baseURL") or "").rstrip("/")
+    if not base_url:
+        return False, None, "Google base URL missing from configuration"
+
+    model_id = session.model or config.get("model")
+    if not model_id:
+        return False, None, "Model ID missing from configuration"
+
+    # Convert messages to Google format
+    contents = []
+    system_instruction = None
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        # Extract text from content if it's a list of content blocks
+        if isinstance(content, list):
+            text_parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+            content = "\n".join(text_parts)
+
+        # Handle system messages as systemInstruction
+        if role == "system":
+            if system_instruction:
+                system_instruction += "\n\n" + content
+            else:
+                system_instruction = content
+        else:
+            # Map roles: assistant -> model, user -> user
+            google_role = "model" if role == "assistant" else "user"
+            contents.append({
+                "role": google_role,
+                "parts": [{"text": content}]
+            })
+
+    if not contents:
+        return False, None, "No conversation messages available for Google request"
+
+    payload: Dict = {
+        "contents": contents,
+    }
+
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+
+    # Build endpoint URL (without query parameter - using header auth instead)
+    endpoint = f"{base_url}/models/{model_id}:generateContent"
+
+    # Debug output
+    print(f"[DEBUG Google] Base URL: {base_url}", file=sys.stderr)
+    print(f"[DEBUG Google] Model ID: {model_id}", file=sys.stderr)
+    print(f"[DEBUG Google] Full Endpoint: {endpoint}", file=sys.stderr)
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,  # Google recommends header auth (more secure than query param)
+    }
+
+    # Allow additional user-defined headers
+    default_headers = config.get("defaultHeaders") or {}
+    for key, value in default_headers.items():
+        headers.setdefault(key, value)
+
+    print(f"[DEBUG Google] Headers: {headers}", file=sys.stderr)
+    print(f"[DEBUG Google] Payload keys: {list(payload.keys())}", file=sys.stderr)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as e:
+        return False, None, f"Google API error: {e.response.status_code} {e.response.text}"
+    except Exception as e:
+        return False, None, f"Google request failed: {e}"
+
+    # Extract text from response
+    text_parts: List[str] = []
+    for candidate in data.get("candidates", []):
+        content = candidate.get("content", {})
+        for part in content.get("parts", []):
+            if isinstance(part, dict) and "text" in part:
+                text_parts.append(part.get("text", ""))
+
+    reply_text = "\n".join(part for part in text_parts if part).strip()
+    return True, reply_text, None
+
 
 try:
     from .frontier_colors import FRONTIER_COLORS
@@ -261,12 +579,12 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
 
     try:
         if debug_mode and app:
-            app.write(f"[dim]🐛 TOOL EXEC: Entering execute_tool_async for {name}[/dim]\n")
+            app.write(f"[dim]TOOL: Entering execute_tool_async for {name}[/dim]\n")
 
         if name == "Read":
             # Run file I/O in thread pool to avoid blocking
             if debug_mode and app:
-                app.write(f"[dim]🐛 TOOL EXEC: About to read file {args['file_path']}[/dim]\n")
+                app.write(f"[dim]TOOL: About to read file {args['file_path']}[/dim]\n")
             return await asyncio.to_thread(execute_read, args["file_path"])
 
         elif name == "Write":
@@ -278,10 +596,10 @@ async def execute_tool_async(name, args, permission_manager=None, current_dir=No
         elif name == "Bash":
             # Use async subprocess for bash commands
             if debug_mode and app:
-                app.write(f"[dim]🐛 TOOL EXEC: About to run bash command: {args['command']}[/dim]\n")
+                app.write(f"[dim]TOOL: About to run bash command: {args['command']}[/dim]\n")
             result = await execute_bash_async(args["command"], args.get("description"), current_dir=current_dir)
             if debug_mode and app:
-                app.write(f"[dim]🐛 TOOL EXEC: Bash command returned[/dim]\n")
+                app.write(f"[dim]TOOL: Bash command returned[/dim]\n")
             return result
 
         elif name == "Glob":
@@ -303,12 +621,12 @@ def execute_tool(name, args, permission_manager=None, current_dir=None, app=None
 
     # CRITICAL DEBUG - This should NOT be called in TUI mode!
     import sys
-    sys.stderr.write(f"\n⚠️⚠️⚠️ SYNC execute_tool CALLED (WRONG!): {name}\n")
+    sys.stderr.write(f"\n!!! SYNC execute_tool CALLED (WRONG!): {name}\n")
     sys.stderr.write(f"This is the OLD synchronous version - TUI should use execute_tool_async!\n")
     sys.stderr.flush()
 
     if app:
-        app.write(f"[red]⚠️ SYNC execute_tool called for {name} - should use async version![/red]\n")
+        app.write(f"[red]! SYNC execute_tool called for {name} - should use async version![/red]\n")
 
     # Execute the tool (no permission checks in sync version - TUI should use async!)
     tools = {
@@ -379,6 +697,11 @@ async def prepare_messages_with_context(messages, config, spec_memory=None, goal
     # Add working directory
     system_parts.append(f"\nWorking directory: {cwd}")
 
+    # Add available tools as context (prevents OpenRouter provider routing)
+    import json
+    tools_json = json.dumps(TOOLS, indent=2)
+    system_parts.append(f"\n## Available Tools\nYou have access to these tools. Respond with tool_calls in your message when you want to use them:\n```json\n{tools_json}\n```")
+
     # Create system message
     system_message = {
         'role': 'system',
@@ -445,11 +768,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
         {"type": "function", "function": {"name": "Grep", "description": "Search files for pattern. Safe tool, auto-executes.", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
     ]
 
-    # Create async OpenAI client
-    client = AsyncOpenAI(
-        base_url=config["baseURL"],
-        api_key=config["apiKey"]
-    )
+    def create_async_client(current_config):
+        """Factory to create AsyncOpenAI client with provider defaults."""
+        headers = current_config.get("defaultHeaders") or None
+        return AsyncOpenAI(
+            base_url=current_config["baseURL"],
+            api_key=current_config.get("apiKey", ""),
+            default_headers=headers
+        )
+
+    # Create async client with provider-specific headers
+    client = create_async_client(config)
 
     # Initialize permission manager (same as fallback mode)
     TOOL_PERMISSIONS = False
@@ -490,6 +819,24 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 session.current_agent = 'assistant'
         except Exception as e:
             print(f"Warning: Agent manager initialization failed: {e}")
+
+    # Initialize Refactoring Orchestrator with permission handler
+    refactor_orchestrator = None
+    get_orchestrator = None
+    try:
+        from .refactor_orchestrator import get_orchestrator
+    except (ImportError, ValueError):
+        try:
+            from refactor_orchestrator import get_orchestrator
+        except ImportError:
+            get_orchestrator = None
+
+    if get_orchestrator is not None:
+        try:
+            permission_handler = AsyncPermissionHandler(app) if TOOL_PERMISSIONS else None
+            refactor_orchestrator = get_orchestrator(permission_handler=permission_handler)
+        except Exception as e:
+            print(f"Warning: Refactoring orchestrator initialization failed: {e}")
 
     # Initialize Spec-Kit goal tracking system
     spec_memory = None
@@ -566,6 +913,68 @@ async def interactive_async(config, session=None, initial_prompt=None):
     # Setup message handler
     async def handle_user_input(user_input: str):
         """Handle user input and generate response"""
+        nonlocal client
+
+        # Handle pending provider header prompts before other logic
+        if hasattr(session, '_pending_header_update') and session._pending_header_update:
+            pending = session._pending_header_update
+            fields = pending.get("fields", [])
+            index = pending.get("index", 0)
+            if index < len(fields):
+                field = fields[index]
+                value = user_input.strip()
+                current_headers = pending.get("current", {}) or {}
+
+                if not value and field in current_headers:
+                    value = current_headers[field]
+
+                pending.setdefault("collected", {})[field] = value
+                pending["index"] = index + 1
+
+                if hasattr(app, 'stream_display'):
+                    app.stream_display.remove_permission_prompt()
+
+                if pending["index"] < len(fields):
+                    next_field = fields[pending["index"]]
+                    current_value = pending.get("current", {}).get(next_field, "")
+                    if hasattr(app, 'stream_display'):
+                        app.stream_display.add_permission_prompt({
+                            "title": "Configure Provider Headers",
+                            "message": f"Enter value for {next_field}. Leave blank to keep existing value.",
+                            "details": {
+                                "current": current_value or "[unset]"
+                            },
+                            "options": []
+                        })
+                    else:
+                        app.write(f"[cyan]Enter value for {next_field} (leave blank to keep existing):[/cyan]\n")
+                else:
+                    provider_id = pending.get("provider", "openrouter")
+                    collected = {k: v for k, v in pending.get("collected", {}).items() if v}
+
+                    try:
+                        # Create local ModelManager instance
+                        try:
+                            from .model_manager import ModelManager
+                        except (ImportError, ValueError):
+                            from model_manager import ModelManager
+
+                        local_mgr = ModelManager()
+                        local_mgr.update_provider_headers(provider_id, collected, None)
+                        config.update(local_mgr.config)
+                        app.config = config
+                        client = create_async_client(config)
+                        if collected:
+                            app.write(f"[green]✓ Updated {provider_id} headers.[/green]\n")
+                        else:
+                            app.write(f"[yellow]! No header changes applied.[/yellow]\n")
+                        app.write("[dim]Re-run your last message to continue streaming.[/dim]\n\n")
+                    except Exception as e:
+                        app.write(f"[red]Failed to update headers: {e}[/red]\n\n")
+
+                    session._pending_header_update = None
+
+            return
 
         # Handle exit commands
         if user_input.lower() in ['exit', 'quit', '/exit', '/quit']:
@@ -587,11 +996,15 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                model_mgr = ModelManager()
-                result = model_mgr.switch_model(session, model_id)
+                local_model_mgr = ModelManager()
+                result = local_model_mgr.switch_model(session, model_id)
 
                 if result["success"]:
                     app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
+
+                    # Refresh runtime config from model manager
+                    config.update(local_model_mgr.config)
+                    app.config = config
 
                     # Show pricing info
                     if "pricing" in result:
@@ -617,9 +1030,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         if pricing_parts:
                             app.write(f"[dim]💰 Pricing: {', '.join(pricing_parts)}[/dim]\n\n")
 
-                    # Update client
-                    client.base_url = config["baseURL"]
-                    client.api_key = config["apiKey"]
+                    # Recreate client with new provider headers
+                    client = create_async_client(config)
                     app.update_status()
                 else:
                     app.write(f"[red]✗ {result['error']}[/red]\n\n")
@@ -635,7 +1047,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
             except (ImportError, ValueError):
                 from model_manager import ModelManager
 
-            model_mgr = ModelManager()
+            local_model_mgr = ModelManager()
             api_key = user_input.strip()
 
             # Clear flag
@@ -644,12 +1056,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
             app.write("[dim]Validating key and fetching models...[/dim]\n")
 
             # Fetch models from OpenRouter
-            result = await model_mgr.fetch_models_from_openrouter(api_key)
+            result = await local_model_mgr.fetch_models_from_openrouter(api_key)
 
             if result["success"]:
                 # Register models
-                model_mgr.add_api_key("openrouter", api_key)
-                model_mgr.register_models("openrouter", result["models"])
+                local_model_mgr.add_api_key("openrouter", api_key)
+                local_model_mgr.register_models("openrouter", result["models"])
 
                 app.write(f"[green]✓ API key added![/green]\n")
                 app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
@@ -659,6 +1071,96 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
             return
 
+        # Check if awaiting capability consent (for Ollama setup)
+        if hasattr(session, '_awaiting_capability_consent') and session._awaiting_capability_consent:
+            session._awaiting_capability_consent = False
+            consent = user_input.strip().lower()
+
+            if consent in ['y', 'yes']:
+                setup = session._pending_ollama_setup
+
+                try:
+                    from .system_capability import SystemCapability
+                    from .model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+                except (ImportError, ValueError):
+                    from system_capability import SystemCapability
+                    from model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+
+                app.write("\n[dim]Detecting system capabilities...[/dim]\n\n")
+
+                # Detect system capabilities
+                sys_cap = SystemCapability()
+                caps = sys_cap.detect_capabilities()
+
+                # Display system info
+                app.write("[cyan]▸ System Information[/cyan]\n")
+                app.write(f"  OS: {caps['os']} ({caps['arch']})\n")
+                app.write(f"  RAM: {caps['ram_gb']}GB\n")
+                if caps['gpu_type']:
+                    app.write(f"  GPU: {caps['gpu_type']}\n")
+                    if caps['vram_gb']:
+                        app.write(f"  VRAM: {caps['vram_gb']}GB\n")
+
+                # Show tier with color coding
+                tier = caps['tier']
+                tier_colors = {"green": "green", "yellow": "yellow", "red": "red"}
+                tier_color = tier_colors.get(tier, "white")
+                tier_desc = sys_cap.get_tier_description(tier)
+
+                app.write(f"\n  Capability Tier: [{tier_color}]{tier.upper()}[/{tier_color}]\n")
+                app.write(f"  {tier_desc}\n\n")
+
+                # Get and display recommendations
+                recs = get_recommendations(tier, caps['is_apple_silicon'])
+                rec_text = format_recommendation_text(recs, show_dual=True)
+                app.write(rec_text)
+                app.write("\n\n")
+
+                # Show ollama pull commands
+                app.write("[cyan]▸ Quick Start Commands[/cyan]\n\n")
+                app.write("Install recommended models:\n\n")
+
+                primary_cmd = get_ollama_pull_commands(recs, dual=False)
+                dual_cmds = get_ollama_pull_commands(recs, dual=True)
+
+                app.write("[dim]# Single-model setup (recommended for beginners)[/dim]\n")
+                for cmd in primary_cmd:
+                    app.write(f"  {cmd}\n")
+
+                if len(dual_cmds) > 1:
+                    app.write("\n[dim]# Dual-model setup (recommended for complex work)[/dim]\n")
+                    for cmd in dual_cmds:
+                        app.write(f"  {cmd}\n")
+
+                app.write("\n[dim]═══════════════════════════════════════════════════════════[/dim]\n\n")
+
+            else:
+                app.write("\n[dim]Skipping capability detection[/dim]\n\n")
+                setup = session._pending_ollama_setup
+
+            # Continue with model fetching
+            app.write("[dim]Fetching models from Ollama server...[/dim]\n\n")
+
+            local_model_mgr = setup["local_model_mgr"]
+            provider = setup["provider"]
+            api_key = setup["api_key"]
+            provider_name = setup["provider_name"]
+
+            result = await local_model_mgr.fetch_models_from_provider(provider, api_key)
+
+            if result["success"]:
+                local_model_mgr.add_api_key(provider, api_key)
+                local_model_mgr.register_models(provider, result["models"])
+
+                app.write(f"[green]✓ Added {provider_name}![/green]\n")
+                app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
+                app.write("Use [cyan]/model[/cyan] to see and switch to these models\n\n")
+            else:
+                app.write(f"[red]✗ Failed to fetch models: {result['error']}[/red]\n\n")
+
+            del session._pending_ollama_setup
+            return
+
         # Check if awaiting provider key input
         if hasattr(session, '_awaiting_provider_key') and session._awaiting_provider_key:
             try:
@@ -666,14 +1168,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
             except (ImportError, ValueError):
                 from model_manager import ModelManager
 
-            model_mgr = ModelManager()
+            local_model_mgr = ModelManager()
             api_key = user_input.strip()
 
             # Clear flag
             session._awaiting_provider_key = False
 
             # Auto-detect provider
-            provider = model_mgr.detect_provider(api_key)
+            provider = local_model_mgr.detect_provider(api_key)
 
             if not provider:
                 app.write("[red]✗ Could not detect provider from API key format[/red]\n\n")
@@ -685,18 +1187,46 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 app.write("  • Google AI: AIza...\n\n")
                 return
 
-            provider_info = model_mgr.models_db.get("providers", {}).get(provider, {})
+            provider_info = local_model_mgr.models_db.get("providers", {}).get(provider, {})
             provider_name = provider_info.get("name", provider)
 
             app.write(f"[green]✓ Detected provider: {provider_name}[/green]\n")
+
+            # For Ollama/local providers, show system capability recommendations
+            if provider == "ollama":
+                try:
+                    from .system_capability import SystemCapability
+                    from .model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+                except (ImportError, ValueError):
+                    from system_capability import SystemCapability
+                    from model_recommendations import get_recommendations, format_recommendation_text, get_ollama_pull_commands
+
+                app.write("\n[dim]═══════════════════════════════════════════════════════════[/dim]\n")
+                app.write("[cyan]▸ System Capability Detection[/cyan]\n\n")
+                app.write("[dim]Privacy-first approach:[/dim]\n")
+                app.write("[dim]  • Only detects: RAM, GPU type, OS version[/dim]\n")
+                app.write("[dim]  • All processing is local[/dim]\n")
+                app.write("[dim]  • No data sent anywhere[/dim]\n")
+                app.write("[dim]  • Used only for model recommendations[/dim]\n\n")
+
+                app.write("Detect system specs for model recommendations? [y/n]: ")
+                session._awaiting_capability_consent = True
+                session._pending_ollama_setup = {
+                    "provider": provider,
+                    "provider_name": provider_name,
+                    "api_key": api_key,
+                    "local_model_mgr": local_model_mgr
+                }
+                return
+
             app.write("[dim]Fetching models...[/dim]\n\n")
 
             # Fetch models from provider
-            result = await model_mgr.fetch_models_from_provider(provider, api_key)
+            result = await local_model_mgr.fetch_models_from_provider(provider, api_key)
 
             if result["success"]:
-                model_mgr.add_api_key(provider, api_key)
-                model_mgr.register_models(provider, result["models"])
+                local_model_mgr.add_api_key(provider, api_key)
+                local_model_mgr.register_models(provider, result["models"])
 
                 app.write(f"[green]✓ Added {provider_name}![/green]\n")
                 app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
@@ -713,11 +1243,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 session.debug_mode = not session.debug_mode
                 status = "enabled" if session.debug_mode else "disabled"
                 color = "green" if session.debug_mode else "yellow"
-                app.write(f"[{color}]🐛 Debug mode {status}[/{color}]\n\n")
+                app.write(f"[{color}]Debug mode {status}[/{color}]\n\n")
                 if session.debug_mode:
                     app.write("[dim]Debug logs will show:\n")
-                    app.write("  • 🐛 STALL DEBUG - Async operation boundaries\n")
-                    app.write("  • 🔍 DEBUG - Message structure and API calls\n")
+                    app.write("  • DEBUG STALL DEBUG - Async operation boundaries\n")
+                    app.write("  • → DEBUG - Message structure and API calls\n")
                     app.write("  • 🚨 EXTREME DEBUG - Full JSON payloads\n\n")
                 return
 
@@ -748,13 +1278,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     status = "enabled" if session.fast_mode else "disabled"
                     color = "green" if session.fast_mode else "yellow"
 
-                    app.write(f"[{color}]⚡ Fast mode {status}[/{color}]\n\n")
+                    app.write(f"[{color}]» Fast mode {status}[/{color}]\n\n")
                     if session.fast_mode:
                         app.write("[dim]Optimizations enabled:\n")
                         app.write("  • Skipped markdown post-processing\n")
                         app.write("  • Raw text rendering only\n")
                         app.write("  • Maximum token throughput\n\n")
-                        app.write("⚠️ Note: Markdown formatting will not render\n\n")
+                        app.write("! Note: Markdown formatting will not render\n\n")
                     else:
                         app.write("[dim]Markdown rendering restored\n\n")
                     return
@@ -770,19 +1300,230 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     is_enabled = perf_statusline.toggle()
 
                     if is_enabled:
-                        app.write("[green]📊 Performance monitoring enabled[/green]\n\n")
+                        app.write("[green]▪ Performance monitoring enabled[/green]\n\n")
                         app.write("[dim]Live statusline active beneath prompt showing:\n")
-                        app.write("  • 🟢 CPU usage and trend (↗️↘️→)\n")
-                        app.write("  • 💾 Memory usage (MB)\n")
-                        app.write("  • 🧵 Thread count\n")
-                        app.write("  • ⚡ Token streaming speed (tok/s)\n")
-                        app.write("  • 🔴 Current bottlenecks (if any)\n\n")
+                        app.write("  • CPU usage and trend (↗️↘️→)\n")
+                        app.write("  • Memory usage (MB)\n")
+                        app.write("  • Thread count\n")
+                        app.write("  • » Token streaming speed (tok/s)\n")
+                        app.write("  • Bottlenecks (if any)\n\n")
                         app.write("Use [cyan]/performance report[/cyan] for detailed analysis\n")
                         app.write("Use [cyan]/performance fast[/cyan] to toggle fast mode\n\n")
                     else:
-                        app.write("[yellow]📊 Performance monitoring disabled[/yellow]\n\n")
+                        app.write("[yellow]▪ Performance monitoring disabled[/yellow]\n\n")
                 except Exception as e:
                     app.write(f"[red]Error: Could not toggle performance monitor: {e}[/red]\n\n")
+
+                return
+
+            # Handle /reload command - hot-reload modules and clear cache
+            if user_input.startswith('/reload'):
+                try:
+                    from .cache_manager import get_cache_manager
+                except (ImportError, ValueError):
+                    from cache_manager import get_cache_manager
+
+                app.write("[cyan]▸ Reloading OpenCLI modules...[/cyan]\n\n")
+
+                manager = get_cache_manager()
+
+                # Check for stale cache first
+                stale = manager.find_all_stale_cache()
+                if stale:
+                    app.write(f"[yellow]! Found {len(stale)} modules with stale cache[/yellow]\n")
+                    for s in stale[:5]:  # Show first 5
+                        age = int(s['age_seconds'])
+                        app.write(f"  [dim]{s['module']} (source {age}s newer)[/dim]\n")
+                    if len(stale) > 5:
+                        app.write(f"  [dim]... and {len(stale) - 5} more[/dim]\n")
+                    app.write("\n")
+
+                # Clear cache
+                app.write("[dim]Clearing Python bytecode cache...[/dim]\n")
+                result = manager.clear_cache(verbose=False)
+                app.write(f"[green]✓ Removed {result['pyc_files']} .pyc files, {result['pycache_dirs']} __pycache__ dirs[/green]\n\n")
+
+                # Reload modules
+                app.write("[dim]Reloading modules...[/dim]\n")
+                reload_result = manager.reload_modules()
+
+                if reload_result['errors']:
+                    app.write(f"[yellow]⚠ Reloaded {reload_result['count']} modules with {len(reload_result['errors'])} errors[/yellow]\n")
+                    for err in reload_result['errors'][:3]:
+                        app.write(f"  [red]{err['module']}: {err['error']}[/red]\n")
+                else:
+                    app.write(f"[green]✓ Reloaded {reload_result['count']} modules successfully[/green]\n")
+
+                app.write("\n[dim]Modules reloaded. Changes to command handlers, utilities, etc. are now active.[/dim]\n\n")
+
+                return
+
+            # Handle /local command - local model recommendations
+            if user_input.startswith('/local'):
+                try:
+                    from .system_capability import SystemCapability
+                    from .model_recommendations import get_recommendations, get_ollama_pull_commands
+                    from .permission_prompt import PermissionTemplates
+                except (ImportError, ValueError):
+                    from system_capability import SystemCapability
+                    from model_recommendations import get_recommendations, get_ollama_pull_commands
+                    from permission_prompt import PermissionTemplates
+
+                import subprocess
+
+                app.write("[cyan]▸ Checking Ollama installation...[/cyan]\n\n")
+
+                # Check if ollama command exists
+                try:
+                    result = subprocess.run(
+                        ["which", "ollama"],
+                        capture_output=True,
+                        timeout=2
+                    )
+                    if result.returncode != 0:
+                        app.write("[red]✗ Ollama not installed[/red]\n\n")
+                        app.write("Install Ollama to use local models:\n")
+                        app.write("  [cyan]https://ollama.ai/[/cyan]\n\n")
+                        app.write("After installation:\n")
+                        app.write("  1. Run [cyan]ollama serve[/cyan] in a terminal\n")
+                        app.write("  2. Run [cyan]/local[/cyan] again to see recommendations\n\n")
+                        return
+                except Exception:
+                    app.write("[red]✗ Could not detect Ollama[/red]\n\n")
+                    app.write("Install Ollama first: [cyan]https://ollama.ai/[/cyan]\n\n")
+                    return
+
+                # Check if Ollama server is running by trying to list models
+                existing_models = []
+                try:
+                    result = subprocess.run(
+                        ["ollama", "list"],
+                        capture_output=True,
+                        timeout=3
+                    )
+                    if result.returncode != 0:
+                        app.write("[yellow]! Ollama installed but server not running[/yellow]\n\n")
+                        app.write("Start Ollama server:\n")
+                        app.write("  [cyan]ollama serve[/cyan]\n\n")
+                        app.write("Then run [cyan]/local[/cyan] again\n\n")
+                        return
+
+                    # Parse existing models
+                    output = result.stdout.decode('utf-8')
+                    for line in output.split('\n')[1:]:  # Skip header
+                        if line.strip():
+                            parts = line.split()
+                            if parts:
+                                existing_models.append(parts[0])
+
+                    if existing_models:
+                        app.write(f"[green]✓ Ollama running with {len(existing_models)} models installed[/green]\n")
+                        app.write(f"[dim]Installed: {', '.join(existing_models[:3])}")
+                        if len(existing_models) > 3:
+                            app.write(f" (+{len(existing_models) - 3} more)")
+                        app.write("[/dim]\n\n")
+                    else:
+                        app.write("[green]✓ Ollama server running[/green]\n\n")
+
+                except Exception as e:
+                    app.write("[yellow]! Could not connect to Ollama server[/yellow]\n\n")
+                    app.write("Make sure the server is running:\n")
+                    app.write("  [cyan]ollama serve[/cyan]\n\n")
+                    return
+
+                app.write("[cyan]▸ Detecting system capabilities...[/cyan]\n\n")
+
+                # Detect system capabilities
+                sys_cap = SystemCapability()
+                caps = sys_cap.detect_capabilities()
+
+                # Get recommendations based on tier
+                tier = caps['tier']
+                recs = get_recommendations(tier, caps['is_apple_silicon'])
+
+                # Helper to check if model is already installed
+                def is_installed(model_name):
+                    # Check both exact match and base name (without :tag)
+                    for installed in existing_models:
+                        if installed == model_name or installed.split(':')[0] == model_name.split(':')[0]:
+                            return True
+                    return False
+
+                # Store context for multi-step selection
+                session._local_context = {
+                    'tier': tier,
+                    'caps': caps,
+                    'recs': recs,
+                    'existing_models': existing_models,
+                    'is_installed': is_installed
+                }
+
+                # STEP 1: Show setup type selection (Single vs Dual)
+                try:
+                    from .permission_prompt import PermissionResponse
+                except (ImportError, ValueError):
+                    from permission_prompt import PermissionResponse
+
+                setup_options = []
+
+                # Single model option
+                primary = recs['single_model']['primary']
+                single_desc = f"Best for beginners - {primary['name']} ({primary['size']})"
+                setup_options.append({
+                    'text': f"Single model - {single_desc}",
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {'setup_type': 'single'}
+                })
+
+                # Dual model option if available
+                if 'dual_model' in recs:
+                    planner = recs['dual_model']['planner']
+                    coder = recs['dual_model']['coder']
+                    dual_desc = f"Advanced - Planner ({planner['size']}) + Coder ({coder['size']})"
+                    setup_options.append({
+                        'text': f"Dual model - {dual_desc}",
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {'setup_type': 'dual'}
+                    })
+
+                # Cancel option
+                setup_options.append({
+                    'text': 'Cancel',
+                    'response': PermissionResponse.CANCEL
+                })
+
+                # Get tier description
+                tier_descriptions = {
+                    'green': 'High capability - Can run 32B models smoothly',
+                    'yellow': 'Medium capability - Best with 14B models',
+                    'red': 'Basic capability - Recommended 7B models'
+                }
+                tier_desc = tier_descriptions.get(tier, 'Unknown tier')
+
+                # Create step 1 prompt
+                prompt_data = {
+                    'title': 'Local Model Setup',
+                    'message': 'Choose your setup type:\n\nSingle model: One model for all tasks\nDual model: Separate planner and coder (recommended for complex work)',
+                    'details': {
+                        'System': f"{caps['os']} ({caps['arch']})",
+                        'RAM': f"{caps['ram_gb']}GB",
+                        'Tier': f"{tier.upper()} - {tier_desc}"
+                    },
+                    'options': setup_options
+                }
+
+                # Show permission prompt in MultiLineInput buffer
+                try:
+                    prompt_input = app.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = prompt_data
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+
+                    # Set flag to handle response
+                    session._awaiting_local_model_selection = True
+                    session._local_step = 'setup_type'
+                except Exception as e:
+                    app.write(f"[red]✗ Could not show model selection: {e}[/red]\n\n")
 
                 return
 
@@ -793,26 +1534,40 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                model_mgr = ModelManager()
+                local_model_mgr = ModelManager()
 
-                # Parse args
-                parts = user_input.split(maxsplit=1)
+                # Parse args with flags
+                parts = user_input.split()
                 args = parts[1] if len(parts) > 1 else None
 
-                if not args:
+                # Parse filter flags
+                show_free_only = '--free' in parts
+                search_term = None
+                provider_filter = None
+                page_size = 20  # Default page size
+
+                for i, part in enumerate(parts):
+                    if part == '--search' and i + 1 < len(parts):
+                        search_term = parts[i + 1].lower()
+                    elif part == '--provider' and i + 1 < len(parts):
+                        provider_filter = parts[i + 1].lower()
+                    elif part == '--all':
+                        page_size = 9999  # Show all
+
+                if not args or args.startswith('--'):
                     # Refresh models from OpenRouter to get latest rankings/pricing
-                    keys = model_mgr.get_configured_keys()
+                    keys = local_model_mgr.get_configured_keys()
                     if "openrouter" in keys:
                         app.write("[dim]Refreshing models from OpenRouter...[/dim]\n")
-                        result = await model_mgr.fetch_models_from_openrouter(keys["openrouter"])
+                        result = await local_model_mgr.fetch_models_from_openrouter(keys["openrouter"])
                         if result["success"]:
-                            model_mgr.register_models("openrouter", result["models"])
+                            local_model_mgr.register_models("openrouter", result["models"])
                             app.write("[dim]✓ Updated {count} models[/dim]\n\n".format(count=result["count"]))
 
                     # Show available models (only those with keys)
-                    current = model_mgr.get_current_model(session)
-                    models = model_mgr.list_available_models()
-                    recent = model_mgr.get_recent_models()
+                    current = local_model_mgr.get_current_model(session)
+                    models = local_model_mgr.list_available_models()
+                    recent = local_model_mgr.get_recent_models()
 
                     if not models:
                         app.write("[yellow]⚠ No models available[/yellow]\n\n")
@@ -821,7 +1576,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         return
 
                     # Get provider info
-                    providers = model_mgr.get_providers()
+                    providers = local_model_mgr.get_providers()
                     provider_names = {p["id"]: p["name"] for p in providers}
 
                     # Show recently used models first
@@ -845,9 +1600,50 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                         app.write("\n")
 
-                    app.write("[bold cyan]📋 All Available Models:[/bold cyan]\n\n")
+                    # Apply filters
+                    filtered_models = []
+                    for model in models:
+                        # Check if free
+                        pricing = model.get("pricing", {})
+                        is_free = ":free" in model["id"] or pricing.get("prompt") == "0"
 
-                    for idx, model in enumerate(models, 1):
+                        # Apply free filter
+                        if show_free_only and not is_free:
+                            continue
+
+                        # Apply provider filter
+                        provider = model.get("provider", "unknown")
+                        if provider_filter and provider_filter not in provider.lower():
+                            continue
+
+                        # Apply search filter
+                        if search_term:
+                            searchable = f"{model['name']} {model['id']}".lower()
+                            if search_term not in searchable:
+                                continue
+
+                        filtered_models.append(model)
+
+                    # Show filter info
+                    filters_active = []
+                    if show_free_only:
+                        filters_active.append("[green]free only[/green]")
+                    if provider_filter:
+                        filters_active.append(f"[cyan]provider:{provider_filter}[/cyan]")
+                    if search_term:
+                        filters_active.append(f"[yellow]search:{search_term}[/yellow]")
+
+                    filter_str = f" ({', '.join(filters_active)})" if filters_active else ""
+
+                    # Pagination
+                    total_models = len(filtered_models)
+                    display_models = filtered_models[:page_size]
+
+                    app.write(f"[bold cyan]📋 Available Models{filter_str}:[/bold cyan] {total_models} total\n\n")
+
+                    # Batch build output for performance
+                    output_lines = []
+                    for idx, model in enumerate(display_models, 1):
                         marker = "→" if model["id"] == current else " "
                         context = f"{model['context']//1000}K" if model['context'] else "?"
                         provider = model.get("provider", "unknown")
@@ -858,26 +1654,47 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         is_free = ":free" in model["id"] or pricing.get("prompt") == "0"
                         free_badge = " [green]FREE[/green]" if is_free else ""
 
-                        app.write(f"{marker} [bold]{idx}.[/bold] {model['name']}{free_badge}\n")
-                        app.write(f"     ID: [dim]{model['id']}[/dim]\n")
-                        app.write(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
+                        output_lines.append(f"{marker} [bold]{idx}.[/bold] {model['name']}{free_badge}\n")
+                        output_lines.append(f"     ID: [dim]{model['id']}[/dim]\n")
+                        output_lines.append(f"     Provider: [cyan]{provider_name}[/cyan] | Context: {context}\n\n")
 
-                    app.write("\n[dim]Usage: /model <number> or /model r<number> (recent)  or  /model add[/dim]\n\n")
+                    # Single write instead of hundreds
+                    app.write("".join(output_lines))
+
+                    # Show pagination info
+                    if total_models > page_size:
+                        app.write(f"[dim]Showing {page_size} of {total_models} models[/dim]\n")
+                        app.write(f"[dim]Use [cyan]/model --all[/cyan] to see all[/dim]\n\n")
+
+                    app.write("[dim]Usage: /model <number> or /model r<number> (recent) or /model <model-id>[/dim]\n")
+                    app.write("[dim]Filters: /model --free | /model --search <term> | /model --provider <name>[/dim]\n")
+                    if filters_active:
+                        app.write("[dim yellow]Note: Numbers shown are for filtered list. Use model ID for filtered selection.[/dim]\n")
+                    app.write("\n")
 
                 elif args == "add":
-                    # Interactive API key setup
-                    app.write("[bold]🔑 Add API Key[/bold]\n\n")
-                    app.write("Enter your OpenRouter API key:\n")
-                    app.write("[dim](Get one at https://openrouter.ai/keys)[/dim]\n\n")
-
-                    # Prompt for key on next input - set a flag
-                    app.write("[yellow]Type your key and press Enter:[/yellow]\n")
-                    session._awaiting_api_key = True
+                    # Interactive provider/API key setup
+                    app.write("[bold cyan]▸ Add API Provider[/bold cyan]\n\n")
+                    app.write("Supported providers:\n\n")
+                    app.write("  1. [cyan]OpenRouter[/cyan] - 200+ models from all providers\n")
+                    app.write("     [dim]Get key: https://openrouter.ai/keys[/dim]\n\n")
+                    app.write("  2. [cyan]Anthropic[/cyan] - Claude models (Opus, Sonnet, Haiku)\n")
+                    app.write("     [dim]Get key: https://console.anthropic.com/[/dim]\n\n")
+                    app.write("  3. [cyan]OpenAI[/cyan] - GPT-4, GPT-3.5, o1 models\n")
+                    app.write("     [dim]Get key: https://platform.openai.com/api-keys[/dim]\n\n")
+                    app.write("  4. [cyan]DeepSeek[/cyan] - DeepSeek-V3 and coding models\n")
+                    app.write("     [dim]Get key: https://platform.deepseek.com/[/dim]\n\n")
+                    app.write("  5. [cyan]Google AI[/cyan] - Gemini models\n")
+                    app.write("     [dim]Get key: https://makersuite.google.com/app/apikey[/dim]\n\n")
+                    app.write("  6. [cyan]Ollama[/cyan] - Local models (free, runs on your machine)\n")
+                    app.write("     [dim]Setup: https://ollama.ai/[/dim]\n\n")
+                    app.write("[yellow]Type your API key (or 'ollama' for local) and press Enter:[/yellow]\n")
+                    session._awaiting_provider_key = True
 
                 else:
                     # Switch model by number or ID
-                    models = model_mgr.list_available_models()
-                    recent = model_mgr.get_recent_models()
+                    models = local_model_mgr.list_available_models()
+                    recent = local_model_mgr.get_recent_models()
 
                     if not models:
                         app.write("[red]No models available. Use /model add first.[/red]\n\n")
@@ -921,7 +1738,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             prompt_cost = pricing.get("prompt", "?")
                             completion_cost = pricing.get("completion", "?")
 
-                            app.write(f"[yellow]⚠️  PAID MODEL WARNING[/yellow]\n\n")
+                            app.write(f"[yellow]! PAID MODEL WARNING[/yellow]\n\n")
                             app.write(f"Model: [bold]{selected_model['name']}[/bold]\n")
 
                             if prompt_cost != "?":
@@ -937,10 +1754,14 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             session._awaiting_model_confirm = model_id
                             return
 
-                    result = model_mgr.switch_model(session, model_id)
+                    result = local_model_mgr.switch_model(session, model_id)
 
                     if result["success"]:
                         app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
+
+                        # Refresh runtime config
+                        config.update(local_model_mgr.config)
+                        app.config = config
 
                         # Show pricing info if available
                         if "pricing" in result:
@@ -968,24 +1789,425 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if pricing_parts:
                                 app.write(f"[dim]💰 Pricing: {', '.join(pricing_parts)}[/dim]\n\n")
 
-                        # Update client
-                        client.base_url = config["baseURL"]
-                        client.api_key = config["apiKey"]
-
+                        # Recreate client with new provider headers
+                        client = create_async_client(config)
                         app.update_status()
                     else:
                         app.write(f"[red]✗ {result['error']}[/red]\n\n")
 
                 return
 
-            # Handle /providers command locally
-            if user_input.startswith('/providers'):
+            # Handle /refactor command - code analysis and refactoring
+            if user_input.startswith('/refactor'):
+                parts = user_input.split(maxsplit=2)
+                subcommand = parts[1] if len(parts) > 1 else None
+                args = parts[2] if len(parts) > 2 else None
+
+                # If no subcommand, toggle the statusline AND show help
+                if not subcommand:
+                    try:
+                        from simple_tui import RefactoringStatusLine
+                        refactor_statusline = app.query_one(RefactoringStatusLine)
+
+                        # Check orchestrator availability
+                        if not refactor_statusline.orchestrator:
+                            app.write("[red]Error: Refactoring orchestrator not initialized[/red]\n")
+                            app.write("[dim]Missing dependencies or configuration issue[/dim]\n\n")
+                        else:
+                            is_enabled = refactor_statusline.toggle()
+
+                            if is_enabled:
+                                app.write("[green]Refactoring monitoring enabled[/green]\n\n")
+                                app.write("[dim]Statusline active - showing:\n")
+                                app.write("  • System status\n")
+                                app.write("  • Current operation\n")
+                                app.write("  • Violations found\n")
+                                app.write("  • Test results\n")
+                                app.write("  • Venv health\n")
+                                app.write("  • UI protection\n\n")
+                            else:
+                                app.write("[yellow]Refactoring monitoring disabled[/yellow]\n\n")
+                    except Exception as e:
+                        import traceback
+                        app.write(f"[red]ERROR: Could not toggle refactoring: {e}[/red]\n")
+                        app.write(f"[dim]Traceback:\n{traceback.format_exc()}[/dim]\n\n")
+
+                    # Show quick command reference
+                    app.write("[bold cyan]▸ Quick Commands:[/bold cyan]\n\n")
+                    app.write("[bold]Get Started:[/bold]\n")
+                    app.write("  [cyan]/refactor auto start[/cyan]        - Start automated monitoring\n")
+                    app.write("  [cyan]/refactor validate[/cyan]          - Check architecture compliance\n\n")
+                    app.write("[bold]Analysis:[/bold]\n")
+                    app.write("  [cyan]/refactor suggest-split <file>[/cyan]  - Suggest how to split a file\n")
+                    app.write("  [cyan]/refactor concurrency <file>[/cyan]    - Analyze concurrency issues\n\n")
+                    app.write("[bold]More:[/bold]\n")
+                    app.write("  [cyan]/refactor help[/cyan]              - Show all commands\n\n")
+
+                    return
+
+                try:
+                    from .auto_refactor import get_auto_refactor_manager
+                    from .profiler import get_profiler
+                except (ImportError, ValueError):
+                    from auto_refactor import get_auto_refactor_manager
+                    from profiler import get_profiler
+
+                # /refactor suggest-split <file>
+                if subcommand == "suggest-split":
+                    if not args:
+                        app.write("[red]Error: Please specify a file path[/red]\n\n")
+                        app.write("[dim]Usage: /refactor suggest-split <file-path>[/dim]\n\n")
+                        return
+
+                    manager = get_auto_refactor_manager()
+                    result = manager.suggest_split(args)
+
+                    if not result["success"]:
+                        app.write(f"[red]✗ {result['error']}[/red]\n\n")
+                        return
+
+                    stats = result["stats"]
+                    clusters = result["clusters"]
+
+                    app.write(f"[bold cyan]▪ Refactoring Analysis: {args}[/bold cyan]\n\n")
+                    app.write(f"[bold]File Stats:[/bold]\n")
+                    app.write(f"  Total Lines: {stats['total_lines']}\n")
+                    app.write(f"  Functions: {stats['function_count']}\n")
+                    app.write(f"  Max Nesting: {stats['max_nesting']}\n\n")
+
+                    if not clusters:
+                        app.write("[yellow]No suitable clusters found for extraction[/yellow]\n\n")
+                        return
+
+                    app.write(f"[bold]Suggested Extractions ({len(clusters)}):[/bold]\n\n")
+
+                    for i, cluster in enumerate(clusters, 1):
+                        app.write(f"[bold cyan]{i}. {cluster['suggested_name']}.py[/bold cyan]\n")
+                        app.write(f"   Functions: {', '.join(cluster['functions'])}\n")
+                        app.write(f"   Lines: {cluster['lines']}\n")
+                        app.write(f"   Cohesion: {cluster['cohesion']:.2f} | Coupling: {cluster['coupling']:.2f}\n")
+                        app.write(f"   Rationale: {cluster['rationale']}\n\n")
+
+                    return
+
+                # /refactor profile start/stop
+                elif subcommand == "profile":
+                    profiler = get_profiler()
+
+                    if args == "start":
+                        profiler.start_profiling()
+                        app.write("[green]✓ Performance profiling started[/green]\n\n")
+                    elif args == "stop":
+                        stats = profiler.stop_profiling()
+                        app.write("[bold cyan]▪ PERFORMANCE PROFILE[/bold cyan]\n\n")
+                        app.write(f"Total Calls: {stats.total_calls:,}\n")
+                        app.write(f"Total Time: {stats.total_time:.3f}s\n\n")
+
+                        if stats.budget_violations:
+                            app.write("[bold red]! PERFORMANCE BUDGET VIOLATIONS:[/bold red]\n")
+                            for violation in stats.budget_violations:
+                                app.write(f"  {violation.function}: {violation.actual_time:.1f}ms ")
+                                app.write(f"(budget: {violation.budget_time:.1f}ms)\n")
+                            app.write("\n")
+
+                        app.write("[bold]TOP 20 FUNCTIONS BY CUMULATIVE TIME:[/bold]\n")
+                        for func in stats.top_functions[:20]:
+                            app.write(f"  {func.filename}:{func.function}\n")
+                            app.write(f"    Cumulative: {func.cumtime:.3f}s | Calls: {func.ncalls:,} | Avg: {func.percall:.3f}ms\n")
+                    else:
+                        app.write("[yellow]Usage: /refactor profile [start|stop][/yellow]\n\n")
+
+                    return
+
+                # /refactor threads
+                elif subcommand == "threads":
+                    profiler = get_profiler()
+                    threads = profiler.analyze_threads()
+
+                    app.write("[bold cyan]🧵 THREAD ANALYSIS[/bold cyan]\n\n")
+                    app.write(f"Total Threads: {len(threads)}\n\n")
+
+                    for thread in threads:
+                        status_color = "green" if thread.is_alive else "red"
+                        daemon_marker = " [DAEMON]" if thread.is_daemon else ""
+                        app.write(f"[{status_color}]● {thread.name}{daemon_marker}[/{status_color}]\n")
+                        app.write(f"  ID: {thread.thread_id} | Alive: {thread.is_alive}\n\n")
+
+                    return
+
+                # /refactor blocking
+                elif subcommand == "blocking":
+                    profiler = get_profiler()
+                    blocked = profiler.detect_blocking_threads()
+
+                    app.write("[bold cyan]BLOCKING THREAD DETECTION[/bold cyan]\n\n")
+
+                    if not blocked:
+                        app.write("[green]✓ No blocked threads detected[/green]\n\n")
+                        return
+
+                    app.write(f"[bold red]! FOUND {len(blocked)} POTENTIALLY BLOCKED THREADS:[/bold red]\n\n")
+                    for thread in blocked:
+                        app.write(f"[red]● {thread.name}[/red]\n")
+                        app.write(f"  ID: {thread.thread_id}\n")
+                        if thread.stack_trace:
+                            app.write(f"  [dim]Stack trace:\n{thread.stack_trace}[/dim]\n")
+                        app.write("\n")
+
+                    return
+
+                # /refactor budget <function> <ms>
+                elif subcommand == "budget":
+                    if not args:
+                        app.write("[red]Error: Please specify function and time budget[/red]\n\n")
+                        app.write("[dim]Usage: /refactor budget <function> <milliseconds>[/dim]\n\n")
+                        return
+
+                    budget_parts = args.split()
+                    if len(budget_parts) < 2:
+                        app.write("[red]Error: Please specify both function name and time budget[/red]\n\n")
+                        return
+
+                    func_name = budget_parts[0]
+                    try:
+                        time_ms = float(budget_parts[1])
+                    except ValueError:
+                        app.write("[red]Error: Time budget must be a number[/red]\n\n")
+                        return
+
+                    profiler = get_profiler()
+                    profiler.set_performance_budget(func_name, time_ms)
+                    app.write(f"[green]✓ Set performance budget: {func_name} <= {time_ms}ms[/green]\n\n")
+
+                    return
+
+                # /refactor auto start/stop - Intelligent monitoring
+                elif subcommand == "auto":
+                    if not refactor_orchestrator:
+                        app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
+                        return
+
+                    if args == "start":
+                        # Start monitoring in background (non-blocking)
+                        app.write("[cyan]▸️  Starting intelligent refactoring system...[/cyan]\n\n")
+                        result = refactor_orchestrator.start_monitoring()
+                        if result["success"]:
+                            app.write("[green]✓ Intelligent refactoring system active[/green]\n")
+                            app.write("[dim]  • Watching files for violations[/dim]\n")
+                            app.write("[dim]  • Monitoring performance[/dim]\n")
+                            app.write("[dim]  • Self-healing enabled[/dim]\n\n")
+
+                            # Auto-enable status line
+                            try:
+                                from simple_tui import RefactoringStatusLine
+                                refactor_statusline = app.query_one(RefactoringStatusLine)
+                                if not refactor_statusline.enabled:
+                                    refactor_statusline.enabled = True
+                                    refactor_statusline.refresh()
+                                    app.write("[dim]  • Status line enabled[/dim]\n\n")
+                            except Exception:
+                                pass
+                        else:
+                            app.write(f"[red]✗ {result['error']}[/red]\n\n")
+                    elif args == "stop":
+                        refactor_orchestrator.stop_monitoring()
+                        app.write("[yellow]‖ Refactoring system stopped[/yellow]\n\n")
+                    else:
+                        app.write("[yellow]Usage: /refactor auto [start|stop][/yellow]\n\n")
+
+                    return
+
+                # /refactor validate - Architecture compliance
+                elif subcommand == "validate":
+                    if not refactor_orchestrator:
+                        app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
+                        return
+
+                    app.write("[cyan]▸️  Validating architecture compliance...[/cyan]\n\n")
+                    report = refactor_orchestrator.validator.validate_all()
+
+                    status_symbol = "✓" if report.is_compliant() else "✗"
+                    status_color = "green" if report.is_compliant() else "red"
+                    app.write(f"[bold {status_color}]{status_symbol} ARCHITECTURE COMPLIANCE[/bold {status_color}]\n\n")
+                    app.write(f"Files Checked: {len(report.violations) + 1}\n")
+                    app.write(f"Errors: {len([v for v in report.violations if v.severity == 'error'])}\n")
+                    app.write(f"Warnings: {len([v for v in report.violations if v.severity == 'warning'])}\n\n")
+
+                    if report.violations:
+                        errors = [v for v in report.violations if v.severity == "error"]
+                        if errors:
+                            app.write("[bold red]🔴 ERRORS:[/bold red]\n\n")
+                            for violation in errors[:5]:  # Show first 5
+                                app.write(f"  {violation.file}:{violation.line or '?'}\n")
+                                app.write(f"    Rule: {violation.rule_type}\n")
+                                app.write(f"    {violation.message}\n")
+                                if violation.suggestion:
+                                    app.write(f"    [dim]→ {violation.suggestion}[/dim]\n")
+                                app.write("\n")
+
+                        warnings = [v for v in report.violations if v.severity == "warning"]
+                        if warnings:
+                            app.write("[bold yellow]🟡 WARNINGS:[/bold yellow]\n\n")
+                            for violation in warnings[:5]:  # Show first 5
+                                app.write(f"  {violation.file}:{violation.line or '?'}\n")
+                                app.write(f"    {violation.message}\n\n")
+                    else:
+                        app.write("[green]✓ All checks passed[/green]\n\n")
+
+                    return
+
+                # /refactor concurrency <file> - Concurrency analysis
+                elif subcommand == "concurrency":
+                    if not refactor_orchestrator:
+                        app.write("[red]✗ Refactoring orchestrator not available[/red]\n\n")
+                        return
+
+                    if not args:
+                        app.write("[red]Error: Please specify a file path[/red]\n\n")
+                        app.write("[dim]Usage: /refactor concurrency <file-path>[/dim]\n\n")
+                        return
+
+                    try:
+                        from .concurrency_analyzer import ConcurrencyAnalyzer
+                    except (ImportError, ValueError):
+                        from concurrency_analyzer import ConcurrencyAnalyzer
+
+                    app.write(f"[cyan]▸️  Analyzing concurrency: {args}[/cyan]\n\n")
+                    analyzer = ConcurrencyAnalyzer(args)
+                    report = analyzer.analyze()
+
+                    app.write("[bold cyan]🧵 CONCURRENCY ANALYSIS[/bold cyan]\n\n")
+                    app.write(f"Total Issues: {len(report.issues)}\n\n")
+
+                    if not report.issues:
+                        app.write("[green]✓ No concurrency issues detected[/green]\n\n")
+                        return
+
+                    critical = [i for i in report.issues if i.severity == "critical"]
+                    if critical:
+                        app.write("[bold red]🔴 CRITICAL ISSUES:[/bold red]\n\n")
+                        for issue in critical:
+                            app.write(f"  {issue.file}:{issue.line} in {issue.function}\n")
+                            app.write(f"    Type: {issue.issue_type}\n")
+                            app.write(f"    {issue.description}\n")
+                            app.write(f"    Fix: {issue.suggested_fix}\n")
+                            if issue.auto_fixable:
+                                app.write(f"    [green]✨ Auto-fixable[/green]\n")
+                            app.write("\n")
+
+                    warnings = [i for i in report.issues if i.severity == "warning"]
+                    if warnings:
+                        app.write("[bold yellow]🟡 WARNINGS:[/bold yellow]\n\n")
+                        for issue in warnings[:5]:  # Show first 5
+                            app.write(f"  {issue.file}:{issue.line} in {issue.function}\n")
+                            app.write(f"    {issue.description}\n\n")
+
+                    return
+
+                # /refactor help - Show help
+                elif subcommand == "help":
+                    app.write("[bold cyan]▸ Refactoring Commands[/bold cyan]\n\n")
+                    app.write("[bold]Toggle Statusline:[/bold]\n")
+                    app.write("  /refactor                       - Toggle refactoring statusline\n\n")
+                    app.write("[bold]Code Analysis:[/bold]\n")
+                    app.write("  /refactor suggest-split <file>  - Suggest how to split a file\n")
+                    app.write("  /refactor validate              - Validate architecture compliance\n")
+                    app.write("  /refactor concurrency <file>    - Analyze concurrency issues\n\n")
+                    app.write("[bold]Intelligent Monitoring:[/bold]\n")
+                    app.write("  /refactor auto start            - Start automated refactoring\n")
+                    app.write("  /refactor auto stop             - Stop automated refactoring\n\n")
+                    app.write("[bold]Performance Profiling:[/bold]\n")
+                    app.write("  /refactor profile start         - Start performance profiling\n")
+                    app.write("  /refactor profile stop          - Stop and show report\n")
+                    app.write("  /refactor threads               - Analyze thread states\n")
+                    app.write("  /refactor blocking              - Detect blocked threads\n")
+                    app.write("  /refactor budget <func> <ms>    - Set performance budget\n\n")
+                    return
+
+                else:
+                    app.write(f"[red]Unknown /refactor subcommand: {subcommand}[/red]\n\n")
+                    app.write("Use [cyan]/refactor help[/cyan] to see all commands\n\n")
+
+                return
+
+            # Handle /autorefactor command - automatic refactoring with file watching
+            if user_input.startswith('/autorefactor'):
+                try:
+                    from .auto_refactor import get_auto_refactor_manager
+                except (ImportError, ValueError):
+                    from auto_refactor import get_auto_refactor_manager
+
+                manager = get_auto_refactor_manager()
+
+                parts = user_input.split(maxsplit=1)
+                subcommand = parts[1] if len(parts) > 1 else None
+
+                if subcommand == "start":
+                    result = manager.start()
+
+                    if result["status"] == "already_running":
+                        app.write("[yellow]! Auto-refactoring is already running[/yellow]\n\n")
+                        return
+
+                    app.write("[green]✓ Auto-refactoring started[/green]\n\n")
+                    app.write("[bold]Watching:[/bold]\n")
+                    for path in result["watching"]:
+                        app.write(f"  📁 {path}\n")
+                    app.write(f"\n[bold]Trigger:[/bold] Files exceeding {result['max_file_lines']} lines\n\n")
+                    app.write("[dim]Auto-refactoring will analyze files and request permission before applying changes[/dim]\n\n")
+
+                elif subcommand == "stop":
+                    result = manager.stop()
+
+                    if result["status"] == "not_running":
+                        app.write("[yellow]! Auto-refactoring is not running[/yellow]\n\n")
+                        return
+
+                    app.write("[green]✓ Auto-refactoring stopped[/green]\n\n")
+                    if result["queued_refactorings"] > 0:
+                        app.write(f"[dim]{result['queued_refactorings']} queued refactorings discarded[/dim]\n\n")
+
+                elif subcommand == "status":
+                    result = manager.status()
+
+                    app.write("[bold cyan]🤖 Auto-Refactoring Status[/bold cyan]\n\n")
+                    app.write(f"Running: {'[green]Yes[/green]' if result['running'] else '[red]No[/red]'}\n")
+                    app.write(f"Enabled: {'[green]Yes[/green]' if result['enabled'] else '[red]No[/red]'}\n\n")
+
+                    if result['running']:
+                        app.write(f"[bold]Configuration:[/bold]\n")
+                        app.write(f"  Max File Lines: {result['max_file_lines']}\n")
+                        app.write(f"  Queued Refactorings: {result['queued_refactorings']}\n\n")
+
+                        app.write(f"[bold]Watching:[/bold]\n")
+                        for path in result['watching']:
+                            app.write(f"  📁 {path}\n")
+                        app.write("\n")
+
+                        if result['queue']:
+                            app.write(f"[bold]Queue:[/bold]\n")
+                            for item in result['queue']:
+                                app.write(f"  📄 {item['file']} ({item['lines']} lines)\n")
+                            app.write("\n")
+
+                else:
+                    app.write("[bold cyan]🤖 Auto-Refactoring Commands[/bold cyan]\n\n")
+                    app.write("  /autorefactor start   - Start file watching and auto-refactoring\n")
+                    app.write("  /autorefactor stop    - Stop auto-refactoring\n")
+                    app.write("  /autorefactor status  - Show current status\n\n")
+                    app.write("[dim]When enabled, files exceeding 500 lines will be automatically analyzed.\n")
+                    app.write("You'll be prompted to approve any suggested refactorings.[/dim]\n\n")
+
+                return
+
+            # Handle /provider and /providers command locally
+            if user_input.startswith('/provider'):
                 try:
                     from .model_manager import ModelManager
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                model_mgr = ModelManager()
+                providers_mgr = ModelManager()
 
                 # Parse args
                 parts = user_input.split(maxsplit=2)
@@ -994,7 +2216,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 if not subcommand or subcommand == "list":
                     # List all providers with status
-                    providers = model_mgr.get_providers()
+                    providers = providers_mgr.get_providers()
 
                     app.write("[bold cyan]🔌 API Providers[/bold cyan]\n\n")
 
@@ -1007,9 +2229,9 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write(f"  ID: [dim]{provider['id']}[/dim]\n\n")
 
                     app.write("\n[dim]Usage:[/dim]\n")
-                    app.write("  [cyan]/providers add[/cyan]          Add new provider key\n")
-                    app.write("  [cyan]/providers add <key>[/cyan]   Add specific key (auto-detects provider)\n")
-                    app.write("  [cyan]/providers remove <id>[/cyan] Remove provider key\n\n")
+                    app.write("  [cyan]/provider add[/cyan]          Add new provider key\n")
+                    app.write("  [cyan]/provider add <key>[/cyan]   Add specific key (auto-detects provider)\n")
+                    app.write("  [cyan]/provider remove <id>[/cyan] Remove provider key\n\n")
 
                 elif subcommand == "add":
                     if not args:
@@ -1024,7 +2246,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     else:
                         # Direct key provided - detect and add
                         api_key = args.strip()
-                        provider = model_mgr.detect_provider(api_key)
+                        provider = providers_mgr.detect_provider(api_key)
 
                         if not provider:
                             app.write("[red]✗ Could not detect provider from API key format[/red]\n\n")
@@ -1036,18 +2258,18 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write("  • Google AI: AIza...\n\n")
                             return
 
-                        provider_info = model_mgr.models_db.get("providers", {}).get(provider, {})
+                        provider_info = providers_mgr.models_db.get("providers", {}).get(provider, {})
                         provider_name = provider_info.get("name", provider)
 
                         app.write(f"[green]✓ Detected provider: {provider_name}[/green]\n")
                         app.write("[dim]Fetching models...[/dim]\n\n")
 
                         # Fetch models from provider
-                        result = await model_mgr.fetch_models_from_provider(provider, api_key)
+                        result = await providers_mgr.fetch_models_from_provider(provider, api_key)
 
                         if result["success"]:
-                            model_mgr.add_api_key(provider, api_key)
-                            model_mgr.register_models(provider, result["models"])
+                            providers_mgr.add_api_key(provider, api_key)
+                            providers_mgr.register_models(provider, result["models"])
 
                             app.write(f"[green]✓ Added {provider_name}![/green]\n")
                             app.write(f"[green]✓ Registered {result['count']} models[/green]\n\n")
@@ -1058,20 +2280,20 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 elif subcommand == "remove":
                     if not args:
                         app.write("[red]✗ Specify provider ID to remove[/red]\n\n")
-                        app.write("Example: [cyan]/providers remove openrouter[/cyan]\n\n")
+                        app.write("Example: [cyan]/provider remove openrouter[/cyan]\n\n")
                         return
 
                     provider_id = args.strip()
-                    providers = model_mgr.models_db.get("providers", {})
+                    providers = providers_mgr.models_db.get("providers", {})
 
                     if provider_id not in providers:
                         app.write(f"[red]✗ Unknown provider: {provider_id}[/red]\n\n")
                         return
 
                     # Remove the key
-                    if provider_id in model_mgr.models_db.get("api_keys", {}):
-                        del model_mgr.models_db["api_keys"][provider_id]
-                        model_mgr._save_models()
+                    if provider_id in providers_mgr.models_db.get("api_keys", {}):
+                        del providers_mgr.models_db["api_keys"][provider_id]
+                        providers_mgr._save_models()
                         app.write(f"[green]✓ Removed {provider_id} API key[/green]\n\n")
                     else:
                         app.write(f"[yellow]⚠ {provider_id} was not configured[/yellow]\n\n")
@@ -1339,7 +2561,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Show injection logs summary
                     if hasattr(session, 'shell_injector') and session.shell_injector:
                         summary = session.shell_injector.get_log_summary()
-                        app.write("[cyan]📊 Shell Injection Logs[/cyan]\n\n")
+                        app.write("[cyan]▪ Shell Injection Logs[/cyan]\n\n")
                         app.write(f"Total Messages: {summary['total_messages']}\n")
                         app.write(f"Log File: {summary['log_file']}\n\n")
 
@@ -1518,18 +2740,53 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                 return
 
-        # Add to session
+        # Add to session with tool context
+        # Import TOOLS from opencli
+        try:
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from opencli import TOOLS
+        except:
+            TOOLS = []
+
+        # Format tool context to append to every user message
+        tool_context = ""
+        if TOOLS:
+            import json
+            tool_context = f"""
+
+<opentools>
+You have direct access to these tools. Call them using tool_calls in your response:
+
+{json.dumps(TOOLS, indent=2)}
+
+HOW TO USE TOOLS:
+1. When user asks you to do something, CALL THE TOOL directly
+2. Don't explain what you're going to do - just call it
+3. Respond with tool_calls using the exact schema above
+4. The system will execute and return results to you
+
+Example:
+User: "list files"
+You: {{"tool_calls": [{{"name": "Bash", "parameters": {{"command": "ls -la"}}}}]}}
+System: [returns file list]
+You: "Here are your files: ..."
+
+DO NOT explain commands. USE THE TOOLS IMMEDIATELY.
+</opentools>"""
+
         session.messages.append({
             "role": "user",
-            "content": user_input
+            "content": user_input + tool_context
         })
 
         # Auto-save session state (non-blocking)
         if session.debug_mode:
-            app.write(f"[dim]🐛 STALL DEBUG: Saving user message...[/dim]\n")
+            app.write(f"[dim]DEBUG: Saving user message...[/dim]\n")
         await asyncio.to_thread(session.save)
         if session.debug_mode:
-            app.write(f"[dim]🐛 STALL DEBUG: User message save COMPLETED, starting AI response...[/dim]\n")
+            app.write(f"[dim]DEBUG: User message save COMPLETED, starting AI response...[/dim]\n")
 
         # Stream response in separate thread to avoid blocking UI
         def restore_ui_state(error_msg: str = None):
@@ -1540,23 +2797,24 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                     app.finish_stream()
                 if error_msg:
-                    app.write(f"\n[red]❌ {error_msg}[/red]\n")
-                app.write("\n[yellow]⚠️ You can continue chatting.[/yellow]\n\n")
+                    app.write(f"\n[red]✗ {error_msg}[/red]\n")
+                app.write("\n[yellow]! You can continue chatting.[/yellow]\n\n")
                 app.update_status()
             except:
                 pass  # Ignore errors in error handler
 
         async def stream_ai_response():
             """Run AI streaming in background without blocking UI"""
+            nonlocal client
             try:
                 # STALL DEBUG: Starting message preparation
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: Starting message preparation...[/dim]\n")
+                    app.write(f"[dim]DEBUG: Starting message preparation...[/dim]\n")
 
                 # Prepare messages with system context (same as fallback mode)
                 if agent_manager:
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Using agent_manager.prepare_messages...[/dim]\n")
+                        app.write(f"[dim]DEBUG: Using agent_manager.prepare_messages...[/dim]\n")
                     # Use agent manager for context - RUN IN THREAD TO PREVENT BLOCKING!
                     messages_with_context = await asyncio.to_thread(
                         agent_manager.prepare_messages,
@@ -1566,10 +2824,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         session.session_id
                     )
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: agent_manager.prepare_messages COMPLETED[/dim]\n")
+                        app.write(f"[dim]DEBUG: agent_manager.prepare_messages COMPLETED[/dim]\n")
                 else:
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Using prepare_messages_with_context...[/dim]\n")
+                        app.write(f"[dim]DEBUG: Using prepare_messages_with_context...[/dim]\n")
                     # Fallback to basic context preparation WITH GOAL TRACKING (NOW ASYNC!)
                     messages_with_context = await prepare_messages_with_context(
                         session.messages,
@@ -1578,7 +2836,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         goal_tracker=goal_tracker
                     )
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: prepare_messages_with_context COMPLETED[/dim]\n")
+                        app.write(f"[dim]DEBUG: prepare_messages_with_context COMPLETED[/dim]\n")
 
                 # Debug: Show system message is being sent (only in debug mode)
                 if session.debug_mode and messages_with_context and messages_with_context[0].get('role') == 'system':
@@ -1586,7 +2844,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # Debug: Log message structure for debugging (only if debug mode enabled)
                 if session.debug_mode:
-                    app.write(f"[dim]🔍 DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                    app.write(f"[dim]DEBUG: Sending {len(messages_with_context)} messages to API[/dim]\n")
                     for i, msg in enumerate(messages_with_context):
                         role = msg.get('role', 'unknown')
                         has_tool_calls = 'tool_calls' in msg
@@ -1601,40 +2859,247 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # NO TIMEOUT - Let AI run as long as needed (user's choice)
                 api_timeout = None
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: About to call API (no timeout - unlimited)...[/dim]\n")
-                    app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+                    app.write(f"[dim]DEBUG: About to call API (no timeout - unlimited)...[/dim]\n")
+                    app.write(f"[dim]DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
 
                 # CRITICAL FIX: Yield control to event loop before heavy API call
                 await asyncio.sleep(0)
 
-                try:
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
+                request_format = config.get("requestFormat", "openai-chat")
 
-                    # Create the API call - this might block during request setup
-                    api_call = client.chat.completions.create(
-                        model=session.model or config["model"],
-                        messages=messages_with_context,
-                        opentools=TOOLS,
-                        stream=True
+                # DEBUG: Print detected request format
+                import sys
+                print(f"\n[DEBUG REQUEST FORMAT] Detected: '{request_format}'", file=sys.stderr)
+                print(f"[DEBUG REQUEST FORMAT] Provider: '{config.get('provider')}'", file=sys.stderr)
+                print(f"[DEBUG REQUEST FORMAT] Model: '{config.get('model')}'", file=sys.stderr)
+                print(f"[DEBUG REQUEST FORMAT] BaseURL: '{config.get('baseURL')}'", file=sys.stderr)
+
+                if request_format == "anthropic-messages":
+                    success, reply_text, error_msg = await perform_anthropic_request(
+                        messages_with_context,
+                        session,
+                        config,
+                        timeout=api_timeout
                     )
 
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response...[/dim]\n")
+                    if not success:
+                        restore_ui_state(error_msg or "Anthropic request failed")
+                        return
 
-                    # No timeout - let it run indefinitely (user's choice)
-                    if api_timeout:
-                        response = await asyncio.wait_for(api_call, timeout=api_timeout)
-                    else:
-                        response = await api_call
+                    if reply_text:
+                        session.add("assistant", reply_text)
+                        await asyncio.to_thread(session.save)
+                        await write_markdown_response(app, reply_text)
+                        app.write("\n")
 
-                    if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: API call returned, starting to stream...[/dim]\n")
-                except asyncio.TimeoutError:
-                    timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
-                    app.write(f"[red]❌ API request timed out after {timeout_msg}[/red]\n")
-                    app.write("[yellow]⚠️ The API did not respond. Check your connection or try again.[/yellow]\n")
                     restore_ui_state()
+                    return
+
+                if request_format == "google-generative":
+                    success, reply_text, error_msg = await perform_google_request(
+                        messages_with_context,
+                        session,
+                        config,
+                        timeout=api_timeout
+                    )
+
+                    if not success:
+                        restore_ui_state(error_msg or "Google request failed")
+                        return
+
+                    if reply_text:
+                        session.add("assistant", reply_text)
+                        await asyncio.to_thread(session.save)
+                        await write_markdown_response(app, reply_text)
+                        app.write("\n")
+
+                    restore_ui_state()
+                    return
+
+                if request_format != "openai-chat":
+                    restore_ui_state(f"Unsupported provider request format: {request_format}")
+                    return
+
+                async def handle_policy_error(error_text: str) -> str:
+                    # Import needed modules (deep nesting loses module scope)
+                    import os
+
+                    # Create local ModelManager to avoid scope issues
+                    try:
+                        from .model_manager import ModelManager
+                    except (ImportError, ValueError):
+                        from model_manager import ModelManager
+
+                    local_mgr = ModelManager()
+                    provider_id = local_mgr.get_provider_for_model(session.model or config.get("model")) or config.get("provider") or "openrouter"
+                    current_headers = config.get("defaultHeaders", {}) or {}
+                    model_id = session.model or config.get("model")
+
+                    # Check model uptime first (for OpenRouter models)
+                    if provider_id == "openrouter" and model_id:
+                        try:
+                            from .uptime_checker import check_model_uptime, is_model_healthy, get_user_recommendation
+                        except (ImportError, ValueError):
+                            from uptime_checker import check_model_uptime, is_model_healthy, get_user_recommendation
+
+                        app.write("[dim]Checking model availability...[/dim]\n")
+
+                        success, uptime, status_msg = await check_model_uptime(model_id)
+
+                        if success and uptime is not None:
+                            app.write(f"[dim]▪ {status_msg}[/dim]\n\n")
+
+                            # Show warning if model is degraded, but still allow user to proceed
+                            if not is_model_healthy(uptime):
+                                recommendation = get_user_recommendation(uptime, model_id)
+                                app.write(f"[yellow]! Warning: Low Model Availability[/yellow]\n\n")
+                                app.write(f"{recommendation}\n\n")
+                                app.write("[dim]You can still try to configure headers below, but the error may be due to model downtime.[/dim]\n\n")
+                        else:
+                            # Show why uptime check failed
+                            app.write(f"[dim]⚠ Could not fetch uptime: {status_msg}[/dim]\n")
+
+                    # Suggested headers from environment overrides (if provided)
+                    proposed = {}
+                    site_url = os.getenv("OPENROUTER_SITE_URL")
+                    app_name = os.getenv("OPENROUTER_APP_NAME")
+                    if site_url:
+                        proposed["HTTP-Referer"] = site_url
+                    if app_name:
+                        proposed["X-Title"] = app_name
+                    if not proposed:
+                        proposed = None
+
+                    handler = getattr(app, 'permission_handler', None)
+                    allowed = True
+                    if handler:
+                        allowed, _ = await handler.check_and_prompt(
+                            "ConfigureHeaders",
+                            {
+                                "provider": provider_id,
+                                "model": session.model or config.get("model"),
+                                "issue": error_text,
+                                "current_headers": current_headers,
+                                "proposed_headers": proposed
+                            },
+                            current_dir=session.cwd if hasattr(session, 'cwd') else os.getcwd()
+                        )
+
+                    if not allowed:
+                        restore_ui_state("Provider headers unchanged.")
+                        return "denied"
+
+                    # User clicked "Yes, continue" - auto-configure headers
+                    if allowed:
+                        # Try environment variables first
+                        if proposed and any(current_headers.get(k) != v for k, v in proposed.items()):
+                            local_mgr.update_provider_headers(provider_id, proposed, None)
+                            config.update(local_mgr.config)
+                            app.config = config
+                            app.write("[green]✓ Applied provider headers from environment overrides.[/green]\n")
+                            return "updated"
+
+                        # If no env vars, auto-fetch from model API page
+                        model_id = session.model or config.get("model")
+                        if provider_id == "openrouter" and model_id:
+                            try:
+                                from .header_autoconfig import auto_configure_headers
+                            except (ImportError, ValueError):
+                                from header_autoconfig import auto_configure_headers
+
+                            app.write("[dim]Auto-configuring headers from model API page...[/dim]\n")
+
+                            success, new_headers, message = await auto_configure_headers(model_id, current_headers)
+
+                            if success and new_headers:
+                                # Check if headers actually changed
+                                if any(current_headers.get(k) != v for k, v in new_headers.items()):
+                                    local_mgr.update_provider_headers(provider_id, new_headers, None)
+                                    config.update(local_mgr.config)
+                                    app.config = config
+                                    app.write(f"[green]✓ {message}[/green]\n")
+                                    app.write(f"[dim]  HTTP-Referer: {new_headers.get('HTTP-Referer', '[unset]')}[/dim]\n")
+                                    app.write(f"[dim]  X-Title: {new_headers.get('X-Title', '[unset]')}[/dim]\n")
+                                    return "updated"
+                                else:
+                                    app.write("[yellow]⚠ Headers already configured correctly.[/yellow]\n")
+                                    app.write("[yellow]⚠ The error may be due to account privacy settings.[/yellow]\n")
+                                    app.write(f"[yellow]⚠ Configure at: https://openrouter.ai/settings/privacy[/yellow]\n")
+                                    restore_ui_state("Header auto-config: settings issue")
+                                    return "denied"
+                            else:
+                                app.write(f"[yellow]⚠ Auto-config failed: {message}[/yellow]\n")
+                                # Fall through to manual input
+                        else:
+                            app.write("[yellow]⚠ Auto-config only available for OpenRouter models[/yellow]\n")
+
+                    session._pending_header_update = {
+                        "provider": provider_id,
+                        "fields": ["HTTP-Referer", "X-Title"],
+                        "index": 0,
+                        "current": current_headers,
+                        "collected": {}
+                    }
+                    restore_ui_state("Streaming paused: update provider headers to continue.")
+                    if hasattr(app, 'stream_display'):
+                        app.stream_display.add_permission_prompt({
+                            "title": "Configure Provider Headers",
+                            "message": "Enter value for HTTP-Referer. Leave blank to keep existing value.",
+                            "details": {
+                                "current": current_headers.get("HTTP-Referer", "[unset]")
+                            },
+                            "options": []
+                        })
+                    else:
+                        app.write("[cyan]Enter value for HTTP-Referer (leave blank to keep existing):[/cyan]\n")
+                    return "await"
+
+                response = None
+                attempt = 0
+                while True:
+                    attempt += 1
+                    try:
+                        if session.debug_mode:
+                            app.write(f"[dim]DEBUG: Creating API request object (attempt {attempt})...[/dim]\n")
+
+                        # Create the API call - COMPLETELY CLEAN
+                        api_call = client.chat.completions.create(
+                            model=session.model or config["model"],
+                            messages=messages_with_context,
+                            stream=True
+                        )
+
+                        if session.debug_mode:
+                            app.write(f"[dim]DEBUG: API request created, waiting for response...[/dim]\n")
+
+                        # No timeout - let it run indefinitely (user's choice)
+                        if api_timeout:
+                            response = await asyncio.wait_for(api_call, timeout=api_timeout)
+                        else:
+                            response = await api_call
+
+                        if session.debug_mode:
+                            app.write(f"[dim]DEBUG: API call returned, starting to stream...[/dim]\n")
+                        break
+                    except asyncio.TimeoutError:
+                        timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
+                        app.write(f"[red]✗ API request timed out after {timeout_msg}[/red]\n")
+                        app.write("[yellow]! The API did not respond. Check your connection or try again.[/yellow]\n")
+                        restore_ui_state()
+                        return
+                    except Exception as e:
+                        policy_error = extract_openrouter_policy_error(e)
+                        if policy_error:
+                            remediation = await handle_policy_error(policy_error)
+                            if remediation == "updated" and attempt < 3:
+                                client = create_async_client(config)
+                                continue
+                            if remediation in ("await", "denied"):
+                                return
+                        restore_ui_state(f"Streaming Error: {e}")
+                        return
+
+                if not response:
                     return
 
                 full_response = ""
@@ -1650,6 +3115,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 stream_buffer.start()
                 await status_display.start()
 
+                # Start draining buffer in background task
+                async def write_stream_chunk(text):
+                    """Write callback for drain_smooth"""
+                    if hasattr(app, '_resolve_content_widget'):
+                        content_widget = app._resolve_content_widget()
+                        if content_widget and hasattr(content_widget, 'write_stream'):
+                            content_widget.write_stream(text)
+                    await asyncio.sleep(0)
+
+                drain_task = asyncio.create_task(stream_buffer.drain_smooth(write_stream_chunk))
+
                 async for chunk in response:
                     # CRITICAL: Yield at start of each chunk to keep UI responsive
                     await asyncio.sleep(0)
@@ -1659,18 +3135,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                     if session.debug_mode and chunk_count % 10 == 0:
                         elapsed = current_time - last_chunk_time
-                        app.write(f"[dim]🐛 STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
+                        app.write(f"[dim]STREAM: Chunk #{chunk_count}, elapsed: {elapsed:.2f}s[/dim]\n")
                         last_chunk_time = current_time
 
                     if app.should_exit:
-                        stream_buffer.interrupt()
                         break
 
                     # Check for finish_reason and errors
                     if chunk.choices and session.debug_mode:
                         finish_reason = chunk.choices[0].finish_reason if chunk.choices[0] else None
                         if finish_reason:
-                            app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
+                            app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason}[/dim]\n")
 
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if not delta:
@@ -1692,32 +3167,56 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Handle content
                     if delta.content:
                         full_response += delta.content
-                        # Buffer the content instead of writing immediately
+                        # Add to buffer - will be drained smoothly by background task
                         await stream_buffer.add_chunk(delta.content)
 
-                # Finish receiving and stop status
+                # Finish receiving and wait for drain to complete
                 stream_buffer.finish_receiving()
-                await status_display.stop()
-                status_display.write_final_status()
+                await drain_task  # Wait for all buffered content to be displayed
 
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
-                    app.write(f"[dim]🐛 STREAM: Full response length: {len(full_response)} chars[/dim]\n")
+                    app.write(f"[dim]STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                    app.write(f"[dim]STREAM: Full response length: {len(full_response)} chars[/dim]\n")
 
-                # Render markdown ONCE from complete response (no incremental rendering)
+                if full_response and not tool_calls_dict and extract_tool_calls_from_text:
+                    parsed_calls, cleaned_text = extract_tool_calls_from_text(full_response)
+                    if parsed_calls:
+                        start_idx = len(tool_calls_dict)
+                        for offset, call in enumerate(parsed_calls):
+                            name = call.get("name", "")
+                            arguments_dict = call.get("arguments", {})
+                            try:
+                                arguments_json = json.dumps(arguments_dict)
+                            except TypeError:
+                                arguments_json = json.dumps({})
+                            tool_calls_dict[start_idx + offset] = {
+                                "id": call.get("id", f"text_{start_idx + offset}"),
+                                "type": "function",
+                                "name": name,
+                                "arguments": arguments_json
+                            }
+                        if session.debug_mode:
+                            app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} tool calls from text[/dim]\n")
+                        full_response = cleaned_text
+
+                # Finish streaming and render markdown BEFORE removing buffer status
                 if full_response and not tool_calls_dict:
-                    await write_markdown_response(app, full_response)
+                    if hasattr(app, 'finish_stream'):
+                        app.finish_stream()
                     app.write("\n")
+
+                # Remove buffer status AFTER markdown is displayed (prevents black flash)
+                await status_display.stop()
 
                 # Check if we have tool calls
                 if tool_calls_dict:
                     # Finish any streaming content first
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
+                        app.write(f"[dim]POST-STREAM: About to call finish_stream (tool path)...[/dim]\n")
                     if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                         app.finish_stream()
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 POST-STREAM: finish_stream done (tool path)[/dim]\n")
+                        app.write(f"[dim]POST-STREAM: finish_stream done (tool path)[/dim]\n")
                     app.write("\n")
                     # CRITICAL: Yield after write
                     await asyncio.sleep(0)
@@ -1740,13 +3239,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     }
                     session.messages.append(assistant_msg)
                     if session.debug_mode:
-                        app.write(f"[dim]🔍 DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
+                        app.write(f"[dim]DEBUG: Added assistant message with {len(tool_calls)} tool calls[/dim]\n")
 
                     # Execute each tool WITH GOAL SANITY VALIDATION (ASYNC - NO BLOCKING!)
                     for tc in tool_calls:
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 Starting tool execution: {tc.function.name}[/dim]\n")
-                        app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                            app.write(f"[dim]TOOL: {tc.function.name}[/dim]\n")
+                        app.write(f"[dim]▸ {tc.function.name}[/dim]\n")
 
                         args = json.loads(tc.function.arguments)
 
@@ -1757,7 +3256,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                             # Show sanity check result in verbose/debug mode
                             if session.debug_mode or not sanity_check[0]:
-                                status = "✅" if sanity_check[0] else "⚠️"
+                                status = "✓" if sanity_check[0] else "!"
                                 app.write(f"[dim]{status} Goal Check: {sanity_check[1]}[/dim]\n")
 
                         # PERMISSION CHECK - Non-blocking, fail-open if errors
@@ -1787,8 +3286,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                             tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
                                         )
 
-                                        # TEMP DEBUG: Show permission decision
-                                        if session.debug_mode or True:  # Always show for now
+                                        # Show permission decision in debug mode only
+                                        if session.debug_mode:
                                             app.write(f"[dim]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}[/dim]\n")
 
                                         if should_prompt:
@@ -1799,16 +3298,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                                             if not allowed:
                                                 # Permission denied - skip tool execution
-                                                result = f"❌ Operation cancelled by user"
+                                                result = f"✗ Operation cancelled by user"
                                                 session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                                                 continue  # Skip to next tool call
                                     else:
-                                        app.write(f"[yellow]⚠️ handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
+                                        app.write(f"[yellow]! handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
                                 else:
-                                    app.write(f"[yellow]⚠️ Could not import get_global_handler[/yellow]\n")
+                                    app.write(f"[yellow]! Could not import get_global_handler[/yellow]\n")
                             except Exception as e:
                                 # Permission check failed - show error for now
-                                app.write(f"[red]⚠️ Permission check error: {e}[/red]\n")
+                                app.write(f"[red]! Permission check error: {e}[/red]\n")
                                 pass
 
                         # Execute tool ASYNCHRONOUSLY - no blocking!
@@ -1826,7 +3325,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         except Exception as e:
                             result = f"Tool execution error: {str(e)}"
                             if session.debug_mode:
-                                app.write(f"[dim]⚠️ {tc.function.name} failed: {e}[/dim]\n")
+                                app.write(f"[dim]! {tc.function.name} failed: {e}[/dim]\n")
 
                         # Record tool execution in goal tracker
                         if goal_tracker:
@@ -1835,12 +3334,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         # Check result size and truncate if needed
                         result_size = len(str(result))
                         if session.debug_mode:
-                            app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
+                            app.write(f"[dim]Result size: {result_size:,} chars[/dim]\n")
                         await asyncio.sleep(0)  # Yield BEFORE writing large result
 
                         # Truncate extremely large results
                         if result_size > 50000:
-                            app.write(f"[yellow]⚠️ Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
+                            app.write(f"[yellow]! Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
                             result_display = str(result)[:50000] + f"\n\n... [TRUNCATED {result_size - 50000:,} chars]"
                         else:
                             result_display = result
@@ -1852,15 +3351,15 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
                         session.messages.append(tool_msg)
                         if session.debug_mode:
-                            app.write(f"[dim]🔍 DEBUG: Added tool result for {tc.id}[/dim]\n")
+                            app.write(f"[dim]DEBUG: Added tool result for {tc.id}[/dim]\n")
                         await asyncio.sleep(0)  # Yield after each tool result added
 
                     # Save session with tool results (non-blocking)
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: About to save session after tools...[/dim]\n")
+                        app.write(f"[dim]DEBUG: About to save session after tools...[/dim]\n")
                     await asyncio.to_thread(session.save)
                     if session.debug_mode:
-                        app.write(f"[dim]🐛 STALL DEBUG: Session save COMPLETED[/dim]\n")
+                        app.write(f"[dim]DEBUG: Session save COMPLETED[/dim]\n")
 
                     # Continue conversation - LOOP until API sends EOS token (finish_reason: "stop")
                     app.write("\n[dim]Continuing with tool results...[/dim]\n")
@@ -1874,12 +3373,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             continuation_round += 1
 
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 CONTINUATION ROUND #{continuation_round}: Preparing messages...[/dim]\n")
+                                app.write(f"[dim]DEBUG CONTINUATION ROUND #{continuation_round}: Preparing messages...[/dim]\n")
         
                             # Recursive call to get AI's response to tool results
                             # Debug: Show session messages before processing (only if debug mode enabled)
                             if session.debug_mode:
-                                app.write(f"[dim]🔍 DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
+                                app.write(f"[dim]→ DEBUG RAW SESSION: {len(session.messages)} messages before agent processing[/dim]\n")
                                 for i, msg in enumerate(session.messages):
                                     role = msg.get('role', 'unknown')
                                     has_tool_calls = 'tool_calls' in msg
@@ -1891,7 +3390,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             try:
                                 if agent_manager:
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: Using agent manager for continuation...[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Using agent manager for continuation...[/dim]\n")
                                     # RUN IN THREAD TO PREVENT BLOCKING THE EVENT LOOP!
                                     messages_with_context = await asyncio.to_thread(
                                         agent_manager.prepare_messages,
@@ -1901,10 +3400,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         session.session_id
                                     )
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: agent_manager continuation COMPLETED[/dim]\n")
+                                        app.write(f"[dim]DEBUG: agent_manager continuation COMPLETED[/dim]\n")
                                 else:
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: Using fallback context for continuation...[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Using fallback context for continuation...[/dim]\n")
                                     messages_with_context = await prepare_messages_with_context(
                                         session.messages,
                                         config,
@@ -1912,17 +3411,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                         goal_tracker=goal_tracker
                                     )
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 STALL DEBUG: Fallback context continuation COMPLETED[/dim]\n")
+                                        app.write(f"[dim]DEBUG: Fallback context continuation COMPLETED[/dim]\n")
                             except Exception as e:
                                 if session.debug_mode:
-                                    app.write(f"[dim]🔍 DEBUG ERROR in message preparation: {e}[/dim]\n")
+                                    app.write(f"[dim]→ DEBUG ERROR in message preparation: {e}[/dim]\n")
                                 import traceback
                                 app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                                 return
         
                             # Debug: Log continuation message structure (only if debug mode enabled)
                             if session.debug_mode:
-                                app.write(f"[dim]🔍 DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
+                                app.write(f"[dim]→ DEBUG CONTINUATION: Sending {len(messages_with_context)} messages to API[/dim]\n")
                                 for i, msg in enumerate(messages_with_context):
                                     role = msg.get('role', 'unknown')
                                     has_tool_calls = 'tool_calls' in msg
@@ -1939,26 +3438,27 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             await asyncio.sleep(0)  # Yield to UI
     
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 STALL DEBUG: About to call continuation API...[/dim]\n")
-                                app.write(f"[dim]🐛 STALL DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
+                                app.write(f"[dim]DEBUG: About to call continuation API...[/dim]\n")
+                                app.write(f"[dim]DEBUG: Message count: {len(messages_with_context)}, tools: {len(TOOLS)}[/dim]\n")
     
                             # CRITICAL FIX: Yield control to event loop before heavy API call
                             await asyncio.sleep(0)
         
                             try:
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Creating API request object...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Creating API request object...[/dim]\n")
         
-                                # Create the API call - this might block during request setup
+                                # Create the API call - COMPLETELY CLEAN
+                                # NO tools parameter, NO extra_body, NOTHING
+                                # Tools are in system message context - AI responds naturally
                                 api_call = client.chat.completions.create(
                                     model=session.model or config["model"],
                                     messages=messages_with_context,
-                                    opentools=TOOLS,
                                     stream=True
                                 )
         
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: API request created, waiting for response (no timeout)...[/dim]\n")
 
                                 # No timeout - let it run indefinitely
                                 if api_timeout:
@@ -1967,23 +3467,23 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     response = await api_call
 
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Continuation API returned, streaming...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Continuation API returned, streaming...[/dim]\n")
                             except asyncio.TimeoutError:
                                 timeout_msg = f"{api_timeout}s" if api_timeout else "unknown"
-                                app.write(f"[red]❌ Continuation API request timed out after {timeout_msg}[/red]\n")
-                                app.write("[yellow]⚠️ The API did not respond to tool results. Try again.[/yellow]\n")
+                                app.write(f"[red]✗ Continuation API request timed out after {timeout_msg}[/red]\n")
+                                app.write("[yellow]! The API did not respond to tool results. Try again.[/yellow]\n")
                                 restore_ui_state()
                                 return
                             except Exception as api_error:
                                 # CRITICAL: Catch ALL API errors (422, network, etc.)
-                                app.write(f"\n[red]❌ API Error (continuation round {continuation_round}):[/red]\n")
+                                app.write(f"\n[red]✗ API Error (continuation round {continuation_round}):[/red]\n")
                                 app.write(f"[red]{str(api_error)}[/red]\n\n")
 
                                 if session.debug_mode:
                                     import traceback
                                     app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
 
-                                app.write("[yellow]⚠️ API rejected the tool results. Check message format.[/yellow]\n")
+                                app.write("[yellow]! API rejected the tool results. Check message format.[/yellow]\n")
                                 restore_ui_state()
                                 return
 
@@ -2002,6 +3502,17 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             stream_buffer_cont.start()
                             await status_display_cont.start()
 
+                            # Start draining buffer in background task
+                            async def write_stream_chunk_cont(text):
+                                """Write callback for drain_smooth"""
+                                if hasattr(app, '_resolve_content_widget'):
+                                    content_widget = app._resolve_content_widget()
+                                    if content_widget and hasattr(content_widget, 'write_stream'):
+                                        content_widget.write_stream(text)
+                                await asyncio.sleep(0)
+
+                            drain_task_cont = asyncio.create_task(stream_buffer_cont.drain_smooth(write_stream_chunk_cont))
+
                             async for chunk in response:
                                 # CRITICAL: Yield at start of each chunk to keep UI responsive
                                 await asyncio.sleep(0)
@@ -2011,14 +3522,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     current_time = asyncio.get_event_loop().time()
 
                                     if app.should_exit:
-                                        stream_buffer_cont.interrupt()
                                         break
 
                                     # Capture finish_reason (CRITICAL for knowing when to stop!)
                                     if chunk.choices and chunk.choices[0].finish_reason:
                                         finish_reason_continuation = chunk.choices[0].finish_reason
                                         if session.debug_mode:
-                                            app.write(f"[dim]🐛 STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
+                                            app.write(f"[dim]DEBUG STREAM FINISH: Chunk #{chunk_count}, finish_reason: {finish_reason_continuation}[/dim]\n")
 
                                     delta = chunk.choices[0].delta if chunk.choices else None
                                     if not delta:
@@ -2039,37 +3549,61 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     # Handle content
                                     if delta.content:
                                         full_response += delta.content
-                                        # Buffer the content instead of writing immediately
+                                        # Add to buffer - will be drained smoothly by background task
                                         await stream_buffer_cont.add_chunk(delta.content)
 
                                 except Exception as chunk_error:
                                     # CRITICAL: Don't let chunk errors kill the entire stream
-                                    app.write(f"\n[red]⚠️ Chunk #{chunk_count} error: {chunk_error}[/red]\n")
+                                    app.write(f"\n[red]! Chunk #{chunk_count} error: {chunk_error}[/red]\n")
                                     if session.debug_mode:
                                         import traceback
                                         app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
                                     # Continue processing next chunk
                                     await asyncio.sleep(0)
 
-                            # Finish receiving and stop status
+                            # Finish receiving and wait for drain to complete
                             stream_buffer_cont.finish_receiving()
-                            await status_display_cont.stop()
-                            status_display_cont.write_final_status()
+                            await drain_task_cont  # Wait for all buffered content to be displayed
 
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 CONTINUATION STREAM: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
-                                app.write(f"[dim]🐛 CONTINUATION STREAM: Full response length: {len(full_response)} chars[/dim]\n")
-                                app.write(f"[dim]🐛 CONTINUATION STREAM: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
+                                app.write(f"[dim]CONTINUATION: Streaming complete. Total chunks: {chunk_count}[/dim]\n")
+                                app.write(f"[dim]CONTINUATION: Full response length: {len(full_response)} chars[/dim]\n")
+                                app.write(f"[dim]CONTINUATION: Tool calls dict size: {len(tool_calls_dict_continuation)}[/dim]\n")
 
-                            # Render markdown ONCE from complete response (no incremental rendering)
+                            if full_response and not tool_calls_dict_continuation and extract_tool_calls_from_text:
+                                parsed_calls, cleaned_text = extract_tool_calls_from_text(full_response)
+                                if parsed_calls:
+                                    start_idx = len(tool_calls_dict_continuation)
+                                    for offset, call in enumerate(parsed_calls):
+                                        name = call.get("name", "")
+                                        arguments_dict = call.get("arguments", {})
+                                        try:
+                                            arguments_json = json.dumps(arguments_dict)
+                                        except TypeError:
+                                            arguments_json = json.dumps({})
+                                        tool_calls_dict_continuation[start_idx + offset] = {
+                                            "id": call.get("id", f"text_cont_{start_idx + offset}"),
+                                            "type": "function",
+                                            "name": name,
+                                            "arguments": arguments_json
+                                        }
+                                    if session.debug_mode:
+                                        app.write(f"[dim]DEBUG: Parsed {len(parsed_calls)} continuation tool calls from text[/dim]\n")
+                                    full_response = cleaned_text
+
+                            # Finish streaming and render markdown BEFORE removing buffer status
                             if full_response and not tool_calls_dict_continuation:
-                                await write_markdown_response(app, full_response)
+                                if hasattr(app, 'finish_stream'):
+                                    app.finish_stream()
                                 app.write("\n")
+
+                            # Remove buffer status AFTER markdown is displayed (prevents black flash)
+                            await status_display_cont.stop()
 
                             # Check if continuation has MORE tool calls - HANDLE THEM RECURSIVELY!
                             if tool_calls_dict_continuation:
                                 if session.debug_mode:
-                                    app.write(f"\n[dim]🐛 RECURSIVE TOOLS: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
+                                    app.write(f"\n[dim]RECURSIVE: Continuation returned {len(tool_calls_dict_continuation)} tool calls[/dim]\n")
                                     for idx, tc_data in tool_calls_dict_continuation.items():
                                         app.write(f"[dim]  Tool #{idx}: {tc_data['name']}[/dim]\n")
         
@@ -2096,8 +3630,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 # Execute each continuation tool
                                 for tc in tool_calls_continuation:
                                     if session.debug_mode:
-                                        app.write(f"[dim]🐛 RECURSIVE: Executing {tc.function.name}[/dim]\n")
-                                    app.write(f"[dim]⚙ {tc.function.name}[/dim]\n")
+                                        app.write(f"[dim]DEBUG RECURSIVE: Executing {tc.function.name}[/dim]\n")
+                                    app.write(f"[dim]▸ {tc.function.name}[/dim]\n")
                                     args = json.loads(tc.function.arguments)
 
                                     # PERMISSION CHECK - Non-blocking, fail-open if errors
@@ -2127,8 +3661,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                                         tc.function.name, args, session.cwd if hasattr(session, 'cwd') else os.getcwd()
                                                     )
 
-                                                    # TEMP DEBUG: Show permission decision
-                                                    if session.debug_mode or True:  # Always show for now
+                                                    # Show permission decision in debug mode only
+                                                    if session.debug_mode:
                                                         app.write(f"[dim]🔒 {tc.function.name}: should_prompt={should_prompt}, reason={reason}[/dim]\n")
 
                                                     if should_prompt:
@@ -2139,16 +3673,16 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                                                         if not allowed:
                                                             # Permission denied - skip tool execution
-                                                            result = f"❌ Operation cancelled by user"
+                                                            result = f"✗ Operation cancelled by user"
                                                             session.messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
                                                             continue  # Skip to next tool call
                                                 else:
-                                                    app.write(f"[yellow]⚠️ handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
+                                                    app.write(f"[yellow]! handler={handler is not None}, perm_mgr={session.permission_manager is not None}[/yellow]\n")
                                             else:
-                                                app.write(f"[yellow]⚠️ Could not import get_global_handler[/yellow]\n")
+                                                app.write(f"[yellow]! Could not import get_global_handler[/yellow]\n")
                                         except Exception as e:
                                             # Permission check failed - show error for now
-                                            app.write(f"[red]⚠️ Permission check error: {e}[/red]\n")
+                                            app.write(f"[red]! Permission check error: {e}[/red]\n")
                                             pass
 
                                     # Execute tool
@@ -2168,12 +3702,12 @@ async def interactive_async(config, session=None, initial_prompt=None):
     
                                     # Show result size and truncate if needed
                                     result_size = len(str(result))
-                                    app.write(f"[dim]📊 Result size: {result_size:,} chars[/dim]\n")
+                                    app.write(f"[dim]Result size: {result_size:,} chars[/dim]\n")
                                     await asyncio.sleep(0)  # Yield BEFORE writing large result
     
                                     # Truncate extremely large results
                                     if result_size > 50000:
-                                        app.write(f"[yellow]⚠️ Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
+                                        app.write(f"[yellow]! Result too large ({result_size:,} chars), truncating to 50,000...[/yellow]\n")
                                         result_display = str(result)[:50000] + f"\n\n... [TRUNCATED {result_size - 50000:,} chars]"
                                     else:
                                         result_display = result
@@ -2201,7 +3735,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 await asyncio.to_thread(session.save)
         
                                 if session.debug_mode:
-                                    app.write(f"\n[dim]🐛 RECURSIVE: Tools executed, looping for another API call...[/dim]\n")
+                                    app.write(f"\n[dim]DEBUG RECURSIVE: Tools executed, looping for another API call...[/dim]\n")
         
                                 app.write("\n[dim]Continuing with more tool results...[/dim]\n")
                                 await asyncio.sleep(0)  # Yield before next loop iteration
@@ -2211,36 +3745,36 @@ async def interactive_async(config, session=None, initial_prompt=None):
         
                             # No tool calls in this response - check finish_reason to know what to do
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 LOOP: No tool calls, finish_reason: {finish_reason_continuation}[/dim]\n")
+                                app.write(f"[dim]DEBUG LOOP: No tool calls, finish_reason: {finish_reason_continuation}[/dim]\n")
     
                             # Only exit on EOS token (finish_reason: "stop")
                             if finish_reason_continuation != "stop":
                                 # Not done yet - continue streaming
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 LOOP: No stop token, continuing loop...[/dim]\n")
+                                    app.write(f"[dim]DEBUG LOOP: No stop token, continuing loop...[/dim]\n")
                                 continue
     
                             # finish_reason == "stop" - EOS token, conversation complete
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 LOOP: EOS token received, exiting continuation loop[/dim]\n")
+                                app.write(f"[dim]DEBUG LOOP: EOS token received, exiting continuation loop[/dim]\n")
         
                             # Finish and save continuation (EOS reached)
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream...[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: About to call finish_stream...[/dim]\n")
                             if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                                 app.finish_stream()
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: finish_stream done, writing newlines...[/dim]\n")
                             app.write("\n\n")
                             # CRITICAL: Yield after write
                             await asyncio.sleep(0)
         
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner...[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: About to stop_spinner...[/dim]\n")
                             if hasattr(app, 'stop_spinner'):
                                 app.stop_spinner()
                             if session.debug_mode:
-                                app.write(f"[dim]🐛 POST-STREAM: stop_spinner done[/dim]\n")
+                                app.write(f"[dim]POST-STREAM: stop_spinner done[/dim]\n")
         
                             # Only save if we have content
                             if full_response.strip():
@@ -2249,21 +3783,21 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     "content": full_response
                                 })
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Saving continuation response...[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Saving continuation response...[/dim]\n")
                                 await asyncio.to_thread(session.save)
                                 if session.debug_mode:
-                                    app.write(f"[dim]🐛 STALL DEBUG: Continuation save COMPLETED[/dim]\n")
+                                    app.write(f"[dim]DEBUG: Continuation save COMPLETED[/dim]\n")
                                 app.update_status()
     
                             break  # Exit the continuation loop
     
                         # End of while loop - all continuation rounds complete
                         if session.debug_mode:
-                            app.write(f"[dim]🐛 LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
+                            app.write(f"[dim]DEBUG LOOP COMPLETE: Exited after {continuation_round} rounds[/dim]\n")
 
                         # Warn if safety limit was hit
                         if continuation_round >= max_continuation_rounds:
-                            app.write(f"[yellow]⚠️ Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
+                            app.write(f"[yellow]! Safety limit reached: {max_continuation_rounds} continuation rounds. Response may be incomplete.[/yellow]\n")
 
                     except Exception as e:
                         # CRITICAL: Gracefully handle continuation errors instead of freezing
@@ -2279,11 +3813,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 # No tool calls - regular response
                 # Finish streaming to process markdown FIRST (before adding newlines)
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: About to call finish_stream (regular path)...[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: About to call finish_stream (regular path)...[/dim]\n")
                 if hasattr(app, 'finish_stream') and not getattr(session, 'fast_mode', False):
                     app.finish_stream()
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: finish_stream done (regular path)[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: finish_stream done (regular path)[/dim]\n")
 
                 # Then add spacing after rendered markdown
                 app.write("\n\n")
@@ -2292,11 +3826,11 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # Stop spinner - API response complete
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: About to stop_spinner (regular path)...[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: About to stop_spinner (regular path)...[/dim]\n")
                 if hasattr(app, 'stop_spinner'):
                     app.stop_spinner()
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 POST-STREAM: stop_spinner done (regular path)[/dim]\n")
+                    app.write(f"[dim]POST-STREAM: stop_spinner done (regular path)[/dim]\n")
 
                 # Save response
                 session.messages.append({
@@ -2306,10 +3840,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 # Auto-save session state (non-blocking)
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: Saving regular response...[/dim]\n")
+                    app.write(f"[dim]DEBUG: Saving regular response...[/dim]\n")
                 await asyncio.to_thread(session.save)
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: Regular response save COMPLETED[/dim]\n")
+                    app.write(f"[dim]DEBUG: Regular response save COMPLETED[/dim]\n")
 
                 # Broadcast response to IPC clients
                 if hasattr(session, 'ipc_server') and session.ipc_server and session.ipc_server.running:
@@ -2331,7 +3865,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 app.update_status()
 
                 if session.debug_mode:
-                    app.write(f"[dim]🐛 STALL DEBUG: ✅ Stream AI response FULLY COMPLETED[/dim]\n")
+                    app.write(f"[dim]DEBUG: ✓ Stream AI response FULLY COMPLETED[/dim]\n")
 
             except Exception as e:
                 # Show error with traceback

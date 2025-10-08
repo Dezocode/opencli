@@ -76,16 +76,7 @@ class AsyncPermissionHandler:
 
         # Show prompt in UI
         if self.app and hasattr(self.app, 'stream_display'):
-            import sys
-            sys.stderr.write(f"\n🔒 Calling add_permission_prompt for {tool_name}...\n")
-            sys.stderr.flush()
             self.app.stream_display.add_permission_prompt(prompt_data)
-            sys.stderr.write(f"🔒 add_permission_prompt returned\n")
-            sys.stderr.flush()
-        else:
-            import sys
-            sys.stderr.write(f"\n⚠️ Cannot show prompt: app={self.app is not None}, has_stream_display={hasattr(self.app, 'stream_display') if self.app else False}\n")
-            sys.stderr.flush()
 
         # Wait for user response (with timeout)
         try:
@@ -155,6 +146,21 @@ class AsyncPermissionHandler:
         elif tool_name == "WebFetch":
             return PermissionTemplates.webfetch(
                 url=args.get('url', '')
+            )
+
+        elif tool_name == "ConfigureHeaders":
+            return PermissionTemplates.configure_headers(
+                provider=args.get('provider', ''),
+                model=args.get('model'),
+                issue=args.get('issue'),
+                current_headers=args.get('current_headers', {}),
+                proposed_headers=args.get('proposed_headers')
+            )
+
+        elif tool_name == "Refactoring":
+            return PermissionTemplates.code_refactoring(
+                plan=args.get('plan', {}),
+                result=args.get('result', {})
             )
 
         # Fallback - generic prompt

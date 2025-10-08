@@ -1,0 +1,339 @@
+# OpenCLI Architecture Blueprint
+# Defines the desired structure, dependencies, and performance budgets
+# Used by the Intelligent Refactoring Engine to maintain code quality
+
+version: "1.0"
+project: "OpenCLI"
+
+# ==============================================================================
+# MODULE STRUCTURE
+# ==============================================================================
+
+modules:
+  # Core entry point
+  - name: opencli
+    path: opencli.py
+    responsibility: "Main entry point, CLI argument parsing, mode orchestration"
+    max_lines: 500
+    allowed_imports:
+      - modules.async_interactive
+      - modules.session_manager
+      - modules.config_loader
+      - modules.simple_tui
+    forbidden_imports:
+      - modules.api_client  # Should go through session_manager
+      - modules.streaming_display  # TUI concern, not main concern
+
+  # Interactive mode
+  - name: async_interactive
+    path: modules/async_interactive.py
+    responsibility: "Async interactive mode, command handling, conversation flow"
+    max_lines: 2000  # Currently bloated - target for refactoring
+    allowed_imports:
+      - modules.session_manager
+      - modules.api_client
+      - modules.model_manager
+      - modules.tool_executor
+      - modules.simple_tui
+      - modules.profiler
+      - modules.performance_monitor
+    concerns:
+      - "TOO LARGE - needs splitting into command handlers"
+      - "Mix of UI and business logic - separate concerns"
+
+  # Session management
+  - name: session_manager
+    path: modules/session_manager.py
+    responsibility: "Session state, conversation history, persistence"
+    max_lines: 500
+    allowed_imports:
+      - modules.config_loader
+      - modules.context_builder
+    forbidden_imports:
+      - modules.simple_tui  # No UI dependencies
+      - modules.api_client  # Should not know about API
+
+  # API layer
+  - name: api_client
+    path: modules/api_client.py
+    responsibility: "HTTP communication with LLM providers"
+    max_lines: 800
+    allowed_imports:
+      - modules.config_loader
+      - modules.uptime_checker
+      - modules.header_autoconfig
+    forbidden_imports:
+      - modules.session_manager  # No state dependencies
+      - modules.simple_tui  # No UI dependencies
+
+  # TUI layer
+  - name: simple_tui
+    path: modules/simple_tui.py
+    responsibility: "Textual UI, display rendering, user input"
+    max_lines: 1200  # Currently bloated
+    allowed_imports:
+      - modules.streaming_display
+      - modules.multiline_input
+      - modules.frontier_colors
+      - modules.markdown_renderer
+    forbidden_imports:
+      - modules.api_client  # No API knowledge
+      - modules.session_manager  # Should receive data, not manage it
+    concerns:
+      - "Mouse event forwarding is complex - consider simplification"
+      - "Queue processing thread - ensure no blocking"
+
+  - name: streaming_display
+    path: modules/streaming_display.py
+    responsibility: "Streaming text display with markdown rendering"
+    max_lines: 800
+    allowed_imports:
+      - modules.markdown_renderer
+      - modules.frontier_colors
+    forbidden_imports:
+      - modules.session_manager
+      - modules.api_client
+    concerns:
+      - "Text selection coordinate mapping is complex"
+      - "Multiple _rebuild_display calls - optimize"
+
+  # Tool execution
+  - name: tool_executor
+    path: modules/tool_executor.py
+    responsibility: "Execute tool calls from LLM responses"
+    max_lines: 600
+    allowed_imports:
+      - modules.permission_handler
+      - modules.github_tool
+    forbidden_imports:
+      - modules.simple_tui  # No UI dependencies
+
+  # Profiling and refactoring
+  - name: profiler
+    path: modules/profiler.py
+    responsibility: "Runtime profiling, thread analysis, performance monitoring"
+    max_lines: 400
+    allowed_imports: []  # Pure analysis, no dependencies
+    forbidden_imports:
+      - modules.*  # Should be completely independent
+
+# ==============================================================================
+# PERFORMANCE BUDGETS (milliseconds)
+# ==============================================================================
+
+performance_budgets:
+  # Critical path - user input processing
+  - function: "process_user_input"
+    max_time_ms: 50
+    location: "modules/async_interactive.py"
+
+  - function: "handle_tool_call"
+    max_time_ms: 100
+    location: "modules/tool_executor.py"
+
+  # TUI rendering
+  - function: "write_stream"
+    max_time_ms: 10
+    location: "modules/streaming_display.py"
+
+  - function: "_rebuild_display"
+    max_time_ms: 50
+    location: "modules/streaming_display.py"
+    rationale: "Called frequently during text updates"
+
+  # API calls (network-bound, higher tolerance)
+  - function: "send_message"
+    max_time_ms: 5000
+    location: "modules/api_client.py"
+    rationale: "Network I/O, but should timeout if excessive"
+
+  # Mouse event handling
+  - function: "_handle_mouse_move"
+    max_time_ms: 5
+    location: "modules/streaming_display.py"
+    rationale: "Called many times per second during drag"
+
+# ==============================================================================
+# THREADING RULES
+# ==============================================================================
+
+threading_rules:
+  # Main thread - UI only
+  - thread_name: "MainThread"
+    allowed_operations:
+      - "Textual event loop"
+      - "User input handling"
+      - "Display updates"
+    forbidden_operations:
+      - "Blocking I/O"
+      - "Heavy computation"
+      - "Long-running operations"
+
+  # Background threads
+  - thread_pattern: "queue_processor"
+    purpose: "Batch write operations to reduce UI blocking"
+    max_blocking_time_ms: 100
+    location: "modules/simple_tui.py"
+
+  - thread_pattern: "AsyncWorker"
+    purpose: "Async I/O operations"
+    max_blocking_time_ms: 5000
+
+# ==============================================================================
+# REFACTORING TARGETS
+# ==============================================================================
+
+refactoring_targets:
+  # High priority - files that are too large
+  - file: "modules/async_interactive.py"
+    current_lines: 2000
+    target_lines: 800
+    split_strategy:
+      - extract: "Command handlers"
+        to: "modules/command_handlers.py"
+        functions:
+          - "handle_/refactor"
+          - "handle_/model"
+          - "handle_/provider"
+          - "handle_/debug"
+          - "handle_/performance"
+
+      - extract: "Tool execution flow"
+        to: "modules/tool_flow.py"
+        functions:
+          - "process_tool_calls"
+          - "execute_single_tool"
+          - "format_tool_result"
+
+  - file: "modules/simple_tui.py"
+    current_lines: 1200
+    target_lines: 600
+    split_strategy:
+      - extract: "Mouse event handling"
+        to: "modules/mouse_handler.py"
+        functions:
+          - "on_mouse_down"
+          - "on_mouse_move"
+          - "on_mouse_up"
+          - "capture_mouse"
+          - "release_mouse"
+
+  - file: "modules/streaming_display.py"
+    current_lines: 800
+    target_lines: 500
+    split_strategy:
+      - extract: "Text selection logic"
+        to: "modules/text_selector.py"
+        functions:
+          - "_handle_mouse_down"
+          - "_handle_mouse_move"
+          - "_handle_mouse_up"
+          - "_get_selected_text"
+          - "_copy_selection"
+          - "_apply_selection_highlight"
+
+# ==============================================================================
+# CODE QUALITY RULES
+# ==============================================================================
+
+quality_rules:
+  # Function complexity
+  - rule: "max_function_lines"
+    value: 50
+    exceptions:
+      - "modules/async_interactive.py:async_interactive_mode"  # Main loop
+      - "modules/simple_tui.py:compose"  # UI composition
+
+  - rule: "max_function_complexity"
+    value: 10
+    metric: "cyclomatic_complexity"
+
+  # Nesting
+  - rule: "max_nesting_depth"
+    value: 4
+    exceptions:
+      - "*.py:*compose*"  # UI composition methods
+
+  # Imports
+  - rule: "no_circular_imports"
+    value: true
+
+  - rule: "no_wildcard_imports"
+    value: true
+
+# ==============================================================================
+# ARCHITECTURAL PATTERNS
+# ==============================================================================
+
+patterns:
+  # Dependency injection
+  - pattern: "dependency_injection"
+    description: "Pass dependencies as parameters, not globals"
+    applies_to:
+      - "modules/tool_executor.py"
+      - "modules/api_client.py"
+
+  # Single responsibility
+  - pattern: "single_responsibility"
+    description: "Each module should have one clear purpose"
+    violations:
+      - file: "modules/async_interactive.py"
+        reason: "Handles commands, tool execution, AND UI updates"
+
+  # Separation of concerns
+  - pattern: "ui_business_separation"
+    description: "UI code should not contain business logic"
+    check:
+      - "modules/simple_tui.py should not import modules/api_client"
+      - "modules/streaming_display.py should not import modules/session_manager"
+
+# ==============================================================================
+# METRICS TRACKING
+# ==============================================================================
+
+metrics:
+  # Track these over time
+  track:
+    - metric: "total_lines_of_code"
+      target: "< 15000"
+
+    - metric: "average_function_length"
+      target: "< 30 lines"
+
+    - metric: "module_count"
+      target: "< 50 modules"
+
+    - metric: "circular_dependency_count"
+      target: "0"
+
+    - metric: "test_coverage"
+      target: "> 70%"
+
+# ==============================================================================
+# COMPLIANCE CHECKS
+# ==============================================================================
+
+checks:
+  # Run these automatically
+  on_commit:
+    - check: "forbidden_imports"
+      fail_on_violation: true
+
+    - check: "max_file_size"
+      fail_on_violation: false
+      warn_only: true
+
+    - check: "performance_budgets"
+      fail_on_violation: false
+      warn_only: true
+
+  on_merge:
+    - check: "all_tests_pass"
+      fail_on_violation: true
+
+    - check: "no_circular_imports"
+      fail_on_violation: true
+
+    - check: "code_quality_rules"
+      fail_on_violation: false
+      warn_only: true
