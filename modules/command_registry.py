@@ -5,11 +5,14 @@ Centralized command management with permission system
 
 import json
 from pathlib import Path
+from typing import List, Dict, Optional
+from dataclasses import dataclass
 
 class CommandRegistry:
     def __init__(self, config_dir=None):
         self.config_dir = config_dir or Path.home() / ".opencli"
         self.permissions_file = self.config_dir / "command_permissions.json"
+        self.usage_file = self.config_dir / "command_usage.json"
 
         # Define all available commands
         self.available_commands = {
@@ -365,62 +368,202 @@ class CommandRegistry:
 
                 print()
 
-        # Save permissions
-        self._save_permissions(self.permissions)
+    # ========================================================================
+    # COMMAND SEARCH AND AUTOCOMPLETE
+    # ========================================================================
 
-        print("\n" + "="*60)
-        print("✅ Command permissions updated!")
-        print("="*60 + "\n")
+    def search_commands(
+        self,
+        query: str,
+        feature_flags: Optional[Dict] = None,
+        limit: Optional[int] = None
+    ) -> List[Dict]:
+        """Search commands with priority-based ranking.
 
-        # Show summary
-        enabled = [cmd for cmd in self.permissions if self.permissions[cmd]]
-        disabled = [cmd for cmd in self.permissions if not self.permissions[cmd]]
+        Search algorithm priority:
+        1. Exact prefix match (score: 1000)
+        2. Fuzzy match (score: 500)
+        3. Description match (score: 250)
+        4. Usage frequency (score: 0-100)
 
-        print(f"Enabled commands ({len(enabled)}): {', '.join(sorted(enabled))}")
-        if disabled:
-            print(f"Disabled commands ({len(disabled)}): {', '.join(sorted(disabled))}")
-        print()
+        Args:
+            query: Search query (e.g., "/mo" or "/")
+            feature_flags: Feature availability dict
+            limit: Maximum number of results
 
-        return self.permissions
-
-    def show_status(self, feature_flags=None):
-        """Show current command status"""
+        Returns:
+            List of command matches sorted by score (highest first)
+        """
         feature_flags = feature_flags or {}
+        usage_stats = self.get_usage_stats()
 
-        print("\n📋 Command Status\n")
+        # Normalize query
+        query = query.strip().lower()
+        if not query.startswith('/'):
+            query = f'/{query}'
 
-        categories = {}
+        matches = []
+
         for cmd, info in self.available_commands.items():
-            cat = info['category']
-            if cat not in categories:
-                categories[cat] = []
-            categories[cat].append((cmd, info))
-
-        for category in ['basic', 'spec-driven', 'agents', 'advanced', 'system']:
-            if category not in categories:
+            # Skip disabled commands
+            if not self.permissions.get(cmd, info['default_enabled']):
                 continue
 
-            print(f"{category.upper()}:")
+            # Skip if required feature unavailable
+            if 'requires_feature' in info:
+                if not feature_flags.get(info['requires_feature'], False):
+                    continue
 
-            for cmd, info in sorted(categories[category]):
-                # Check feature availability
-                feature_available = True
-                feature_note = ""
-                if 'requires_feature' in info:
-                    feature_available = feature_flags.get(info['requires_feature'], False)
-                    if not feature_available:
-                        feature_note = " (feature unavailable)"
+            # Calculate score
+            score = self._score_command(cmd, info, query, usage_stats.get(cmd, 0))
 
-                # Get status
-                enabled = self.permissions.get(cmd, info['default_enabled'])
+            if score > 0:
+                matches.append({
+                    'name': cmd,
+                    'description': info['description'],
+                    'category': info['category'],
+                    'score': score,
+                    'usage_count': usage_stats.get(cmd, 0)
+                })
 
-                if not feature_available:
-                    status = "❌"
-                elif enabled:
-                    status = "✓"
-                else:
-                    status = "✗"
+        # Sort by score (descending)
+        matches.sort(key=lambda x: x['score'], reverse=True)
 
-                print(f"  {status} {cmd:15} {info['description']}{feature_note}")
+        if limit:
+            matches = matches[:limit]
 
-            print()
+        return matches
+
+    def _score_command(
+        self,
+        cmd: str,
+        info: Dict,
+        query: str,
+        usage_count: int
+    ) -> int:
+        """Calculate search score for a command.
+
+        Args:
+            cmd: Command name (e.g., "/model")
+            info: Command metadata dict
+            query: Search query
+            usage_count: Number of times command used
+
+        Returns:
+            Score (higher = better match)
+        """
+        score = 0
+        cmd_lower = cmd.lower()
+        query_lower = query.lower()
+        desc_lower = info['description'].lower()
+
+        # 1. Exact prefix match (highest priority)
+        if cmd_lower.startswith(query_lower):
+            score += 1000
+            # Bonus for exact match
+            if cmd_lower == query_lower:
+                score += 500
+
+        # 2. Fuzzy match (contains query)
+        elif query_lower in cmd_lower:
+            score += 500
+
+        # 3. Description match
+        elif query_lower.replace('/', '') in desc_lower:
+            score += 250
+
+        else:
+            # No match
+            return 0
+
+        # 4. Add usage frequency bonus (0-100)
+        usage_bonus = min(usage_count, 100)
+        score += usage_bonus
+
+        return score
+
+    # ========================================================================
+    # USAGE TRACKING
+    # ========================================================================
+
+    def get_usage_stats(self) -> Dict[str, int]:
+        """Load command usage statistics from file.
+
+        Returns:
+            Dict mapping command names to usage counts
+        """
+        if not self.usage_file.exists():
+            return {}
+
+        try:
+            with open(self.usage_file) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_usage_stats(self, stats: Dict[str, int]) -> None:
+        """Persist usage statistics to file.
+
+        Args:
+            stats: Dict mapping command names to usage counts
+        """
+        try:
+            # Ensure config directory exists
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+
+            with open(self.usage_file, 'w') as f:
+                json.dump(stats, f, indent=2)
+        except Exception as e:
+            # Silent failure - usage tracking is not critical
+            pass
+
+    def record_usage(self, command: str) -> None:
+        """Increment usage counter for a command.
+
+        Args:
+            command: Command name (e.g., "/model" or "model")
+        """
+        # Normalize command
+        if not command.startswith('/'):
+            command = f'/{command}'
+
+        # Only track known commands
+        if command not in self.available_commands:
+            return
+
+        # Load current stats
+        stats = self.get_usage_stats()
+
+        # Increment counter
+        stats[command] = stats.get(command, 0) + 1
+
+        # Save updated stats
+        self._save_usage_stats(stats)
+
+    def get_most_used_commands(self, limit: int = 10) -> List[Dict]:
+        """Get most frequently used commands.
+
+        Args:
+            limit: Maximum number of commands to return
+
+        Returns:
+            List of dicts with command info sorted by usage
+        """
+        usage_stats = self.get_usage_stats()
+
+        # Build list with metadata
+        commands = []
+        for cmd, count in usage_stats.items():
+            if cmd in self.available_commands:
+                info = self.available_commands[cmd]
+                commands.append({
+                    'name': cmd,
+                    'description': info['description'],
+                    'category': info['category'],
+                    'usage_count': count
+                })
+
+        # Sort by usage (descending)
+        commands.sort(key=lambda x: x['usage_count'], reverse=True)
+
+        return commands[:limit]
