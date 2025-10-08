@@ -828,13 +828,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     from model_manager import ModelManager
 
                 local_model_mgr = ModelManager()
-                result = model_mgr.switch_model(session, model_id)
+                result = local_model_mgr.switch_model(session, model_id)
 
                 if result["success"]:
                     app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
 
                     # Refresh runtime config from model manager
-                    config.update(model_mgr.config)
+                    config.update(local_model_mgr.config)
                     app.config = config
 
                     # Show pricing info
@@ -1036,7 +1036,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
 
-                providers_mgr = ModelManager()
+                local_model_mgr = ModelManager()
 
                 # Parse args
                 parts = user_input.split(maxsplit=1)
@@ -1119,8 +1119,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 else:
                     # Switch model by number or ID
-                    models = model_mgr.list_available_models()
-                    recent = model_mgr.get_recent_models()
+                    models = local_model_mgr.list_available_models()
+                    recent = local_model_mgr.get_recent_models()
 
                     if not models:
                         app.write("[red]No models available. Use /model add first.[/red]\n\n")
@@ -1180,13 +1180,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             session._awaiting_model_confirm = model_id
                             return
 
-                    result = model_mgr.switch_model(session, model_id)
+                    result = local_model_mgr.switch_model(session, model_id)
 
                     if result["success"]:
                         app.write(f"[green]✓ Switched to {result['model']}[/green]\n\n")
 
                         # Refresh runtime config
-                        config.update(model_mgr.config)
+                        config.update(local_model_mgr.config)
                         app.config = config
 
                         # Show pricing info if available
