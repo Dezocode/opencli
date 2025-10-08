@@ -1750,12 +1750,25 @@ def interactive(config, session=None, initial=None):
                 while True:
                     try:
                         # Use prepared messages for API call - COMPLETELY CLEAN
-                        stream = client.chat.completions.create(
-                            model=session.model or config["model"],
-                            messages=prepared_messages,
-                            tools=TOOLS,
-                            stream=True
-                        )
+                        # Try with tools parameter first (OpenAI-compatible)
+                        try:
+                            stream = client.chat.completions.create(
+                                model=session.model or config["model"],
+                                messages=prepared_messages,
+                                tools=TOOLS,
+                                stream=True
+                            )
+                        except (TypeError, Exception) as tools_error:
+                            # If tools parameter not supported, try without it
+                            # (fallback for providers that don't support OpenAI tools format)
+                            if "tools" in str(tools_error).lower() or "unexpected" in str(tools_error).lower():
+                                stream = client.chat.completions.create(
+                                    model=session.model or config["model"],
+                                    messages=prepared_messages,
+                                    stream=True
+                                )
+                            else:
+                                raise
                         break
                     except Exception as e:
                         policy_message = extract_openrouter_policy_error(e) if extract_openrouter_policy_error else None

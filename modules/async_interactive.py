@@ -313,8 +313,9 @@ async def perform_google_request(
 
     # Debug: Check API key format
     import sys
+    print(f"\n[DEBUG Google] Full API Key: '{api_key}'", file=sys.stderr)
     print(f"[DEBUG Google] API Key length: {len(api_key)}", file=sys.stderr)
-    print(f"[DEBUG Google] API Key prefix: {api_key[:10]}...", file=sys.stderr)
+    print(f"[DEBUG Google] API Key type: {type(api_key)}", file=sys.stderr)
 
     base_url = (config.get("baseURL") or "").rstrip("/")
     if not base_url:
@@ -369,6 +370,11 @@ async def perform_google_request(
     # Build endpoint URL with API key as query parameter
     endpoint = f"{base_url}/models/{model_id}:generateContent?key={api_key}"
 
+    # Debug output
+    print(f"[DEBUG Google] Base URL: {base_url}", file=sys.stderr)
+    print(f"[DEBUG Google] Model ID: {model_id}", file=sys.stderr)
+    print(f"[DEBUG Google] Full Endpoint: {endpoint}", file=sys.stderr)
+
     headers = {
         "Content-Type": "application/json",
     }
@@ -377,6 +383,9 @@ async def perform_google_request(
     default_headers = config.get("defaultHeaders") or {}
     for key, value in default_headers.items():
         headers.setdefault(key, value)
+
+    print(f"[DEBUG Google] Headers: {headers}", file=sys.stderr)
+    print(f"[DEBUG Google] Payload keys: {list(payload.keys())}", file=sys.stderr)
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
