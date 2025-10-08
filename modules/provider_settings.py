@@ -16,6 +16,9 @@ from typing import Dict, Any
 _OPENROUTER_SITE = os.getenv("OPENROUTER_SITE_URL") or "https://github.com/Dezocode/opencli"
 _OPENROUTER_APP = os.getenv("OPENROUTER_APP_NAME") or "OpenCLI"
 
+# Allow users to override Ollama host via environment variable
+_OLLAMA_HOST = os.getenv("OLLAMA_HOST") or "http://localhost:11434"
+
 # NOTE: Keep names aligned with ModelManager.DEFAULT_PROVIDERS
 PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "openrouter": {
@@ -64,6 +67,16 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "key_patterns": ["AIza"],
         "request_format": "openai-chat",
         "default_headers": {}  # Google OpenAI-compatible endpoint uses standard Bearer token auth
+    },
+    "ollama": {
+        "name": "Ollama",
+        "base_url": f"{_OLLAMA_HOST}/v1",
+        "models_endpoint": f"{_OLLAMA_HOST}/api/tags",  # Ollama-specific endpoint
+        "key_patterns": ["ollama", "local"],  # No real key, just identifier
+        "request_format": "openai-chat",  # OpenAI-compatible
+        "default_headers": {},
+        "requires_key": False,  # Local server, no API key needed
+        "is_local": True  # Flag for local provider
     }
 }
 

@@ -589,6 +589,11 @@ class ModelManager:
         Returns:
             Provider ID or None if not detected
         """
+        # Check for local providers first (case-insensitive)
+        api_key_lower = api_key.lower()
+        if api_key_lower in ["ollama", "local"]:
+            return "ollama"
+
         for provider_id, provider_info in self.models_db.get("providers", {}).items():
             patterns = provider_info.get("key_patterns", [])
             for pattern in patterns:
@@ -643,14 +648,24 @@ class ModelManager:
     async def _fetch_openai_compatible(self, provider: str, provider_info: Dict, api_key: str) -> Dict:
         """Fetch models from OpenAI-compatible API"""
         try:
+            # Handle Ollama separately - different API format
+            if provider == "ollama":
+                return await self._fetch_ollama_models(provider_info)
+
             endpoint = provider_info.get("models_endpoint")
             if not endpoint:
                 return {"success": False, "error": "No models endpoint configured"}
 
+            # Check if API key is required
+            requires_key = provider_info.get("requires_key", True)
+            headers = {}
+            if requires_key and api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     endpoint,
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers=headers,
                     timeout=10.0
                 )
 
@@ -672,6 +687,51 @@ class ModelManager:
                     return {"success": False, "error": f"API error: {response.status_code}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def _fetch_ollama_models(self, provider_info: Dict) -> Dict:
+        """Fetch models from Ollama server using /api/tags endpoint"""
+        try:
+            endpoint = provider_info.get("models_endpoint")
+            if not endpoint:
+                return {"success": False, "error": "No models endpoint configured"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    endpoint,
+                    timeout=10.0
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    models = []
+
+                    # Ollama returns {"models": [{"name": "llama2", "modified_at": "...", "size": ...}]}
+                    for model in data.get("models", []):
+                        model_name = model.get("name", "")
+                        # Parse size (bytes) to GB for display
+                        size_bytes = model.get("size", 0)
+                        size_gb = round(size_bytes / (1024**3), 2) if size_bytes else 0
+
+                        models.append({
+                            "id": model_name,
+                            "name": model_name,
+                            "context": 4096,  # Default, Ollama doesn't expose this
+                            "pricing": {"prompt": "0", "completion": "0"},  # Local = free
+                            "architecture": {
+                                "size_gb": size_gb,
+                                "modified_at": model.get("modified_at", "")
+                            }
+                        })
+
+                    return {"success": True, "models": models, "count": len(models)}
+                elif response.status_code == 404:
+                    return {"success": False, "error": "Ollama server not found. Is Ollama running? (ollama serve)"}
+                else:
+                    return {"success": False, "error": f"Ollama API error: {response.status_code}"}
+        except httpx.ConnectError:
+            return {"success": False, "error": "Cannot connect to Ollama. Is the server running? (ollama serve)"}
+        except Exception as e:
+            return {"success": False, "error": f"Ollama error: {str(e)}"}
 
     def _get_anthropic_models(self) -> Dict:
         """Get predefined Anthropic models"""
