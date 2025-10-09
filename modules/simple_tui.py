@@ -723,6 +723,57 @@ Session: {self.session.session_id[:8]} | Ready
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
 
+        # Check if this is Docker action selection
+        if hasattr(self.session, '_awaiting_docker_action') and self.session._awaiting_docker_action:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_docker_action = False
+                self.write("\n[dim]Docker action cancelled[/dim]\n\n")
+                return
+
+            # Get action data
+            option_data = event.option.get('data', {})
+            action = option_data.get('action', '')
+
+            self.session._awaiting_docker_action = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Execute the action by simulating command
+            import asyncio
+            if action == 'status':
+                asyncio.create_task(self._handle_user_message('/docker status', self.query_one("#prompt-input")))
+            elif action == 'ps':
+                asyncio.create_task(self._handle_user_message('/docker ps', self.query_one("#prompt-input")))
+            elif action == 'stats':
+                asyncio.create_task(self._handle_user_message('/docker stats', self.query_one("#prompt-input")))
+            elif action == 'ollama_setup':
+                asyncio.create_task(self._handle_user_message('/docker ollama setup', self.query_one("#prompt-input")))
+            elif action == 'ollama_manage':
+                asyncio.create_task(self._handle_user_message('/docker ollama status', self.query_one("#prompt-input")))
+            elif action == 'browse_models':
+                # Show Ollama model browser
+                asyncio.create_task(self._show_ollama_model_browser())
+
+            return
+
         # Check if this is Docker Ollama setup
         if hasattr(self.session, '_awaiting_docker_ollama_setup') and self.session._awaiting_docker_ollama_setup:
             try:
@@ -764,6 +815,243 @@ Session: {self.session.session_id[:8]} | Ready
             # Create Docker container
             import asyncio
             asyncio.create_task(self._create_docker_ollama_container(cpu_limit, memory_limit, gpu_enabled))
+            return
+
+        # Check if this is model browser selection
+        if hasattr(self.session, '_awaiting_model_browser_selection') and self.session._awaiting_model_browser_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_model_browser_selection = False
+                self.write("\n[dim]Model browser cancelled[/dim]\n\n")
+                return
+
+            # Get model data
+            option_data = event.option.get('data', {})
+            model_name = option_data.get('model_name', '')
+            model_size = option_data.get('model_size', '')
+
+            self.session._awaiting_model_browser_selection = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Pull the model
+            self.write(f"\n[cyan]▸ Pulling {model_name} ({model_size})...[/cyan]\n\n")
+
+            # Check if Ollama is in Docker or native
+            try:
+                from modules.docker_manager import DockerManager
+            except ImportError:
+                import importlib
+                docker_mgr_mod = importlib.import_module('docker_manager')
+                DockerManager = docker_mgr_mod.DockerManager
+
+            docker_mgr = DockerManager()
+            is_docker_ollama, container_id = docker_mgr.is_ollama_running()
+
+            import asyncio
+            if is_docker_ollama:
+                # Pull in Docker container
+                self.write(f"[dim]Pulling model in Docker container...[/dim]\n\n")
+                pull_cmd = ['docker', 'exec', container_id, 'ollama', 'pull', model_name]
+
+                process = await asyncio.create_subprocess_exec(
+                    *pull_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+
+                # Stream output
+                async def read_stream(stream, prefix=""):
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        text = line.decode('utf-8').rstrip()
+                        if text:
+                            self.write(f"{prefix}{text}\n")
+
+                await asyncio.gather(
+                    read_stream(process.stdout, "[dim]  "),
+                    read_stream(process.stderr, "[dim red]  ")
+                )
+
+                await process.wait()
+
+                if process.returncode == 0:
+                    self.write(f"\n[green]✓ {model_name} installed successfully in Docker![/green]\n\n")
+                    self.write(f"[dim]Use [cyan]/providers add ollama[/cyan] to configure it as a provider[/dim]\n\n")
+                else:
+                    self.write(f"\n[red]✗ Pull failed (exit code {process.returncode})[/red]\n\n")
+            else:
+                # Pull with native Ollama
+                await self._run_ollama_pull(f"ollama pull {model_name}", model_name)
+
+            return
+
+        # Check if this is provider selection for model browsing
+        if hasattr(self.session, '_awaiting_provider_selection') and self.session._awaiting_provider_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+                from modules.model_manager import ModelManager
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                    model_mgr_mod = importlib.import_module('model_manager')
+                    ModelManager = model_mgr_mod.ModelManager
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_provider_selection = False
+                self.write("\n[dim]Provider selection cancelled[/dim]\n\n")
+                return
+
+            # Get provider data
+            option_data = event.option.get('data', {})
+            provider_id = option_data.get('provider_id', '')
+            provider_name = option_data.get('provider_name', '')
+
+            self.session._awaiting_provider_selection = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Show models for this provider
+            self.write(f"\n[cyan]▸ Loading models for {provider_name}...[/cyan]\n\n")
+
+            model_mgr = ModelManager()
+            models = model_mgr.get_models_by_provider(provider_id)
+
+            if not models:
+                self.write(f"[yellow]⚠ No models found for {provider_name}[/yellow]\n\n")
+                return
+
+            # Sort models by ranking or name
+            models_sorted = sorted(models, key=lambda m: (m.get('ranking', 9999), m['name']))
+
+            # Build model options (limit to top 20 for usability)
+            model_options = []
+            for model in models_sorted[:20]:
+                model_name = model['name']
+                model_id = model['id']
+                context = f"{model.get('context', 0)//1000}K" if model.get('context') else "?"
+
+                # Check if free
+                pricing = model.get("pricing", {})
+                is_free = ":free" in model_id or pricing.get("prompt") == "0"
+                free_badge = " [FREE]" if is_free else ""
+
+                model_options.append({
+                    'text': f"{model_name} (ctx: {context}){free_badge}",
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {'model_id': model_id, 'model_name': model_name}
+                })
+
+            if len(models_sorted) > 20:
+                model_options.append({
+                    'text': f"... and {len(models_sorted) - 20} more (use /model --provider {provider_id} to see all)",
+                    'response': PermissionResponse.CANCEL
+                })
+
+            model_options.append({
+                'text': 'Back to providers',
+                'response': PermissionResponse.CANCEL
+            })
+
+            prompt_data = {
+                'title': f'{provider_name} Models',
+                'message': f'Select a model to switch to:\n\nShowing top {min(20, len(models_sorted))} models sorted by ranking',
+                'options': model_options
+            }
+
+            # Show permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+
+                # Set flag to handle response
+                self.session._awaiting_provider_model_selection = True
+            except Exception as e:
+                self.write(f"[red]✗ Could not show model selection: {e}[/red]\n\n")
+
+            return
+
+        # Check if this is provider model selection
+        if hasattr(self.session, '_awaiting_provider_model_selection') and self.session._awaiting_provider_model_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+                from modules.model_manager import ModelManager
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                    model_mgr_mod = importlib.import_module('model_manager')
+                    ModelManager = model_mgr_mod.ModelManager
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_provider_model_selection = False
+                self.write("\n[dim]Model selection cancelled[/dim]\n\n")
+                return
+
+            # Get model data
+            option_data = event.option.get('data', {})
+            model_id = option_data.get('model_id', '')
+            model_name = option_data.get('model_name', '')
+
+            self.session._awaiting_provider_model_selection = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Switch to the selected model
+            model_mgr = ModelManager()
+            success = model_mgr.set_current_model(self.session, model_id)
+
+            if success:
+                model_mgr.record_model_use(model_id)
+                self.write(f"\n[green]✓ Switched to {model_name}[/green]\n")
+                self.write(f"[dim]Model ID: {model_id}[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Failed to switch to {model_name}[/red]\n\n")
+
             return
 
         # Check if this is a local model selection
@@ -1350,6 +1638,76 @@ Session: {self.session.session_id[:8]} | Ready
             self.write("[dim]  https://ollama.ai/[/dim]\n\n")
         except Exception as e:
             self.write(f"\n[red]✗ Error: {e}[/red]\n\n")
+
+    async def _show_ollama_model_browser(self) -> None:
+        """Show popular Ollama models in permission buffer for selection"""
+        self.write("\n[cyan]▸ Fetching popular Ollama models...[/cyan]\n\n")
+
+        # Popular Ollama models by category and popularity
+        # Source: ollama.ai/library (top models as of 2025)
+        popular_models = [
+            {'name': 'llama3.2:latest', 'size': '2B', 'desc': 'Fast, lightweight model for general use'},
+            {'name': 'llama3.2:3b', 'size': '3B', 'desc': 'Balanced performance and speed'},
+            {'name': 'qwen2.5-coder:latest', 'size': '7B', 'desc': 'Excellent coding assistant'},
+            {'name': 'llama3.1:8b', 'size': '8B', 'desc': 'Strong general purpose model'},
+            {'name': 'gemma2:9b', 'size': '9B', 'desc': 'Google\'s efficient model'},
+            {'name': 'mistral:latest', 'size': '7B', 'desc': 'High quality open model'},
+            {'name': 'deepseek-r1:7b', 'size': '7B', 'desc': 'Reasoning and math specialist'},
+            {'name': 'phi3:latest', 'size': '3.8B', 'desc': 'Microsoft\'s compact model'},
+            {'name': 'nomic-embed-text', 'size': '137M', 'desc': 'Text embeddings model'},
+            {'name': 'codellama:latest', 'size': '7B', 'desc': 'Code generation specialist'},
+        ]
+
+        # Check if Ollama is available (Docker or native)
+        try:
+            from modules.docker_manager import DockerManager
+        except ImportError:
+            import importlib
+            docker_mgr_mod = importlib.import_module('docker_manager')
+            DockerManager = docker_mgr_mod.DockerManager
+
+        docker_mgr = DockerManager()
+        is_ollama_running, container_id = docker_mgr.is_ollama_running()
+
+        # Build options for permission buffer
+        try:
+            from modules.permission_prompt import PermissionResponse
+        except ImportError:
+            import importlib
+            perm_prompt = importlib.import_module('permission_prompt')
+            PermissionResponse = perm_prompt.PermissionResponse
+
+        model_options = []
+
+        for model in popular_models:
+            model_options.append({
+                'text': f"{model['name']} ({model['size']}) - {model['desc']}",
+                'response': PermissionResponse.ALLOW_ONCE,
+                'data': {'model_name': model['name'], 'model_size': model['size']}
+            })
+
+        model_options.append({
+            'text': 'Cancel',
+            'response': PermissionResponse.CANCEL
+        })
+
+        prompt_data = {
+            'title': 'Ollama Model Browser',
+            'message': f'Select a model to pull and install:\n\nOllama Status: {"✓ Running in Docker" if is_ollama_running else "Not running"}\n\nModels sorted by popularity:',
+            'options': model_options
+        }
+
+        # Show permission prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+
+            # Set flag to handle response
+            self.session._awaiting_model_browser_selection = True
+        except Exception as e:
+            self.write(f"[red]✗ Could not show model browser: {e}[/red]\n\n")
 
     async def _handle_user_message(self, user_input: str, widget) -> None:
         """Common handler for user messages"""

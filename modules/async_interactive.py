@@ -1372,8 +1372,86 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 subcommand = parts[1] if len(parts) > 1 else None
                 args = parts[2] if len(parts) > 2 else None
 
+                # If no subcommand, show permission buffer with options
+                if not subcommand:
+                    app.write("[bold cyan]🐳 Docker Management[/bold cyan]\n\n")
+
+                    # Check Docker status first
+                    is_installed, _ = docker_mgr.is_docker_installed()
+                    is_running, _ = docker_mgr.is_docker_running() if is_installed else (False, "")
+                    is_ollama_running, _ = docker_mgr.is_ollama_running() if is_running else (False, None)
+
+                    docker_options = []
+
+                    # Status option
+                    docker_options.append({
+                        'text': '📊 Check Docker status',
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {'action': 'status'}
+                    })
+
+                    # List containers
+                    if is_running:
+                        docker_options.append({
+                            'text': '📦 List running containers',
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'action': 'ps'}
+                        })
+
+                        docker_options.append({
+                            'text': '📈 Show container stats',
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'action': 'stats'}
+                        })
+
+                    # Ollama options
+                    if is_ollama_running:
+                        docker_options.append({
+                            'text': '🦙 Manage Ollama container',
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'action': 'ollama_manage'}
+                        })
+
+                        docker_options.append({
+                            'text': '🔍 Browse Ollama models by popularity',
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'action': 'browse_models'}
+                        })
+                    else:
+                        if is_running:
+                            docker_options.append({
+                                'text': '🦙 Setup Ollama in Docker',
+                                'response': PermissionResponse.ALLOW_ONCE,
+                                'data': {'action': 'ollama_setup'}
+                            })
+
+                    docker_options.append({
+                        'text': 'Cancel',
+                        'response': PermissionResponse.CANCEL
+                    })
+
+                    prompt_data = {
+                        'title': 'Docker Management',
+                        'message': f'Docker: {"✓ Running" if is_running else "✗ Not running"}\nOllama: {"✓ Running" if is_ollama_running else "Not running"}\n\nSelect an action:',
+                        'options': docker_options
+                    }
+
+                    # Show permission prompt
+                    try:
+                        prompt_input = app.query_one("#prompt-input")
+                        prompt_input.permission_prompt_data = prompt_data
+                        prompt_input.permission_selected_option = 0
+                        prompt_input.refresh()
+
+                        # Set flag to handle response
+                        session._awaiting_docker_action = True
+                    except Exception as e:
+                        app.write(f"[red]✗ Could not show Docker menu: {e}[/red]\n\n")
+
+                    return
+
                 # /docker status - Show Docker status
-                if not subcommand or subcommand == 'status':
+                if subcommand == 'status':
                     app.write("[bold cyan]🐳 Docker Status[/bold cyan]\n\n")
 
                     # Check Docker installation
@@ -1926,14 +2004,108 @@ async def interactive_async(config, session=None, initial_prompt=None):
             if user_input.startswith('/model'):
                 try:
                     from .model_manager import ModelManager
+                    from .permission_prompt import PermissionResponse
                 except (ImportError, ValueError):
                     from model_manager import ModelManager
+                    from permission_prompt import PermissionResponse
 
                 local_model_mgr = ModelManager()
 
                 # Parse args with flags
                 parts = user_input.split()
                 args = parts[1] if len(parts) > 1 else None
+
+                # Handle /model providers subcommand
+                if args == 'providers':
+                    app.write("[bold cyan]📦 Browse Models by Provider[/bold cyan]\n\n")
+
+                    # Get providers with API keys
+                    keys = local_model_mgr.get_configured_keys()
+                    providers = local_model_mgr.get_providers()
+
+                    if not keys:
+                        app.write("[yellow]⚠ No providers configured[/yellow]\n\n")
+                        app.write("Add a provider first:\n")
+                        app.write("  [cyan]/providers add[/cyan]\n\n")
+                        return
+
+                    # Build provider options
+                    provider_options = []
+
+                    for provider in providers:
+                        provider_id = provider["id"]
+                        provider_name = provider["name"]
+
+                        # Check if configured
+                        if provider_id in keys:
+                            # Get model count
+                            models = local_model_mgr.get_models_by_provider(provider_id)
+                            model_count = len(models) if models else 0
+
+                            provider_options.append({
+                                'text': f"{provider_name} ({model_count} models available)",
+                                'response': PermissionResponse.ALLOW_ONCE,
+                                'data': {'provider_id': provider_id, 'provider_name': provider_name}
+                            })
+
+                    # Add local option if Ollama is available
+                    try:
+                        from .docker_manager import DockerManager
+                    except (ImportError, ValueError):
+                        from docker_manager import DockerManager
+
+                    docker_mgr = DockerManager()
+                    is_ollama_running, _ = docker_mgr.is_ollama_running()
+
+                    # Also check native Ollama
+                    native_ollama = False
+                    try:
+                        import subprocess
+                        result = subprocess.run(
+                            ["ollama", "list"],
+                            capture_output=True,
+                            timeout=2
+                        )
+                        if result.returncode == 0:
+                            native_ollama = True
+                    except:
+                        pass
+
+                    if is_ollama_running or native_ollama:
+                        # Get local models
+                        local_models = local_model_mgr.get_models_by_provider("ollama")
+                        model_count = len(local_models) if local_models else 0
+
+                        provider_options.append({
+                            'text': f"🦙 Local Ollama ({model_count} models installed)",
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'provider_id': 'ollama', 'provider_name': 'Ollama (Local)'}
+                        })
+
+                    provider_options.append({
+                        'text': 'Cancel',
+                        'response': PermissionResponse.CANCEL
+                    })
+
+                    prompt_data = {
+                        'title': 'Select Provider',
+                        'message': f'Browse models by provider:\n\n{len(provider_options)-1} providers available\n\nSelect a provider to see its models:',
+                        'options': provider_options
+                    }
+
+                    # Show permission prompt
+                    try:
+                        prompt_input = app.query_one("#prompt-input")
+                        prompt_input.permission_prompt_data = prompt_data
+                        prompt_input.permission_selected_option = 0
+                        prompt_input.refresh()
+
+                        # Set flag to handle response
+                        session._awaiting_provider_selection = True
+                    except Exception as e:
+                        app.write(f"[red]✗ Could not show provider selection: {e}[/red]\n\n")
+
+                    return
 
                 # Parse filter flags
                 show_free_only = '--free' in parts

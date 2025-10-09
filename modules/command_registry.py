@@ -23,6 +23,7 @@ class CommandRegistry:
                 'requires_args': False,
                 'subcommands': {
                     'list': 'List all available models (default)',
+                    'providers': 'Browse models by provider with interactive selection',
                     '<model-id>': 'Switch to specified model',
                     'r1': 'Switch to most recent model',
                     'r2': 'Switch to 2nd most recent model'
