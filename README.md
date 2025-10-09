@@ -16,11 +16,11 @@
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"/></a>
-  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.5.0-green.svg" alt="Version"/></a>
+  <a href="https://github.com/Dezocode/opencli/releases"><img src="https://img.shields.io/badge/version-1.6.0-green.svg" alt="Version"/></a>
 </p>
 
 <p align="center">
-  <strong>A fast, feature-rich terminal interface for OpenRouter API with Claude Code capabilities.</strong>
+  <strong>A fast, feature-rich terminal interface for OpenRouter API with Claude Code capabilities and intelligent command autocomplete.</strong>
 </p>
 
 <p align="center">
@@ -57,6 +57,15 @@
 - 🎭 **Frontier colors** - Professional muted palette throughout
 - 🔒 **Permission system** - Interactive prompts for dangerous operations (Bash, Write, Edit)
 - ⏸️ **ESC interrupt** - Press ESC to cancel long-running API calls
+
+### New in v1.6.0
+- 🔍 **Command autocomplete** - Intelligent suggestion system with keyboard navigation
+- 🏠 **Local model support** - Ollama integration with multi-step setup workflow
+- 🔄 **Cache management** - Hot-reload modules with `/reload` command
+- 📚 **Organized documentation** - Comprehensive guides in docs/ directory
+- 🎯 **Usage tracking** - Autocomplete ranks by command frequency
+- ⚡ **Fast search** - Priority-based ranking (prefix → fuzzy → description)
+- 🎨 **Widget system** - Dual buffers for suggestions and permissions
 
 ### IPC System
 - 🔗 **Claude Code bridge** - Bidirectional communication with Claude Code
@@ -171,18 +180,46 @@ opencli --model x-ai/grok-4-fast:free
 
 ### Slash Commands
 
-Inside the interactive session:
+Inside the interactive session, all commands feature intelligent autocomplete with keyboard navigation:
 
+**Basic Commands:**
 - `/model [name]` - View or change model
-- `/agent [name]` - Switch to specific agent (debugger, reviewer, tester, etc.)
-- `/agents` - List all available agents
+- `/providers` - Manage API provider keys with auto-detection
+- `/local` - Local model recommendations for Ollama setup
 - `/status` - Show session info (tokens, messages, etc.)
 - `/clear` - Clear conversation history
-- `/bashes` - List background tasks
+- `/help` - Show help menu
+
+**Agent Commands:**
+- `/agent [name]` - Switch to specific agent (debugger, reviewer, tester, etc.)
+- `/agents` - List all available agents
+
+**System Commands:**
 - `/upgrade` - Upgrade to latest version with verification
 - `/rollback` - Rollback to previous version
-- `/help` - Show help menu
+- `/reload` - Hot-reload modules (clear cache and reimport)
+- `/debug` - Toggle debug mode
+- `/performance` - Performance monitoring controls
+- `/permissions` - Manage tool permissions
+- `/commands` - Manage command permissions
+
+**Advanced Commands:**
+- `/bashes` - List background tasks
+- `/api` - IPC server control (start/stop/status)
+
+**Spec-Driven Development:**
+- `/specify` - Create spec describing what to build
+- `/constitution` - Create project principles and guidelines
+- `/plan` - Create technical implementation plan
+- `/tasks` - Break down plan into actionable tasks
+- `/implement` - Implement tasks from the plan
+- `/test` - Create and run tests
+- `/spec-check` - Validate spec completeness
+
+**Exit:**
 - `exit` or `quit` - Exit the session
+
+💡 **Tip:** Type `/` to see autocomplete suggestions. Use ↑↓ arrows to navigate, Enter to select, ESC to cancel.
 
 ### File Operations
 
@@ -516,6 +553,43 @@ Make executable: `chmod +x ~/bin/opencli`
 
 OpenCLI is a single-file Python script (`opencli.py`) for easy distribution and modification.
 
+### Documentation Structure
+
+OpenCLI features comprehensive documentation organized by category:
+
+```
+docs/
+├── guides/                    # User guides and tutorials
+│   ├── AUTOCOMPLETE-FIX-SUMMARY.md
+│   ├── COMMAND-AUTOCOMPLETE-COMPLETE.md
+│   ├── DEBUG-SLASH-COMMAND-FLOW.md
+│   ├── DEEPSEEK_INTEGRATION_GUIDE.md
+│   ├── FRONTIER_UI.md
+│   ├── INTEGRATION_STATUS.md
+│   ├── PROVIDERS.md
+│   ├── SPEC_DRIVEN.md
+│   ├── UPGRADE_QUICKSTART.md
+│   ├── UPGRADING.md
+│   └── WIDGET-NAMING-CONVENTION.md
+├── systems/                   # System documentation
+│   ├── CACHE-MANAGEMENT.md
+│   ├── COMMAND_SYSTEM.md
+│   ├── IPC_SYSTEM_GUIDE.md
+│   ├── REFACTORING_ENGINE.md
+│   ├── REFACTORING_QUICKSTART.md
+│   └── REFACTORING_SYSTEM_GUIDE.md
+├── architecture/              # Architecture docs
+│   └── ARCHITECTURE.md
+└── MERGE-TO-MAIN-PLAN.md     # Development plans
+```
+
+**Quick links:**
+- [Command Autocomplete Guide](docs/guides/COMMAND-AUTOCOMPLETE-COMPLETE.md) - Complete autocomplete system docs
+- [Cache Management](docs/systems/CACHE-MANAGEMENT.md) - Hot-reload and cache system
+- [Widget System](docs/guides/WIDGET-NAMING-CONVENTION.md) - Dual buffer architecture
+- [IPC System](docs/systems/IPC_SYSTEM_GUIDE.md) - Claude Code integration
+- [Architecture](docs/architecture/ARCHITECTURE.md) - System design overview
+
 ### Repository Structure
 
 ```
@@ -528,8 +602,15 @@ opencli/
 │   ├── system_prompts/        # Prompt templates
 │   ├── temp/                  # Compiled contexts (generated)
 │   └── README.md
+├── docs/                      # Documentation (organized)
+│   ├── guides/                # User guides and tutorials
+│   ├── systems/               # System documentation
+│   └── architecture/          # Architecture docs
 ├── modules/                   # Python modules
 │   ├── agent_manager.py       # Agent orchestration
+│   ├── command_registry.py    # Command management
+│   ├── command_suggestions.py # Autocomplete widget
+│   ├── cache_manager.py       # Cache management
 │   ├── context_builder.py     # Context caching
 │   ├── github_tool.py         # GitHub integration
 │   ├── simple_tui.py          # Advanced TUI interface
@@ -537,6 +618,7 @@ opencli/
 │   ├── multiline_input.py     # Multi-line input with spinner
 │   ├── markdown_renderer.py   # Markdown processor
 │   ├── ansi_background.py     # Terminal background support
+│   ├── model_recommendations.py # Local model suggestions
 │   └── README.md
 ├── scripts/                   # Utility scripts
 │   ├── claude_code_bridge.py  # Claude Code IPC bridge
@@ -615,9 +697,13 @@ See [UPGRADING.md](UPGRADING.md) for details.
 
 ### Version History
 
-Current: **v1.2.1** (2025-10-01)
+Current: **v1.6.0** (2025-10-08)
 
 **Recent updates:**
+- v1.6.0: Command autocomplete, local model support, cache management, organized docs
+- v1.5.0: Permission system with inline prompts, ESC interrupt
+- v1.4.0: Modern TUI interface with Frontier design system
+- v1.3.0: IPC system for Claude Code integration
 - v1.2.1: Video support, UI improvements, public release prep
 - v1.2.0: Intelligent prompt processing, image path detection
 - v1.1.0: Version control system, command permissions
