@@ -186,11 +186,14 @@ class RefactoringStatusLine(Static):
 
 
 class StatusLine(Static):
-    """Fixed status line showing session info with IPC activity spinner"""
+    """Fixed status line showing session info with IPC activity spinner and Docker stats"""
 
     is_spinning = reactive(False)
     spinner_frame = reactive(0)
     spinner_mode = reactive("idle")  # "idle", "read", "write"
+    show_docker_stats = reactive(False)
+    docker_cpu_percent = reactive("0")
+    docker_memory_usage = reactive("0MB")
 
     # Spinner frames
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -200,6 +203,7 @@ class StatusLine(Static):
         self.session = session
         self.config = config
         self._spin_task = None
+        self._docker_stats_task = None
 
     def render(self) -> Text:
         """Render status bar"""
@@ -252,6 +256,14 @@ class StatusLine(Static):
             status.append(f"{turns}", style=STATUS_COLORS['turn'])
             status.append(" │ CWD: ", style=f"dim {STATUS_COLORS['time']}")
             status.append(f"{cwd_short}", style=STATUS_COLORS['cwd'])
+
+            # Docker stats if enabled
+            if self.show_docker_stats:
+                status.append(" │ 🐳 ", style=f"dim {STATUS_COLORS['time']}")
+                status.append(f"CPU: {self.docker_cpu_percent}%", style=STATUS_COLORS['tokens'])
+                status.append(" │ ", style="dim")
+                status.append(f"Mem: {self.docker_memory_usage}", style=STATUS_COLORS['tokens'])
+
             status.append(f" │ {now}", style=STATUS_COLORS['time'])
         else:
             # Fallback to original colors
@@ -316,6 +328,78 @@ class StatusLine(Static):
     def watch_spinner_mode(self, old_value: str, new_value: str) -> None:
         """React to mode changes"""
         if old_value != new_value and self.is_spinning:
+            self.refresh()
+
+    def enable_docker_stats(self, container_name: str = None) -> None:
+        """Enable Docker stats monitoring in statusline.
+
+        Args:
+            container_name: Docker container to monitor (default: opencli-ollama)
+        """
+        if not self.show_docker_stats:
+            self.show_docker_stats = True
+            if self._docker_stats_task is None or self._docker_stats_task.done():
+                self._docker_stats_task = asyncio.create_task(
+                    self._update_docker_stats(container_name or "opencli-ollama")
+                )
+
+    def disable_docker_stats(self) -> None:
+        """Disable Docker stats monitoring"""
+        self.show_docker_stats = False
+        if self._docker_stats_task and not self._docker_stats_task.done():
+            try:
+                self._docker_stats_task.cancel()
+            except Exception:
+                pass
+        self._docker_stats_task = None
+        self.refresh()
+
+    async def _update_docker_stats(self, container_name: str) -> None:
+        """Async task that periodically updates Docker container stats.
+
+        Args:
+            container_name: Docker container to monitor
+        """
+        try:
+            from .docker_manager import DockerManager
+        except (ImportError, ValueError):
+            from docker_manager import DockerManager
+
+        docker_mgr = DockerManager()
+
+        try:
+            while self.show_docker_stats:
+                # Get container stats
+                stats = await asyncio.to_thread(
+                    docker_mgr.get_container_stats,
+                    container_name
+                )
+
+                if stats:
+                    # Update reactive properties
+                    self.docker_cpu_percent = stats.get('cpu_percent', '0')
+                    self.docker_memory_usage = stats.get('memory_usage', '0MB').split('/')[0].strip()
+                    self.refresh()
+                else:
+                    # Container not found or not running
+                    self.docker_cpu_percent = "N/A"
+                    self.docker_memory_usage = "N/A"
+                    self.refresh()
+
+                # Update every 2 seconds
+                await asyncio.sleep(2.0)
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            # Error fetching stats
+            self.docker_cpu_percent = "ERR"
+            self.docker_memory_usage = "ERR"
+            self.refresh()
+
+    def watch_show_docker_stats(self, old_value: bool, new_value: bool) -> None:
+        """React to Docker stats toggle"""
+        if old_value != new_value:
             self.refresh()
 
 
@@ -638,6 +722,50 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
+
+        # Check if this is Docker Ollama setup
+        if hasattr(self.session, '_awaiting_docker_ollama_setup') and self.session._awaiting_docker_ollama_setup:
+            try:
+                from modules.permission_prompt import PermissionResponse
+                from modules.docker_manager import DockerManager
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                    docker_mgr_mod = importlib.import_module('docker_manager')
+                    DockerManager = docker_mgr_mod.DockerManager
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_docker_ollama_setup = False
+                self.write("\n[dim]Docker setup cancelled[/dim]\n\n")
+                return
+
+            # Get setup options
+            option_data = event.option.get('data', {})
+            cpu_limit = option_data.get('cpu_limit', '4')
+            memory_limit = option_data.get('memory_limit', '8g')
+            gpu_enabled = option_data.get('gpu', False)
+
+            self.session._awaiting_docker_ollama_setup = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Create Docker container
+            import asyncio
+            asyncio.create_task(self._create_docker_ollama_container(cpu_limit, memory_limit, gpu_enabled))
+            return
+
         # Check if this is a local model selection
         if hasattr(self.session, '_awaiting_local_model_selection') and self.session._awaiting_local_model_selection:
             # Import PermissionResponse
@@ -1094,6 +1222,79 @@ Session: {self.session.session_id[:8]} | Ready
 
             self.write("\n[green]✓ Dual model setup complete![/green]\n\n")
             self.write("[dim]Configure as provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+
+    async def _create_docker_ollama_container(self, cpu_limit: str, memory_limit: str, gpu_enabled: bool) -> None:
+        """Create Docker Ollama container with selected resources"""
+        try:
+            from modules.docker_manager import DockerManager
+        except ImportError:
+            import importlib
+            docker_mgr_mod = importlib.import_module('docker_manager')
+            DockerManager = docker_mgr_mod.DockerManager
+
+        docker_mgr = DockerManager()
+
+        self.write(f"\n[cyan]▸ Creating Ollama Docker container...[/cyan]\n\n")
+        self.write(f"[dim]Resource limits: {cpu_limit} CPUs, {memory_limit} RAM")
+        if gpu_enabled:
+            self.write(", GPU enabled")
+        self.write("[/dim]\n\n")
+
+        # Pull image first if needed
+        self.write("[dim]Checking for Ollama Docker image...[/dim]\n")
+
+        # Check if image exists (simple check)
+        import subprocess
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["docker", "images", "-q", docker_mgr.OLLAMA_IMAGE],
+            capture_output=True,
+            text=True
+        )
+
+        if not result.stdout.strip():
+            self.write("[cyan]▸ Pulling Ollama image (this may take a few minutes)...[/cyan]\n\n")
+            success, msg = await asyncio.to_thread(
+                docker_mgr.pull_image,
+                docker_mgr.OLLAMA_IMAGE
+            )
+
+            if not success:
+                self.write(f"[red]✗ Failed to pull image: {msg}[/red]\n\n")
+                return
+
+            self.write(f"[green]✓ Image pulled successfully[/green]\n\n")
+
+        # Create container
+        self.write("[cyan]▸ Creating container...[/cyan]\n\n")
+        success, result_msg = await asyncio.to_thread(
+            docker_mgr.create_ollama_container,
+            gpu_enabled,
+            cpu_limit,
+            memory_limit
+        )
+
+        if success:
+            container_id = result_msg
+            self.write(f"[green]✓ Container created successfully![/green]\n")
+            self.write(f"[dim]Container ID: {container_id[:12]}[/dim]\n\n")
+            self.write(f"[bold]Ollama is now available at:[/bold] [cyan]http://localhost:{docker_mgr.OLLAMA_PORT}[/cyan]\n\n")
+
+            # Enable Docker stats in statusline
+            try:
+                status_line = self.query_one("StatusLine", StatusLine)
+                status_line.enable_docker_stats(docker_mgr.OLLAMA_CONTAINER_NAME)
+                self.write("[dim]✓ Docker stats monitoring enabled in statusline[/dim]\n\n")
+            except Exception:
+                pass
+
+            self.write("[dim]Next steps:[/dim]\n")
+            self.write("  1. [cyan]/providers add ollama[/cyan]  - Add as provider\n")
+            self.write("  2. [cyan]/model[/cyan]  - See and switch to Ollama models\n")
+            self.write("  3. [cyan]/docker ollama status[/cyan]  - Check container status\n\n")
+        else:
+            self.write(f"[red]✗ Failed to create container:[/red]\n")
+            self.write(f"[dim]{result_msg}[/dim]\n\n")
 
     async def _run_ollama_pull(self, pull_command: str, model_name: str) -> None:
         """Execute ollama pull command and stream output"""

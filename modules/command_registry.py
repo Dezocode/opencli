@@ -125,6 +125,32 @@ class CommandRegistry:
                     'status': 'Show IPC server status'
                 }
             },
+            '/docker': {
+                'description': 'Manage Docker containers for local models',
+                'category': 'advanced',
+                'default_enabled': True,
+                'requires_args': False,
+                'subcommands': {
+                    'status': 'Show Docker daemon and container status',
+                    'ps': 'List running containers',
+                    'stats': 'Show container resource usage',
+                    'ollama setup': 'Setup Ollama in Docker (interactive)',
+                    'ollama start': 'Start Ollama container',
+                    'ollama stop': 'Stop Ollama container',
+                    'ollama status': 'Show Ollama container status'
+                }
+            },
+            '/diff': {
+                'description': 'View code diffs with interactive navigation',
+                'category': 'advanced',
+                'default_enabled': True,
+                'requires_args': False,
+                'subcommands': {
+                    'git': 'Show git diff for current repository',
+                    'worktree': 'Compare worktree with venv/Docker',
+                    'files <file1> <file2>': 'Compare two files'
+                }
+            },
             '/providers': {
                 'description': 'Manage API provider keys with auto-detection',
                 'category': 'basic',

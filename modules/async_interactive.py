@@ -1358,6 +1358,312 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
+            # Handle /docker command - Docker container management
+            if user_input.startswith('/docker'):
+                try:
+                    from .docker_manager import DockerManager
+                    from .permission_prompt import PermissionTemplates, PermissionResponse
+                except (ImportError, ValueError):
+                    from docker_manager import DockerManager
+                    from permission_prompt import PermissionTemplates, PermissionResponse
+
+                docker_mgr = DockerManager()
+                parts = user_input.split(maxsplit=2)
+                subcommand = parts[1] if len(parts) > 1 else None
+                args = parts[2] if len(parts) > 2 else None
+
+                # /docker status - Show Docker status
+                if not subcommand or subcommand == 'status':
+                    app.write("[bold cyan]🐳 Docker Status[/bold cyan]\n\n")
+
+                    # Check Docker installation
+                    is_installed, version_or_error = docker_mgr.is_docker_installed()
+                    if not is_installed:
+                        app.write(f"[red]✗ Docker not installed[/red]\n")
+                        app.write(f"[dim]{version_or_error}[/dim]\n\n")
+                        app.write("Install Docker:\n")
+                        app.write("  macOS: [cyan]https://docs.docker.com/desktop/install/mac-install/[/cyan]\n")
+                        app.write("  Linux: [cyan]https://docs.docker.com/engine/install/[/cyan]\n\n")
+                        return
+
+                    app.write(f"[green]✓ Docker installed[/green]\n")
+                    app.write(f"[dim]{version_or_error}[/dim]\n\n")
+
+                    # Check Docker daemon
+                    is_running, status_msg = docker_mgr.is_docker_running()
+                    if not is_running:
+                        app.write(f"[yellow]⚠ Docker daemon not running[/yellow]\n")
+                        app.write(f"[dim]{status_msg}[/dim]\n\n")
+                        app.write("Start Docker:\n")
+                        app.write("  macOS: Open Docker Desktop\n")
+                        app.write("  Linux: [cyan]sudo systemctl start docker[/cyan]\n\n")
+                        return
+
+                    app.write(f"[green]✓ {status_msg}[/green]\n\n")
+
+                    # Show system resources
+                    resources = docker_mgr.get_system_resources()
+                    app.write("[bold]System Resources:[/bold]\n")
+                    app.write(f"  CPUs: [cyan]{resources.get('cpu_count', 'unknown')}[/cyan]\n")
+                    app.write(f"  Memory: [cyan]{resources.get('memory_gb', 0):.1f}GB[/cyan]\n")
+                    app.write(f"  Disk Available: [cyan]{resources.get('disk_gb', 0)}GB[/cyan]\n\n")
+
+                    # Show Ollama container status
+                    ollama_status = docker_mgr.get_ollama_container_status()
+                    app.write("[bold]Ollama Container:[/bold]\n")
+                    if ollama_status['running']:
+                        app.write(f"  Status: [green]Running[/green]\n")
+                        app.write(f"  Container: [cyan]{ollama_status['container_id'][:12]}[/cyan]\n")
+                        app.write(f"  Port: [cyan]{ollama_status['port']}[/cyan]\n")
+
+                        if ollama_status['stats']:
+                            stats = ollama_status['stats']
+                            app.write(f"  CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
+                            app.write(f"  Memory: [cyan]{stats['memory_usage']}[/cyan]\n")
+                            app.write(f"  Network: [cyan]{stats['network_io']}[/cyan]\n")
+                    else:
+                        app.write(f"  Status: [dim]Not running[/dim]\n")
+                        app.write(f"  Use [cyan]/docker ollama setup[/cyan] to create container\n")
+
+                    app.write("\n")
+                    return
+
+                # /docker ps - List containers
+                elif subcommand == 'ps':
+                    containers = docker_mgr.list_containers(all_containers=False)
+
+                    if not containers:
+                        app.write("[dim]No running containers[/dim]\n\n")
+                        return
+
+                    app.write("[bold cyan]🐳 Running Containers[/bold cyan]\n\n")
+                    for container in containers:
+                        name = container.get('Names', 'unknown')
+                        image = container.get('Image', 'unknown')
+                        status = container.get('Status', 'unknown')
+                        ports = container.get('Ports', '')
+
+                        app.write(f"[bold]{name}[/bold]\n")
+                        app.write(f"  Image: [cyan]{image}[/cyan]\n")
+                        app.write(f"  Status: {status}\n")
+                        if ports:
+                            app.write(f"  Ports: {ports}\n")
+                        app.write("\n")
+
+                    return
+
+                # /docker stats - Show container stats
+                elif subcommand == 'stats':
+                    if not args:
+                        # Show stats for all running containers
+                        containers = docker_mgr.list_containers(all_containers=False)
+                        if not containers:
+                            app.write("[dim]No running containers[/dim]\n\n")
+                            return
+
+                        app.write("[bold cyan]🐳 Container Resource Usage[/bold cyan]\n\n")
+                        for container in containers:
+                            name = container.get('Names', 'unknown')
+                            container_id = container.get('ID', '')
+
+                            stats = docker_mgr.get_container_stats(container_id)
+                            if stats:
+                                app.write(f"[bold]{name}[/bold]\n")
+                                app.write(f"  CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
+                                app.write(f"  Memory: [cyan]{stats['memory_usage']}[/cyan] ([cyan]{stats['memory_percent']}%[/cyan])\n")
+                                app.write(f"  Network: [cyan]{stats['network_io']}[/cyan]\n")
+                                app.write(f"  Block I/O: [cyan]{stats['block_io']}[/cyan]\n\n")
+                    else:
+                        # Show stats for specific container
+                        stats = docker_mgr.get_container_stats(args)
+                        if stats:
+                            app.write(f"[bold cyan]Stats for {args}[/bold cyan]\n\n")
+                            app.write(f"CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
+                            app.write(f"Memory: [cyan]{stats['memory_usage']}[/cyan] ([cyan]{stats['memory_percent']}%[/cyan])\n")
+                            app.write(f"Network: [cyan]{stats['network_io']}[/cyan]\n")
+                            app.write(f"Block I/O: [cyan]{stats['block_io']}[/cyan]\n\n")
+                        else:
+                            app.write(f"[red]✗ Could not get stats for {args}[/red]\n\n")
+
+                    return
+
+                # /docker ollama - Ollama-specific commands
+                elif subcommand == 'ollama':
+                    ollama_cmd = args
+
+                    # /docker ollama setup - Interactive setup
+                    if not ollama_cmd or ollama_cmd == 'setup':
+                        app.write("[bold cyan]🐳 Ollama Docker Setup[/bold cyan]\n\n")
+
+                        # Check Docker is running
+                        is_running, _ = docker_mgr.is_docker_running()
+                        if not is_running:
+                            app.write("[red]✗ Docker daemon not running[/red]\n\n")
+                            app.write("Start Docker first, then run [cyan]/docker ollama setup[/cyan] again\n\n")
+                            return
+
+                        # Check if Ollama container already exists
+                        is_running, container_id = docker_mgr.is_ollama_running()
+                        if is_running:
+                            app.write(f"[green]✓ Ollama container already running[/green]\n")
+                            app.write(f"[dim]Container ID: {container_id}[/dim]\n\n")
+                            app.write("Use [cyan]/docker ollama status[/cyan] to see details\n\n")
+                            return
+
+                        # Show setup options in permission buffer
+                        resources = docker_mgr.get_system_resources()
+                        cpu_count = resources.get('cpu_count', 4)
+                        memory_gb = resources.get('memory_gb', 8)
+
+                        setup_options = []
+
+                        # Conservative option (default)
+                        setup_options.append({
+                            'text': f"Conservative (4 CPUs, 8GB RAM) - Recommended",
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'cpu_limit': '4', 'memory_limit': '8g', 'gpu': False}
+                        })
+
+                        # Balanced option
+                        if cpu_count >= 6 and memory_gb >= 16:
+                            setup_options.append({
+                                'text': f"Balanced ({min(6, cpu_count)} CPUs, 12GB RAM)",
+                                'response': PermissionResponse.ALLOW_ONCE,
+                                'data': {'cpu_limit': str(min(6, cpu_count)), 'memory_limit': '12g', 'gpu': False}
+                            })
+
+                        # High performance option
+                        if cpu_count >= 8 and memory_gb >= 24:
+                            setup_options.append({
+                                'text': f"High Performance ({min(8, cpu_count)} CPUs, 16GB RAM)",
+                                'response': PermissionResponse.ALLOW_ONCE,
+                                'data': {'cpu_limit': str(min(8, cpu_count)), 'memory_limit': '16g', 'gpu': False}
+                            })
+
+                        # GPU option (if available)
+                        # TODO: Detect if nvidia-docker is available
+                        setup_options.append({
+                            'text': "With GPU Support (requires nvidia-docker)",
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'cpu_limit': '4', 'memory_limit': '8g', 'gpu': True}
+                        })
+
+                        setup_options.append({
+                            'text': 'Cancel',
+                            'response': PermissionResponse.CANCEL
+                        })
+
+                        prompt_data = {
+                            'title': 'Docker Ollama Setup',
+                            'message': f'Choose resource allocation:\n\nYour system: {cpu_count} CPUs, {memory_gb:.1f}GB RAM\n\nConservative settings are safest for daily use.',
+                            'options': setup_options
+                        }
+
+                        # Show permission prompt
+                        try:
+                            prompt_input = app.query_one("#prompt-input")
+                            prompt_input.permission_prompt_data = prompt_data
+                            prompt_input.permission_selected_option = 0
+                            prompt_input.refresh()
+
+                            # Set flag to handle response
+                            session._awaiting_docker_ollama_setup = True
+                        except Exception as e:
+                            app.write(f"[red]✗ Could not show setup options: {e}[/red]\n\n")
+
+                        return
+
+                    # /docker ollama start - Start container
+                    elif ollama_cmd == 'start':
+                        is_running, container_id = docker_mgr.is_ollama_running()
+
+                        if is_running:
+                            app.write("[yellow]⚠ Ollama container already running[/yellow]\n\n")
+                            return
+
+                        # Check if container exists but is stopped
+                        all_containers = docker_mgr.list_containers(all_containers=True)
+                        ollama_container = None
+
+                        for container in all_containers:
+                            if docker_mgr.OLLAMA_CONTAINER_NAME in container.get('Names', ''):
+                                ollama_container = container
+                                break
+
+                        if ollama_container:
+                            # Container exists, start it
+                            app.write("[cyan]▸ Starting Ollama container...[/cyan]\n\n")
+                            success, msg = docker_mgr.start_container(docker_mgr.OLLAMA_CONTAINER_NAME)
+
+                            if success:
+                                app.write(f"[green]✓ {msg}[/green]\n\n")
+                                app.write(f"Ollama is now available at [cyan]http://localhost:{docker_mgr.OLLAMA_PORT}[/cyan]\n\n")
+                            else:
+                                app.write(f"[red]✗ {msg}[/red]\n\n")
+                        else:
+                            app.write("[yellow]⚠ Ollama container doesn't exist[/yellow]\n\n")
+                            app.write("Run [cyan]/docker ollama setup[/cyan] to create it first\n\n")
+
+                        return
+
+                    # /docker ollama stop - Stop container
+                    elif ollama_cmd == 'stop':
+                        is_running, container_id = docker_mgr.is_ollama_running()
+
+                        if not is_running:
+                            app.write("[yellow]⚠ Ollama container not running[/yellow]\n\n")
+                            return
+
+                        app.write("[cyan]▸ Stopping Ollama container...[/cyan]\n\n")
+                        success, msg = docker_mgr.stop_container(docker_mgr.OLLAMA_CONTAINER_NAME)
+
+                        if success:
+                            app.write(f"[green]✓ {msg}[/green]\n\n")
+                        else:
+                            app.write(f"[red]✗ {msg}[/red]\n\n")
+
+                        return
+
+                    # /docker ollama status - Show detailed status
+                    elif ollama_cmd == 'status':
+                        status = docker_mgr.get_ollama_container_status()
+
+                        app.write("[bold cyan]🐳 Ollama Container Status[/bold cyan]\n\n")
+
+                        if status['running']:
+                            app.write("[green]✓ Running[/green]\n\n")
+                            app.write(f"Container ID: [cyan]{status['container_id'][:12]}[/cyan]\n")
+                            app.write(f"Port: [cyan]http://localhost:{status['port']}[/cyan]\n\n")
+
+                            if status['stats']:
+                                stats = status['stats']
+                                app.write("[bold]Resource Usage:[/bold]\n")
+                                app.write(f"  CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
+                                app.write(f"  Memory: [cyan]{stats['memory_usage']}[/cyan] ([cyan]{stats['memory_percent']}%[/cyan])\n")
+                                app.write(f"  Network I/O: [cyan]{stats['network_io']}[/cyan]\n")
+                                app.write(f"  Disk I/O: [cyan]{stats['block_io']}[/cyan]\n")
+                        else:
+                            app.write("[dim]Not running[/dim]\n\n")
+                            app.write("Commands:\n")
+                            app.write("  [cyan]/docker ollama setup[/cyan]  - Create new container\n")
+                            app.write("  [cyan]/docker ollama start[/cyan]  - Start stopped container\n")
+
+                        app.write("\n")
+                        return
+
+                else:
+                    app.write(f"[red]✗ Unknown docker subcommand: {subcommand}[/red]\n\n")
+                    app.write("Available commands:\n")
+                    app.write("  [cyan]/docker status[/cyan]         - Show Docker status\n")
+                    app.write("  [cyan]/docker ps[/cyan]             - List containers\n")
+                    app.write("  [cyan]/docker stats[/cyan]          - Show resource usage\n")
+                    app.write("  [cyan]/docker ollama setup[/cyan]   - Setup Ollama container\n")
+                    app.write("  [cyan]/docker ollama start[/cyan]   - Start Ollama\n")
+                    app.write("  [cyan]/docker ollama stop[/cyan]    - Stop Ollama\n")
+                    app.write("  [cyan]/docker ollama status[/cyan]  - Show Ollama status\n\n")
+
+                return
+
             # Handle /local command - local model recommendations
             if user_input.startswith('/local'):
                 try:
@@ -1381,13 +1687,50 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         timeout=2
                     )
                     if result.returncode != 0:
-                        app.write("[red]✗ Ollama not installed[/red]\n\n")
-                        app.write("Install Ollama to use local models:\n")
-                        app.write("  [cyan]https://ollama.ai/[/cyan]\n\n")
-                        app.write("After installation:\n")
-                        app.write("  1. Run [cyan]ollama serve[/cyan] in a terminal\n")
-                        app.write("  2. Run [cyan]/local[/cyan] again to see recommendations\n\n")
-                        return
+                        app.write("[red]✗ Ollama not installed natively[/red]\n\n")
+
+                        # Check if Docker is available as fallback
+                        try:
+                            from .docker_manager import DockerManager
+                        except (ImportError, ValueError):
+                            from docker_manager import DockerManager
+
+                        docker_mgr = DockerManager()
+                        docker_installed, docker_version = docker_mgr.is_docker_installed()
+
+                        if docker_installed:
+                            docker_running, docker_msg = docker_mgr.is_docker_running()
+
+                            if docker_running:
+                                # Check if Ollama container is already running
+                                is_ollama_running, container_id = docker_mgr.is_ollama_running()
+
+                                if is_ollama_running:
+                                    app.write("[green]✓ Ollama running in Docker[/green]\n")
+                                    app.write(f"[dim]Container ID: {container_id}[/dim]\n\n")
+                                    app.write("Use [cyan]/docker ollama status[/cyan] for details\n\n")
+                                    # Continue with local workflow using Docker Ollama
+                                    # TODO: Integrate with Docker Ollama endpoint
+                                    return
+                                else:
+                                    app.write("[cyan]💡 Docker is available but Ollama not set up[/cyan]\n\n")
+                                    app.write("You can run Ollama in Docker instead:\n")
+                                    app.write("  Run [cyan]/docker ollama setup[/cyan] to configure\n\n")
+                                    app.write("Or install Ollama natively:\n")
+                                    app.write("  [cyan]https://ollama.ai/[/cyan]\n\n")
+                                    return
+                            else:
+                                app.write(f"[yellow]! Docker installed but not running[/yellow]\n")
+                                app.write(f"[dim]{docker_msg}[/dim]\n\n")
+                                app.write("Options:\n")
+                                app.write("  1. Start Docker, then run [cyan]/docker ollama setup[/cyan]\n")
+                                app.write("  2. Install Ollama natively: [cyan]https://ollama.ai/[/cyan]\n\n")
+                                return
+                        else:
+                            app.write("Install Ollama to use local models:\n")
+                            app.write("  Option 1 (Recommended): [cyan]https://ollama.ai/[/cyan]\n")
+                            app.write("  Option 2 (Docker): Install Docker, then run [cyan]/docker ollama setup[/cyan]\n\n")
+                            return
                 except Exception:
                     app.write("[red]✗ Could not detect Ollama[/red]\n\n")
                     app.write("Install Ollama first: [cyan]https://ollama.ai/[/cyan]\n\n")
@@ -1403,10 +1746,31 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     )
                     if result.returncode != 0:
                         app.write("[yellow]! Ollama installed but server not running[/yellow]\n\n")
-                        app.write("Start Ollama server:\n")
-                        app.write("  [cyan]ollama serve[/cyan]\n\n")
-                        app.write("Then run [cyan]/local[/cyan] again\n\n")
-                        return
+
+                        # Check if Docker is available with Ollama container
+                        try:
+                            from .docker_manager import DockerManager
+                        except (ImportError, ValueError):
+                            from docker_manager import DockerManager
+
+                        docker_mgr = DockerManager()
+                        is_docker_running, _ = docker_mgr.is_docker_running()
+                        is_ollama_container_running, container_id = docker_mgr.is_ollama_running()
+
+                        if is_docker_running and is_ollama_container_running:
+                            app.write("[cyan]💡 Ollama is running in Docker[/cyan]\n")
+                            app.write(f"[dim]Container ID: {container_id}[/dim]\n\n")
+                            app.write("Options:\n")
+                            app.write("  1. Use Docker Ollama: [cyan]/docker ollama status[/cyan]\n")
+                            app.write("  2. Start native Ollama: [cyan]ollama serve[/cyan]\n\n")
+                            return
+                        else:
+                            app.write("Options:\n")
+                            app.write("  1. Start native Ollama: [cyan]ollama serve[/cyan]\n")
+                            if is_docker_running:
+                                app.write("  2. Use Docker instead: [cyan]/docker ollama setup[/cyan]\n")
+                            app.write("\nThen run [cyan]/local[/cyan] again\n\n")
+                            return
 
                     # Parse existing models
                     output = result.stdout.decode('utf-8')
