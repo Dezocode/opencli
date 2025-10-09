@@ -851,58 +851,9 @@ Session: {self.session.session_id[:8]} | Ready
             except:
                 pass
 
-            # Pull the model
-            self.write(f"\n[cyan]▸ Pulling {model_name} ({model_size})...[/cyan]\n\n")
-
-            # Check if Ollama is in Docker or native
-            try:
-                from modules.docker_manager import DockerManager
-            except ImportError:
-                import importlib
-                docker_mgr_mod = importlib.import_module('docker_manager')
-                DockerManager = docker_mgr_mod.DockerManager
-
-            docker_mgr = DockerManager()
-            is_docker_ollama, container_id = docker_mgr.is_ollama_running()
-
+            # Pull the model asynchronously
             import asyncio
-            if is_docker_ollama:
-                # Pull in Docker container
-                self.write(f"[dim]Pulling model in Docker container...[/dim]\n\n")
-                pull_cmd = ['docker', 'exec', container_id, 'ollama', 'pull', model_name]
-
-                process = await asyncio.create_subprocess_exec(
-                    *pull_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-
-                # Stream output
-                async def read_stream(stream, prefix=""):
-                    while True:
-                        line = await stream.readline()
-                        if not line:
-                            break
-                        text = line.decode('utf-8').rstrip()
-                        if text:
-                            self.write(f"{prefix}{text}\n")
-
-                await asyncio.gather(
-                    read_stream(process.stdout, "[dim]  "),
-                    read_stream(process.stderr, "[dim red]  ")
-                )
-
-                await process.wait()
-
-                if process.returncode == 0:
-                    self.write(f"\n[green]✓ {model_name} installed successfully in Docker![/green]\n\n")
-                    self.write(f"[dim]Use [cyan]/providers add ollama[/cyan] to configure it as a provider[/dim]\n\n")
-                else:
-                    self.write(f"\n[red]✗ Pull failed (exit code {process.returncode})[/red]\n\n")
-            else:
-                # Pull with native Ollama
-                await self._run_ollama_pull(f"ollama pull {model_name}", model_name)
-
+            asyncio.create_task(self._pull_ollama_model_from_browser(model_name, model_size))
             return
 
         # Check if this is provider selection for model browsing
@@ -1708,6 +1659,58 @@ Session: {self.session.session_id[:8]} | Ready
             self.session._awaiting_model_browser_selection = True
         except Exception as e:
             self.write(f"[red]✗ Could not show model browser: {e}[/red]\n\n")
+
+    async def _pull_ollama_model_from_browser(self, model_name: str, model_size: str) -> None:
+        """Pull an Ollama model selected from the browser"""
+        self.write(f"\n[cyan]▸ Pulling {model_name} ({model_size})...[/cyan]\n\n")
+
+        # Check if Ollama is in Docker or native
+        try:
+            from modules.docker_manager import DockerManager
+        except ImportError:
+            import importlib
+            docker_mgr_mod = importlib.import_module('docker_manager')
+            DockerManager = docker_mgr_mod.DockerManager
+
+        docker_mgr = DockerManager()
+        is_docker_ollama, container_id = docker_mgr.is_ollama_running()
+
+        if is_docker_ollama:
+            # Pull in Docker container
+            self.write(f"[dim]Pulling model in Docker container...[/dim]\n\n")
+            pull_cmd = ['docker', 'exec', container_id, 'ollama', 'pull', model_name]
+
+            process = await asyncio.create_subprocess_exec(
+                *pull_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Stream output
+            async def read_stream(stream, prefix=""):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8').rstrip()
+                    if text:
+                        self.write(f"{prefix}{text}\n")
+
+            await asyncio.gather(
+                read_stream(process.stdout, "[dim]  "),
+                read_stream(process.stderr, "[dim red]  ")
+            )
+
+            await process.wait()
+
+            if process.returncode == 0:
+                self.write(f"\n[green]✓ {model_name} installed successfully in Docker![/green]\n\n")
+                self.write(f"[dim]Use [cyan]/providers add ollama[/cyan] to configure it as a provider[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Pull failed (exit code {process.returncode})[/red]\n\n")
+        else:
+            # Pull with native Ollama
+            await self._run_ollama_pull(f"ollama pull {model_name}", model_name)
 
     async def _handle_user_message(self, user_input: str, widget) -> None:
         """Common handler for user messages"""
