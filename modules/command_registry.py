@@ -20,20 +20,29 @@ class CommandRegistry:
                 'description': 'View or change model',
                 'category': 'basic',
                 'default_enabled': True,
-                'requires_args': False
-            },
-            '/provider': {
-                'description': 'Manage API providers and keys',
-                'category': 'basic',
-                'default_enabled': True,
-                'requires_args': False
+                'requires_args': False,
+                'subcommands': {
+                    'list': 'List all available models (default)',
+                    '<model-id>': 'Switch to specified model',
+                    'r1': 'Switch to most recent model',
+                    'r2': 'Switch to 2nd most recent model'
+                }
             },
             '/agent': {
                 'description': 'Switch to specific agent',
                 'category': 'agents',
                 'default_enabled': True,
                 'requires_args': False,
-                'requires_feature': 'AGENT_SYSTEM'
+                'requires_feature': 'AGENT_SYSTEM',
+                'subcommands': {
+                    'assistant': 'General-purpose coding assistant',
+                    'debugger': 'Bug finding and fixing specialist',
+                    'reviewer': 'Code review and quality analysis',
+                    'refactor': 'Code refactoring expert',
+                    'tester': 'Test writing specialist',
+                    'documenter': 'Documentation expert',
+                    'architect': 'System design specialist'
+                }
             },
             '/agents': {
                 'description': 'List all available agents',
@@ -109,13 +118,24 @@ class CommandRegistry:
                 'description': 'IPC server control (start/stop/status)',
                 'category': 'advanced',
                 'default_enabled': True,
-                'requires_args': False
+                'requires_args': False,
+                'subcommands': {
+                    'start': 'Start IPC server',
+                    'stop': 'Stop IPC server',
+                    'status': 'Show IPC server status'
+                }
             },
             '/providers': {
                 'description': 'Manage API provider keys with auto-detection',
                 'category': 'basic',
                 'default_enabled': True,
-                'requires_args': False
+                'requires_args': False,
+                'subcommands': {
+                    'list': 'List all configured providers',
+                    'add': 'Add a new provider key (auto-detects provider)',
+                    'add ollama': 'Add Ollama local server as provider',
+                    'remove': 'Remove a provider key'
+                }
             },
             '/specify': {
                 'description': 'Create spec describing what to build (Spec-Kit)',
@@ -404,27 +424,67 @@ class CommandRegistry:
 
         matches = []
 
-        for cmd, info in self.available_commands.items():
-            # Skip disabled commands
-            if not self.permissions.get(cmd, info['default_enabled']):
-                continue
+        # Check if query contains a space (subcommand search)
+        if ' ' in query:
+            parts = query.split(maxsplit=1)
+            base_cmd = parts[0]
+            subquery = parts[1] if len(parts) > 1 else ''
 
-            # Skip if required feature unavailable
-            if 'requires_feature' in info:
-                if not feature_flags.get(info['requires_feature'], False):
+            # Find the base command
+            if base_cmd in self.available_commands:
+                base_info = self.available_commands[base_cmd]
+
+                # Check if it has subcommands
+                if 'subcommands' in base_info:
+                    # Search subcommands
+                    for subcmd, subdesc in base_info['subcommands'].items():
+                        full_cmd = f"{base_cmd} {subcmd}"
+                        subcmd_lower = subcmd.lower()
+
+                        # Score the subcommand match
+                        score = 0
+                        if not subquery:
+                            # No subquery yet - show all subcommands
+                            score = 1000
+                        elif subcmd_lower.startswith(subquery):
+                            score = 1000  # Exact prefix
+                        elif subquery in subcmd_lower:
+                            score = 500  # Contains
+                        elif subquery in subdesc.lower():
+                            score = 250  # Description match
+
+                        if score > 0:
+                            matches.append({
+                                'name': full_cmd,
+                                'description': subdesc,
+                                'category': base_info['category'],
+                                'score': score,
+                                'usage_count': usage_stats.get(full_cmd, 0)
+                            })
+
+        # Regular base command search
+        if not matches or not ' ' in query:
+            for cmd, info in self.available_commands.items():
+                # Skip disabled commands
+                if not self.permissions.get(cmd, info['default_enabled']):
                     continue
 
-            # Calculate score
-            score = self._score_command(cmd, info, query, usage_stats.get(cmd, 0))
+                # Skip if required feature unavailable
+                if 'requires_feature' in info:
+                    if not feature_flags.get(info['requires_feature'], False):
+                        continue
 
-            if score > 0:
-                matches.append({
-                    'name': cmd,
-                    'description': info['description'],
-                    'category': info['category'],
-                    'score': score,
-                    'usage_count': usage_stats.get(cmd, 0)
-                })
+                # Calculate score
+                score = self._score_command(cmd, info, query, usage_stats.get(cmd, 0))
+
+                if score > 0:
+                    matches.append({
+                        'name': cmd,
+                        'description': info['description'],
+                        'category': info['category'],
+                        'score': score,
+                        'usage_count': usage_stats.get(cmd, 0)
+                    })
 
         # Sort by score (descending)
         matches.sort(key=lambda x: x['score'], reverse=True)
