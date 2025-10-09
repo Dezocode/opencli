@@ -902,7 +902,28 @@ Session: {self.session.session_id[:8]} | Ready
             setup_type = option_data.get('setup_type')
             self.session._local_selections['setup_type'] = setup_type
 
-            if setup_type == 'single':
+            if setup_type == 'existing':
+                # User selected an existing installed model - use it directly
+                model_name = option_data.get('model', '')
+                self.session._awaiting_local_model_selection = False
+
+                self.write(f"\n[green]✓ Selected {model_name}[/green]\n\n")
+                self.write("[dim]Configure it as a provider:[/dim]\n")
+                self.write(f"  1. Run [cyan]/model add[/cyan]\n")
+                self.write(f"  2. Select [cyan]ollama[/cyan] as provider type\n")
+                self.write(f"  3. Use model name: [cyan]{model_name}[/cyan]\n\n")
+
+                # Clean up session state
+                if hasattr(self.session, '_local_context'):
+                    del self.session._local_context
+                if hasattr(self.session, '_local_step'):
+                    del self.session._local_step
+                if hasattr(self.session, '_local_selections'):
+                    del self.session._local_selections
+
+                return
+
+            elif setup_type == 'single':
                 # Show single model options
                 self.write("\n[cyan]▸ Single model setup selected[/cyan]\n\n")
 

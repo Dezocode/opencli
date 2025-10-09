@@ -1437,8 +1437,28 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 sys_cap = SystemCapability()
                 caps = sys_cap.detect_capabilities()
 
+                # Show system specs clearly
+                app.write("[bold]System Specifications:[/bold]\n")
+                app.write(f"  OS: [cyan]{caps['os']}[/cyan] ({caps['arch']})\n")
+                app.write(f"  RAM: [cyan]{caps['ram_gb']}GB[/cyan]\n")
+                if caps.get('vram_gb'):
+                    app.write(f"  VRAM: [cyan]{caps['vram_gb']}GB[/cyan]\n")
+                if caps.get('is_apple_silicon'):
+                    app.write(f"  Chip: [cyan]Apple Silicon[/cyan]\n")
+
                 # Get recommendations based on tier
                 tier = caps['tier']
+
+                # Show tier and what it means
+                tier_descriptions = {
+                    'green': ('High capability', 'Can run 32B models smoothly'),
+                    'yellow': ('Medium capability', 'Best with 14B models'),
+                    'red': ('Basic capability', 'Recommended 7B models')
+                }
+                tier_name, tier_desc = tier_descriptions.get(tier, ('Unknown', 'No recommendations'))
+                tier_color = tier if tier in ['green', 'yellow', 'red'] else 'white'
+                app.write(f"  Tier: [{tier_color}]{tier.upper()}[/{tier_color}] - {tier_desc}\n\n")
+
                 recs = get_recommendations(tier, caps['is_apple_silicon'])
 
                 # Helper to check if model is already installed
@@ -1458,7 +1478,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     'is_installed': is_installed
                 }
 
-                # STEP 1: Show setup type selection (Single vs Dual)
+                # STEP 1: Show model selection (installed models + recommendations)
                 try:
                     from .permission_prompt import PermissionResponse
                 except (ImportError, ValueError):
@@ -1466,25 +1486,44 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 setup_options = []
 
-                # Single model option
-                primary = recs['single_model']['primary']
-                single_desc = f"Best for beginners - {primary['name']} ({primary['size']})"
-                setup_options.append({
-                    'text': f"Single model - {single_desc}",
-                    'response': PermissionResponse.ALLOW_ONCE,
-                    'data': {'setup_type': 'single'}
-                })
+                # Option 1: Use existing installed models
+                if existing_models:
+                    app.write("[bold]Installed Models:[/bold]\n")
+                    for model in existing_models:
+                        app.write(f"  [cyan]✓[/cyan] {model}\n")
+                        # Add as selectable option
+                        setup_options.append({
+                            'text': f"Use {model}",
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'setup_type': 'existing', 'model': model}
+                        })
+                    app.write("\n")
 
-                # Dual model option if available
+                # Option 2: Install recommended single model
+                primary = recs['single_model']['primary']
+                is_primary_installed = is_installed(primary['name'])
+                if not is_primary_installed:
+                    single_desc = f"Recommended for your system - {primary['name']} ({primary['size']})"
+                    setup_options.append({
+                        'text': f"Install {primary['name']} ({primary['size']})",
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {'setup_type': 'single'}
+                    })
+
+                # Option 3: Install dual model setup if available
                 if 'dual_model' in recs:
                     planner = recs['dual_model']['planner']
                     coder = recs['dual_model']['coder']
-                    dual_desc = f"Advanced - Planner ({planner['size']}) + Coder ({coder['size']})"
-                    setup_options.append({
-                        'text': f"Dual model - {dual_desc}",
-                        'response': PermissionResponse.ALLOW_ONCE,
-                        'data': {'setup_type': 'dual'}
-                    })
+                    is_planner_installed = is_installed(planner['name'])
+                    is_coder_installed = is_installed(coder['name'])
+
+                    if not (is_planner_installed and is_coder_installed):
+                        dual_desc = f"Advanced setup - Planner ({planner['size']}) + Coder ({coder['size']})"
+                        setup_options.append({
+                            'text': f"Install dual model setup",
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'setup_type': 'dual'}
+                        })
 
                 # Cancel option
                 setup_options.append({
@@ -1492,23 +1531,15 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     'response': PermissionResponse.CANCEL
                 })
 
-                # Get tier description
-                tier_descriptions = {
-                    'green': 'High capability - Can run 32B models smoothly',
-                    'yellow': 'Medium capability - Best with 14B models',
-                    'red': 'Basic capability - Recommended 7B models'
-                }
-                tier_desc = tier_descriptions.get(tier, 'Unknown tier')
-
                 # Create step 1 prompt
+                if existing_models:
+                    prompt_message = 'Select a model to use or install a new one:\n\nInstalled models are ready to use immediately.\nRecommended models are optimized for your system tier.'
+                else:
+                    prompt_message = 'No models installed yet.\n\nSelect a recommended model to install:\n\nSingle model: One model for all tasks\nDual model: Separate planner and coder (advanced)'
+
                 prompt_data = {
                     'title': 'Local Model Setup',
-                    'message': 'Choose your setup type:\n\nSingle model: One model for all tasks\nDual model: Separate planner and coder (recommended for complex work)',
-                    'details': {
-                        'System': f"{caps['os']} ({caps['arch']})",
-                        'RAM': f"{caps['ram_gb']}GB",
-                        'Tier': f"{tier.upper()} - {tier_desc}"
-                    },
+                    'message': prompt_message,
                     'options': setup_options
                 }
 
