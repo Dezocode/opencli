@@ -908,10 +908,10 @@ Session: {self.session.session_id[:8]} | Ready
                 self.session._awaiting_local_model_selection = False
 
                 self.write(f"\n[green]✓ Selected {model_name}[/green]\n\n")
-                self.write("[dim]Configure it as a provider:[/dim]\n")
-                self.write(f"  1. Run [cyan]/model add[/cyan]\n")
-                self.write(f"  2. Select [cyan]ollama[/cyan] as provider type\n")
-                self.write(f"  3. Use model name: [cyan]{model_name}[/cyan]\n\n")
+                self.write("[dim]Configure Ollama as a provider:[/dim]\n")
+                self.write(f"  1. Run [cyan]/providers add ollama[/cyan]\n")
+                self.write(f"  2. Use [cyan]/model[/cyan] to see your Ollama models\n")
+                self.write(f"  3. Select [cyan]{model_name}[/cyan] from the list\n\n")
 
                 # Clean up session state
                 if hasattr(self.session, '_local_context'):

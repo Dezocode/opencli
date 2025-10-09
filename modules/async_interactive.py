@@ -2270,7 +2270,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         app.write("[bold]🔑 Add Provider API Key[/bold]\n\n")
                         app.write("Paste your API key and I'll auto-detect the provider:\n")
                         app.write("[dim](Supports: OpenRouter, Anthropic, OpenAI, DeepSeek, Google AI)[/dim]\n\n")
-                        app.write("[yellow]Type your key and press Enter:[/yellow]\n")
+                        app.write("\n[cyan]Or type 'ollama' to add Ollama local server[/cyan]\n\n")
+                        app.write("[yellow]Type your key or 'ollama' and press Enter:[/yellow]\n")
 
                         # Set flag to await provider key
                         session._awaiting_provider_key = True
@@ -2278,6 +2279,52 @@ async def interactive_async(config, session=None, initial_prompt=None):
                         # Direct key provided - detect and add
                         api_key = args.strip()
                         provider = providers_mgr.detect_provider(api_key)
+
+                        # Special handling for Ollama (local server)
+                        if provider == "ollama":
+                            app.write("[cyan]🏠 Setting up Ollama (Local Models)[/cyan]\n\n")
+                            app.write("[dim]Checking Ollama server...[/dim]\n")
+
+                            # Check if ollama is running and fetch models
+                            result = await providers_mgr.fetch_models_from_provider("ollama", "local")
+
+                            if not result["success"]:
+                                app.write(f"[red]✗ {result['error']}[/red]\n\n")
+                                app.write("[dim]Make sure Ollama is running:[/dim]\n")
+                                app.write("  [cyan]ollama serve[/cyan]\n\n")
+                                return
+
+                            models = result.get("models", [])
+                            if not models:
+                                app.write("[yellow]⚠ No models found on Ollama server[/yellow]\n\n")
+                                app.write("[dim]Pull a model first:[/dim]\n")
+                                app.write("  [cyan]ollama pull llama3.2[/cyan]\n\n")
+                                return
+
+                            # Register Ollama and models
+                            providers_mgr.add_api_key("ollama", "local")  # No real key needed
+                            providers_mgr.register_models("ollama", models)
+
+                            app.write(f"[green]✓ Found {len(models)} models on Ollama server[/green]\n\n")
+
+                            # Show available models
+                            app.write("[bold]Available Models:[/bold]\n")
+                            for idx, model in enumerate(models[:10], 1):  # Show first 10
+                                name = model.get("name", model.get("id", "unknown"))
+                                model_id = model.get("id", "unknown")
+                                context = model.get("context", 0)
+                                context_str = f"{context//1000}K" if context else "?"
+                                app.write(f"  {idx}. [cyan]{name}[/cyan] (context: {context_str})\n")
+
+                            if len(models) > 10:
+                                app.write(f"  [dim]... and {len(models) - 10} more[/dim]\n")
+
+                            app.write("\n[green]✓ Ollama provider configured![/green]\n")
+                            app.write("\nTo use an Ollama model:\n")
+                            app.write("  [cyan]/model[/cyan]  - List all models\n")
+                            app.write("  [cyan]/model r1[/cyan]  - Switch to first recent model\n")
+                            app.write("  Or select from the [cyan]ollama[/cyan] provider section\n\n")
+                            return
 
                         if not provider:
                             app.write("[red]✗ Could not detect provider from API key format[/red]\n\n")
