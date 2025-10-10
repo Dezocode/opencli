@@ -320,48 +320,20 @@ class PermissionManager:
         # Show in permission buffer - ROBUST ERROR HANDLING
         try:
             print(f"[PermissionManager] Showing permission prompt for {registration.name}")
-            prompt_input = app.query_one("#prompt-input")
+            from permission_buffer_manager import get_permission_buffer_manager
 
-            if not prompt_input:
-                print("[PermissionManager] ERROR: Could not find #prompt-input widget")
+            buffer_manager = get_permission_buffer_manager()
+            option = await buffer_manager.prompt(app, session, prompt_data, timeout=30.0)
+
+            if not option:
                 return False
 
-            print(f"[PermissionManager] Setting permission_prompt_data...")
-
-            # Set up event FIRST before showing UI
-            session._awaiting_permission = True
-            session._permission_response = None
-
-            # Create asyncio.Event for efficient waiting (no busy loop!)
-            session._permission_event = asyncio.Event()
-
-            # Now set the data - reactive watcher will handle refresh + focus
-            prompt_input.permission_prompt_data = prompt_data
-            prompt_input.permission_selected_option = 0
-            # DON'T call refresh() - reactive watcher handles it!
-            print(f"[PermissionManager] Permission prompt set (watcher will refresh)")
-
-            # CRITICAL: Yield to event loop so UI can update BEFORE we start waiting
-            await asyncio.sleep(0)
-
-            # Wait for user response using Event (efficient, non-blocking)
-            print(f"[PermissionManager] Waiting for permission response (event-driven)...")
-            try:
-                await asyncio.wait_for(session._permission_event.wait(), timeout=30.0)
-                print(f"[PermissionManager] Permission event received!")
-            except asyncio.TimeoutError:
-                print("[PermissionManager] WARNING: Permission request timed out after 30s")
-                session._awaiting_permission = False
-                return False
-
-            # Check response
-            response = getattr(session, '_permission_response', None)
+            response = option.get('response')
             print(f"[PermissionManager] User response: {response}")
 
             if response == PermissionResponse.ALLOW_ONCE:
                 return True
             elif response == PermissionResponse.ALLOW_ALWAYS:
-                # Save to allowed items
                 key = f"{registration.type.value}:{registration.name}"
                 self.allowed_items[key] = True
                 self._save_permissions()
@@ -376,9 +348,6 @@ class PermissionManager:
             print(f"[PermissionManager] ERROR showing permission prompt: {e}")
             import traceback
             traceback.print_exc()
-            # Clear permission state
-            if hasattr(session, '_awaiting_permission'):
-                session._awaiting_permission = False
             # Default deny on error
             return False
 
@@ -402,7 +371,7 @@ class PermissionManager:
                 RiskLevel.SAFE: "green",
                 RiskLevel.LOW: "cyan",
                 RiskLevel.MEDIUM: "yellow",
-                RiskLevel.HIGH: "orange",
+                RiskLevel.HIGH: "bright_red",
                 RiskLevel.CRITICAL: "red"
             }
             risk_name = risk.value.upper() if hasattr(risk, 'value') else str(risk).upper()
