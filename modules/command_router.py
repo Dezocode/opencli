@@ -170,22 +170,21 @@ async def route_command_unified(app, session, command: str, args: Optional[str] 
         await app._command_router._initialize_registrations()
 
     # Show startup buffer on FIRST COMMAND ONLY (after registration complete)
+    # Run in background so it doesn't block the first command!
     if not hasattr(app, '_startup_buffer_shown'):
         app._startup_buffer_shown = True
 
-        print("[CommandRouter] Showing startup buffer...")
+        print("[CommandRouter] Starting startup buffer in background...")
         from sdk import show_startup_status
-        try:
-            await show_startup_status(
-                app,
-                app._command_router.executor,
-                block_on_violations=False,  # Don't block, just show
-                duration_ms=4000             # Auto-dismiss after 4s
-            )
-            print("[CommandRouter] Startup buffer displayed")
-        except Exception as e:
-            print(f"[CommandRouter] Could not show startup buffer: {e}")
-            import traceback
-            traceback.print_exc()
+        import asyncio
+
+        # Run in background - don't await, don't block!
+        asyncio.create_task(show_startup_status(
+            app,
+            app._command_router.executor,
+            block_on_violations=False,
+            duration_ms=4000
+        ))
+        print("[CommandRouter] Startup buffer running in background")
 
     return await app._command_router.route_command(command, args)
