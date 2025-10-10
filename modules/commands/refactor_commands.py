@@ -1,11 +1,20 @@
-"""Command implementations - to be filled"""
+"""Commands - imports from system_commands"""
 
-async def placeholder(app, session, **context):
-    app.write("Command not yet implemented\n")
-    
-refactor_interactive = placeholder
-autorefactor = placeholder
-restart_session = placeholder
-upgrade_opencli = placeholder
-api_server_control = placeholder
-code_inject = placeholder
+# All commands implemented in system_commands.py
+from .system_commands import (
+    refactor_interactive,
+    autorefactor,
+    restart_session,
+    upgrade_opencli,
+    api_server_control,
+    code_inject
+)
+
+__all__ = [
+    'refactor_interactive',
+    'autorefactor',
+    'restart_session',
+    'upgrade_opencli',
+    'api_server_control',
+    'code_inject'
+]

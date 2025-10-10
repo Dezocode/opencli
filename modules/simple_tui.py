@@ -745,7 +745,14 @@ Session: {self.session.session_id[:8]} | Ready
     async def on_multi_line_input_submitted(self, event: MultiLineInput.Submitted) -> None:
         """Handle user input from MultiLineInput widget"""
         widget = self.query_one("#prompt-input", MultiLineInput)
-        await self._handle_user_message(event.value.strip(), widget)
+
+        # CRITICAL: Run in background task so event loop isn't blocked
+        # This allows key events to be processed while waiting for permission
+        async def handle_in_background():
+            await self._handle_user_message(event.value.strip(), widget)
+
+        # Don't await - let it run in background
+        asyncio.create_task(handle_in_background())
 
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""

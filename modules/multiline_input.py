@@ -477,5 +477,23 @@ class MultiLineInput(Widget):
 
     def watch_permission_prompt_data(self, old_value, new_value) -> None:
         """React to permission prompt data changes - trigger layout update"""
+        # Only refresh if actually changed (not just set to same value)
         if old_value != new_value:
-            self.refresh(layout=True)  # Force layout recalculation to adjust height
+            print(f"[MultiLineInput] Permission data changed")
+
+            # CRITICAL: Refresh MUST happen synchronously for widget to render!
+            # But keep it light - no layout=True to avoid blocking
+            self.refresh()
+
+            if new_value is not None:
+                print(f"[MultiLineInput] PERMISSION ACTIVE: {new_value.get('title', 'N/A')}")
+
+                # Focus IMMEDIATELY (synchronously) so keys work right away
+                try:
+                    self.app.set_focus(self)
+                    print(f"[MultiLineInput]   ✓ FORCED FOCUS IMMEDIATELY")
+                except Exception as e:
+                    print(f"[MultiLineInput]   Focus error: {e}, trying fallback")
+                    self.focus()
+            else:
+                print(f"[MultiLineInput] Permission cleared")

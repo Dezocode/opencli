@@ -327,15 +327,21 @@ class PermissionManager:
                 return False
 
             print(f"[PermissionManager] Setting permission_prompt_data...")
-            prompt_input.permission_prompt_data = prompt_data
-            prompt_input.permission_selected_option = 0
-            prompt_input.refresh(layout=True)
-            print(f"[PermissionManager] Permission prompt displayed")
 
-            # Wait for user response
+            # Set up event FIRST before showing UI
             session._awaiting_permission = True
             session._permission_response = None
 
+            # Now set the data - reactive watcher will handle refresh + focus
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            # DON'T call refresh() - reactive watcher handles it!
+            print(f"[PermissionManager] Permission prompt set (watcher will refresh)")
+
+            # CRITICAL: Yield to event loop so UI can update BEFORE we start waiting
+            await asyncio.sleep(0)
+
+            # Wait for user response
             timeout_counter = 0
             max_timeout = 300  # 30 seconds (300 * 0.1s)
 
