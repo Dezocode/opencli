@@ -1,8 +1,8 @@
 """
 Startup Buffer Display
 
-Shows module load status and SDK enforcement results in permission buffer.
-Non-blocking dropdown that auto-dismisses.
+Shows module load status and SDK enforcement results in SDK dropdown widget.
+Non-blocking, auto-dismisses after displaying final registration status.
 """
 
 import asyncio
@@ -12,13 +12,12 @@ from .enforcement import get_enforcement
 
 class StartupBuffer:
     """
-    Displays module load status in permission buffer
+    Displays module load status in SDK dropdown widget
 
     Shows:
-    - Module categories
-    - Load status (✓ loaded, ⚠ converted, ✗ rejected)
-    - Enforcement summary
     - Command/tool counts
+    - Enforcement summary (✓ accepted, ⚠ converted, ✗ rejected)
+    - Latest module status message
     """
 
     def __init__(self):
@@ -32,7 +31,7 @@ class StartupBuffer:
         auto_dismiss: bool = True
     ):
         """
-        Show startup buffer with module load status
+        Show startup buffer with module load status in SDK dropdown widget
 
         Args:
             app: TUI app instance
@@ -40,40 +39,36 @@ class StartupBuffer:
             duration_ms: How long to show buffer (ms)
             auto_dismiss: If True, auto-dismiss after duration
         """
-        print("[StartupBuffer] Getting prompt input widget...")
-        prompt_input = app.query_one("#prompt-input")
+        print("[StartupBuffer] Getting SDK dropdown widget...")
+        sdk_buffer = app.query_one("#sdk-loading")
 
-        # Build display content
+        # Build display content - just show summary, no interactive navigation needed
         print("[StartupBuffer] Building content...")
-        content = self._build_content(executor)
 
-        # Create buffer data
-        buffer_data = {
-            'title': '🚀 OpenCLI Startup - Module Registration',
-            'message': content,
-            'options': [
-                {
-                    'text': 'Continue (or wait for auto-dismiss)',
-                    'response': 'continue'
-                }
-            ],
-            'auto_dismiss_ms': duration_ms if auto_dismiss else None
-        }
+        # Get counts
+        cmd_count = len(executor.registry.commands)
+        tool_count = len(executor.registry.tools)
 
-        # Show in buffer
-        print(f"[StartupBuffer] Setting permission_prompt_data with {len(content)} chars...")
-        prompt_input.permission_prompt_data = buffer_data
-        prompt_input.permission_selected_option = 0
-        # Don't call refresh - reactive watcher handles it
-        print("[StartupBuffer] Buffer should now be visible!")
+        # Update SDK buffer with final status (stops loading, shows checkmark)
+        sdk_buffer.stop_loading()  # Changes spinner to ✓
+        sdk_buffer.update_progress(
+            command_count=cmd_count,
+            tool_count=tool_count,
+            accepted_count=self.enforcement.accepted_count,
+            converted_count=self.enforcement.converted_count,
+            rejected_count=self.enforcement.rejected_count,
+            latest_module="✓ Registration Complete"
+        )
+        sdk_buffer.remove_class("hidden")  # Make sure it's visible
+        print("[StartupBuffer] SDK dropdown updated with final status!")
 
         # Auto-dismiss if enabled
         if auto_dismiss:
             print(f"[StartupBuffer] Will auto-dismiss in {duration_ms}ms...")
             await asyncio.sleep(duration_ms / 1000)
             print("[StartupBuffer] Dismissing buffer...")
-            prompt_input.permission_prompt_data = None
-            # Don't call refresh - reactive watcher handles it
+            sdk_buffer.add_class("hidden")
+            sdk_buffer.clear_data()
             print("[StartupBuffer] Buffer dismissed")
 
     def _build_content(self, executor) -> str:
@@ -145,38 +140,35 @@ class StartupBuffer:
 
         return "".join(lines)
 
-    def show_blocking(self, app, executor):
+    async def show_blocking(self, app, executor):
         """
-        Show startup buffer and wait for user to dismiss
+        Show startup buffer and wait for user to dismiss using SDK dropdown
 
         Use this when violations need user attention
         """
-        prompt_input = app.query_one("#prompt-input")
+        sdk_buffer = app.query_one("#sdk-loading")
 
-        content = self._build_content(executor)
+        # Get counts
+        cmd_count = len(executor.registry.commands)
+        tool_count = len(executor.registry.tools)
 
-        buffer_data = {
-            'title': '⚠ OpenCLI Startup - Enforcement Violations',
-            'message': content + "\n[bold]Press Enter to continue[/bold]",
-            'options': [
-                {
-                    'text': 'Continue anyway',
-                    'response': 'continue'
-                },
-                {
-                    'text': 'Exit and fix violations',
-                    'response': 'exit'
-                }
-            ]
-        }
+        # Update SDK buffer with warning status
+        sdk_buffer.stop_loading()  # Stop spinner
+        sdk_buffer.update_progress(
+            command_count=cmd_count,
+            tool_count=tool_count,
+            accepted_count=self.enforcement.accepted_count,
+            converted_count=self.enforcement.converted_count,
+            rejected_count=self.enforcement.rejected_count,
+            latest_module="⚠ VIOLATIONS DETECTED - Check enforcement report"
+        )
+        sdk_buffer.remove_class("hidden")
 
-        # Show and wait
-        prompt_input.permission_prompt_data = buffer_data
-        prompt_input.permission_selected_option = 0
-        # Don't call refresh - reactive watcher handles it
+        # Wait longer for violations (30 seconds instead of 4)
+        await asyncio.sleep(30)
 
-        # This would normally wait for user input
-        # The event handler in simple_tui.py will catch the response
+        sdk_buffer.add_class("hidden")
+        sdk_buffer.clear_data()
 
 
 async def show_startup_status(
@@ -186,20 +178,20 @@ async def show_startup_status(
     duration_ms: int = 4000
 ):
     """
-    Show startup status buffer
+    Show startup status in SDK dropdown (non-blocking)
 
     Args:
         app: TUI app instance
         executor: ExecutionSystem instance
-        block_on_violations: If True and violations exist, wait for user
+        block_on_violations: If True and violations exist, show longer
         duration_ms: Auto-dismiss duration (if no violations)
     """
     buffer = StartupBuffer()
     enforcement = get_enforcement()
 
     if block_on_violations and enforcement.has_violations():
-        # Block and wait for user decision
-        buffer.show_blocking(app, executor)
+        # Show longer for violations
+        await buffer.show_blocking(app, executor)
     else:
         # Auto-dismiss
         await buffer.show(app, executor, duration_ms)
