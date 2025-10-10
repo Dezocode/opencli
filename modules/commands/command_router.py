@@ -49,14 +49,15 @@ class CommandRouter:
         # Store app reference for live updates
         self.executor.app = self.app
 
-        # Show LIVE SDK loading dropdown
-        try:
-            sdk_buffer = self.app.query_one("#sdk-loading")
-            sdk_buffer.start_loading()
-            sdk_buffer.remove_class("hidden")
-            print("[CommandRouter] SDK loading dropdown displayed")
-        except Exception as e:
-            print(f"[CommandRouter] Could not show SDK dropdown: {e}")
+        # DISABLED: SDK loading dropdown (debugging command routing issues)
+        # try:
+        #     sdk_buffer = self.app.query_one("#sdk-loading")
+        #     sdk_buffer.start_loading()
+        #     sdk_buffer.remove_class("hidden")
+        #     print("[CommandRouter] SDK loading dropdown displayed")
+        # except Exception as e:
+        #     print(f"[CommandRouter] Could not show SDK dropdown: {e}")
+        print("[CommandRouter] SDK dropdown disabled for debugging")
 
         # Single registration point (with SDK enforcement!)
         # This will update the buffer LIVE as each module registers
@@ -78,15 +79,16 @@ class CommandRouter:
         print(f"  ⚠ Converted: {enforcement.converted_count}")
         print(f"  ✗ Rejected: {enforcement.rejected_count}")
 
-        # Hide SDK loading dropdown
-        try:
-            sdk_buffer = self.app.query_one("#sdk-loading")
-            sdk_buffer.stop_loading()
-            sdk_buffer.add_class("hidden")
-            sdk_buffer.clear_data()
-            print("[CommandRouter] SDK loading dropdown hidden")
-        except Exception as e:
-            print(f"[CommandRouter] Could not hide SDK dropdown: {e}")
+        # DISABLED: Hide SDK loading dropdown (debugging)
+        # try:
+        #     sdk_buffer = self.app.query_one("#sdk-loading")
+        #     sdk_buffer.stop_loading()
+        #     sdk_buffer.add_class("hidden")
+        #     sdk_buffer.clear_data()
+        #     print("[CommandRouter] SDK loading dropdown hidden")
+        # except Exception as e:
+        #     print(f"[CommandRouter] Could not hide SDK dropdown: {e}")
+        print("[CommandRouter] SDK dropdown cleanup skipped (disabled)")
 
         # Store enforcement for startup buffer
         self.enforcement = enforcement
@@ -169,22 +171,19 @@ async def route_command_unified(app, session, command: str, args: Optional[str] 
     if not app._command_router._initialized:
         await app._command_router._initialize_registrations()
 
-    # Show startup buffer on FIRST COMMAND ONLY (after registration complete)
-    # Run in background so it doesn't block the first command!
-    if not hasattr(app, '_startup_buffer_shown'):
-        app._startup_buffer_shown = True
-
-        print("[CommandRouter] Starting startup buffer in background...")
-        from sdk import show_startup_status
-        import asyncio
-
-        # Run in background - don't await, don't block!
-        asyncio.create_task(show_startup_status(
-            app,
-            app._command_router.executor,
-            block_on_violations=False,
-            duration_ms=4000
-        ))
-        print("[CommandRouter] Startup buffer running in background")
+    # DISABLED: Startup buffer (debugging command routing)
+    # if not hasattr(app, '_startup_buffer_shown'):
+    #     app._startup_buffer_shown = True
+    #     print("[CommandRouter] Starting startup buffer in background...")
+    #     from sdk import show_startup_status
+    #     import asyncio
+    #     asyncio.create_task(show_startup_status(
+    #         app,
+    #         app._command_router.executor,
+    #         block_on_violations=False,
+    #         duration_ms=4000
+    #     ))
+    #     print("[CommandRouter] Startup buffer running in background")
+    print("[CommandRouter] Startup buffer disabled for debugging")
 
     return await app._command_router.route_command(command, args)

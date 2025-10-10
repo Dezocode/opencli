@@ -750,6 +750,10 @@ Session: {self.session.session_id[:8]} | Ready
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
 
+        manager = get_permission_buffer_manager()
+        if manager.resolve(event.option):
+            return
+
         # ========================================================================
         # PRIORITY 1: UNIVERSAL SDK PERMISSION HANDLER
         # ========================================================================
@@ -1361,6 +1365,9 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
+        manager = get_permission_buffer_manager()
+        if manager.clear():
+            return
         # Get the async permission handler
         try:
             from async_permissions import get_global_handler

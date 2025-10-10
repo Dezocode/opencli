@@ -7,6 +7,12 @@ Non-blocking, auto-dismisses after displaying final registration status.
 
 import asyncio
 from typing import Optional
+
+try:
+    from permission_buffer_manager import get_permission_buffer_manager
+except ImportError:
+    from ..permission_buffer_manager import get_permission_buffer_manager
+
 from .enforcement import get_enforcement
 
 
