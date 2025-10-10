@@ -1354,6 +1354,24 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': event.option.get('data', {})
             }
             handler.handle_response(response_data)
+            return
+
+        # ========================================================================
+        # FALLBACK: Generic prompt handler (SDK loading buffer, etc.)
+        # ========================================================================
+        # If we got here, no session flags were set and no async handler registered
+        # This handles generic prompts like SDK loading buffer that just need to be dismissed
+        print(f"[SimpleTUI] FALLBACK: Generic permission response (no session flags)")
+        print(f"[SimpleTUI] Response: {event.option.get('response')}")
+
+        # Simply clear the buffer - user pressed Enter/Escape on a generic prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            print(f"[SimpleTUI] Cleared generic permission buffer")
+        except Exception as e:
+            print(f"[SimpleTUI] Error clearing buffer: {e}")
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
@@ -1386,6 +1404,23 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': {}
             }
             handler.handle_response(response_data)
+            return
+
+        # ========================================================================
+        # FALLBACK: Generic prompt cancellation (SDK loading buffer, etc.)
+        # ========================================================================
+        # If we got here, no async handler was registered
+        # This handles generic prompts that just need to be dismissed on Escape
+        print(f"[SimpleTUI] FALLBACK: Generic permission cancelled (no handler)")
+
+        # Simply clear the buffer - user pressed Escape on a generic prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            print(f"[SimpleTUI] Cleared generic permission buffer (cancelled)")
+        except Exception as e:
+            print(f"[SimpleTUI] Error clearing buffer: {e}")
 
     # ========================================================================
     # COMMAND SUGGESTION HANDLERS
