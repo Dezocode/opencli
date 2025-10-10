@@ -1380,14 +1380,21 @@ Session: {self.session.session_id[:8]} | Ready
         print(f"[SimpleTUI] FALLBACK: Generic permission response (no session flags)")
         print(f"[SimpleTUI] Response: {event.option.get('response')}")
 
+        response = event.option.get('response') if isinstance(event.option, dict) else None
+
         # Simply clear the buffer - user pressed Enter/Escape on a generic prompt
         try:
             prompt_input = self.query_one("#prompt-input")
             prompt_input.permission_prompt_data = None
             prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
             print(f"[SimpleTUI] Cleared generic permission buffer")
         except Exception as e:
             print(f"[SimpleTUI] Error clearing buffer: {e}")
+
+        if response == 'exit':
+            print("[SimpleTUI] Generic prompt requested exit")
+            self.action_quit_app()
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""

@@ -1343,6 +1343,21 @@ Session: {self.session.session_id[:8]} | Ready
                 'data': event.option.get('data', {})
             }
             handler.handle_response(response_data)
+            return
+
+        # No async handler – treat as generic prompt dismissal
+        response = event.option.get('response') if isinstance(event.option, dict) else None
+
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass
+
+        if response == 'exit':
+            self.action_quit_app()
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""

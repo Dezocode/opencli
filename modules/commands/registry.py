@@ -278,6 +278,48 @@ async def _register_commands(executor):
         )
 
     # ========================================================================
+    # DIFF COMMANDS
+    # ========================================================================
+    from commands.diff_commands import (
+        diff_overview,
+        diff_git,
+        diff_worktree,
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/diff',
+        diff_overview,
+        ExecutionCategory.DEV,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show working tree summary diff",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/diff git',
+        diff_git,
+        ExecutionCategory.DEV,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show git diff against HEAD",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/diff worktree',
+        diff_worktree,
+        ExecutionCategory.DEV,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Compare worktree with environment",
+    )
+
+    # ========================================================================
     # DOCKER COMMANDS
     # ========================================================================
     from docker_commands import (
@@ -735,149 +777,102 @@ async def _register_commands(executor):
 async def _register_tools(executor):
     """Register ALL tools - ASYNC"""
 
-    # ========================================================================
-    # TOOLS DISABLED - No tools directory exists
-    # ========================================================================
-    # Tools were removed during sync. Re-enable when tools are implemented.
-    print("[Registry] Tool registration skipped - tools module not found")
-    return
-
-    # ========================================================================
-    # FILE TOOLS (DISABLED)
-    # ========================================================================
-    """
-    from tools.file_tools import (
-        file_read,
-        file_write,
-        file_edit
+    from tools.core_tools import (
+        tool_read,
+        tool_write,
+        tool_edit,
+        tool_bash,
+        tool_glob,
+        tool_grep,
+        tool_github,
+        tool_configure_headers,
     )
 
     await _safe_register(
         executor,
         ExecutionType.TOOL,
         'Read',
-        file_read,
+        tool_read,
         ExecutionCategory.FILE,
-        RiskLevel.LOW,
+        RiskLevel.SAFE,
         requires_approval=False,
-        description="Read file contents"
+        description="Read file contents",
     )
 
     await _safe_register(
         executor,
         ExecutionType.TOOL,
         'Write',
-        file_write,
+        tool_write,
         ExecutionCategory.FILE,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Write/create file (overwrites existing)"
+        description="Write or create a file",
     )
 
     await _safe_register(
         executor,
         ExecutionType.TOOL,
         'Edit',
-        file_edit,
+        tool_edit,
         ExecutionCategory.FILE,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Edit existing file"
-    )
-
-    # ========================================================================
-    # SEARCH TOOLS
-    # ========================================================================
-    from tools.search_tools import (
-        grep_search,
-        glob_search
-    )
-
-    await _safe_register(
-        executor,
-        ExecutionType.TOOL,
-        'Grep',
-        grep_search,
-        ExecutionCategory.SEARCH,
-        RiskLevel.SAFE,
-        requires_approval=False,
-        description="Search file contents with regex"
+        description="Edit an existing file",
     )
 
     await _safe_register(
         executor,
         ExecutionType.TOOL,
         'Glob',
-        glob_search,
+        tool_glob,
         ExecutionCategory.SEARCH,
         RiskLevel.SAFE,
         requires_approval=False,
-        description="Find files by pattern"
+        description="Find files by glob pattern",
     )
 
-    # ========================================================================
-    # EXECUTION TOOLS
-    # ========================================================================
-    from tools.exec_tools import (
-        bash_execute
+    await _safe_register(
+        executor,
+        ExecutionType.TOOL,
+        'Grep',
+        tool_grep,
+        ExecutionCategory.SEARCH,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Search file contents via grep",
     )
 
     await _safe_register(
         executor,
         ExecutionType.TOOL,
         'Bash',
-        bash_execute,
+        tool_bash,
         ExecutionCategory.BASH,
         RiskLevel.HIGH,
         requires_approval=True,
-        description="Execute bash commands (HIGH RISK)"
-    )
-
-    # ========================================================================
-    # NETWORK TOOLS
-    # ========================================================================
-    from tools.network_tools import (
-        web_fetch,
-        web_search
-    )
-
-    await _safe_register(
-        executor,
-        ExecutionType.TOOL,
-        'WebFetch',
-        web_fetch,
-        ExecutionCategory.NETWORK,
-        RiskLevel.MEDIUM,
-        requires_approval=True,
-        description="Fetch content from URL"
-    )
-
-    await _safe_register(
-        executor,
-        ExecutionType.TOOL,
-        'WebSearch',
-        web_search,
-        ExecutionCategory.NETWORK,
-        RiskLevel.LOW,
-        requires_approval=False,
-        description="Search the web"
-    )
-
-    # ========================================================================
-    # GITHUB TOOLS
-    # ========================================================================
-    from tools.github_tools import (
-        github_api
+        description="Execute shell commands",
+        timeout=120,
     )
 
     await _safe_register(
         executor,
         ExecutionType.TOOL,
         'GitHub',
-        github_api,
+        tool_github,
         ExecutionCategory.NETWORK,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Interact with GitHub API"
+        description="Perform authenticated GitHub operations",
     )
-    """
+
+    await _safe_register(
+        executor,
+        ExecutionType.TOOL,
+        'ConfigureHeaders',
+        tool_configure_headers,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Auto-configure API request headers for models",
+    )
