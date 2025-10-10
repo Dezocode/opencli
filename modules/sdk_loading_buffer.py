@@ -4,6 +4,7 @@ Shows registration progress in a dropdown above the prompt input,
 similar to command suggestions.
 """
 
+import asyncio
 from textual.widgets import Static
 from textual.reactive import reactive
 from rich.text import Text
@@ -20,6 +21,9 @@ class SDKLoadingBuffer(Static):
     - Latest module being processed
     """
 
+    # Spinner frames (same as MultiLineInput)
+    SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
     # Reactive properties
     command_count: reactive[int] = reactive(0)
     tool_count: reactive[int] = reactive(0)
@@ -28,6 +32,7 @@ class SDKLoadingBuffer(Static):
     rejected_count: reactive[int] = reactive(0)
     latest_module: reactive[str] = reactive("")
     is_loading: reactive[bool] = reactive(False)
+    spinner_frame: reactive[int] = reactive(0)
 
     def __init__(self, **kwargs):
         """Initialize SDK loading buffer."""
@@ -39,14 +44,17 @@ class SDKLoadingBuffer(Static):
         self.rejected_count = 0
         self.latest_module = ""
         self.is_loading = False
+        self.spinner_frame = 0
+        self._spin_task = None
 
     def render(self) -> RenderableType:
         """Render the loading buffer with Frontier colors."""
         text = Text()
 
-        # Title with loading spinner
+        # Title with animated spinner
         if self.is_loading:
-            text.append("⠼ ", style="cyan")
+            frame = self.SPINNER_FRAMES[self.spinner_frame % len(self.SPINNER_FRAMES)]
+            text.append(f"{frame} ", style="cyan")
         else:
             text.append("✓ ", style="green")
 
@@ -106,14 +114,33 @@ class SDKLoadingBuffer(Static):
         self.refresh()
 
     def start_loading(self) -> None:
-        """Mark as loading."""
+        """Mark as loading and start spinner animation."""
         self.is_loading = True
+        if self._spin_task is None or self._spin_task.done():
+            self._spin_task = asyncio.create_task(self._spin())
         self.refresh()
 
     def stop_loading(self) -> None:
-        """Mark as complete."""
+        """Mark as complete and stop spinner animation."""
         self.is_loading = False
+        if self._spin_task and not self._spin_task.done():
+            try:
+                self._spin_task.cancel()
+            except Exception:
+                pass
+        self._spin_task = None
+        self.spinner_frame = 0
         self.refresh()
+
+    async def _spin(self) -> None:
+        """Async task that updates the spinner frame."""
+        try:
+            while self.is_loading:
+                self.spinner_frame = (self.spinner_frame + 1) % len(self.SPINNER_FRAMES)
+                self.refresh()
+                await asyncio.sleep(0.08)  # 80ms per frame (same as MultiLineInput)
+        except asyncio.CancelledError:
+            pass
 
     def clear_data(self) -> None:
         """Clear all data."""

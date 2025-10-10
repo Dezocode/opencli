@@ -101,8 +101,8 @@ async def api_server_control(app, session, **context):
                 cwd="/Users/dezmondhollins/opencli"
             )
             app.write("[green]✓ API server restarted[/green]\n\n")
-    except Exception as e:
-        app.write(f"[red]✗ Failed to restart: {e}[/red]\n\n")
+        except Exception as e:
+            app.write(f"[red]✗ Failed to restart: {e}[/red]\n\n")
 
     else:
         app.write(f"[red]✗ Unknown action: {action}[/red]\n")
