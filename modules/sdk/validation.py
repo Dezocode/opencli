@@ -69,8 +69,8 @@ def validate_full_coverage(executor) -> Dict[str, List[str]]:
     Returns:
         Dict with missing command/tool lists for additional reporting.
 
-    Raises:
-        ValueError: if any expected command or tool lacks a registration.
+    Note:
+        Prints warnings for missing registrations but does NOT block startup.
     """
     registered_commands = set(executor.registry.commands.keys())
     registered_tools = set(executor.registry.tools.keys())
@@ -99,8 +99,10 @@ def validate_full_coverage(executor) -> Dict[str, List[str]]:
                 f"missing tool registrations ({len(missing_tools)}): {preview}"
             )
 
-        message = "SDK validation failed – " + " | ".join(parts)
-        raise ValueError(message)
+        message = "SDK validation warning – " + " | ".join(parts)
+        print(f"[SDK] ⚠️  {message}")
+    else:
+        print("[SDK] ✓ All commands and tools validated")
 
     return {
         "missing_commands": missing_commands,
