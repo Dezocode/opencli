@@ -38,7 +38,7 @@ class CommandRouter:
     async def _initialize_registrations(self):
         """Load all registrations into ExecutionSystem with SDK enforcement - ASYNC
 
-        Shows LIVE SDK loading in MultiLineInput dropdown during registration
+        Shows LIVE SDK loading in separate dropdown widget below input during registration
         """
         if self._initialized:
             return  # Already initialized
@@ -78,11 +78,7 @@ class CommandRouter:
         print(f"  ⚠ Converted: {enforcement.converted_count}")
         print(f"  ✗ Rejected: {enforcement.rejected_count}")
 
-        # Store enforcement for startup buffer
-        self.enforcement = enforcement
-        self._initialized = True
-
-        # CRITICAL: Hide and clear the loading dropdown
+        # Hide SDK loading dropdown
         try:
             sdk_buffer = self.app.query_one("#sdk-loading")
             sdk_buffer.stop_loading()
@@ -91,6 +87,10 @@ class CommandRouter:
             print("[CommandRouter] SDK loading dropdown hidden")
         except Exception as e:
             print(f"[CommandRouter] Could not hide SDK dropdown: {e}")
+
+        # Store enforcement for startup buffer
+        self.enforcement = enforcement
+        self._initialized = True
 
     async def route_command(self, command: str, args: Optional[str] = None) -> bool:
         """

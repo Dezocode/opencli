@@ -38,7 +38,7 @@ class CommandRouter:
     async def _initialize_registrations(self):
         """Load all registrations into ExecutionSystem with SDK enforcement - ASYNC
 
-        Shows LIVE SDK loading in MultiLineInput dropdown during registration
+        Shows LIVE SDK loading in separate dropdown widget below input during registration
         """
         if self._initialized:
             return  # Already initialized
@@ -49,22 +49,14 @@ class CommandRouter:
         # Store app reference for live updates
         self.executor.app = self.app
 
-        # Show LIVE SDK loading buffer
+        # Show LIVE SDK loading dropdown
         try:
-            prompt_input = self.app.query_one("#prompt-input")
-
-            # Initial loading message
-            loading_data = {
-                'title': '🔄 OpenCLI SDK - Loading Modules',
-                'message': 'Validating and registering modules...\n\nThis ensures all commands are secure and compliant.\n\n[dim]Starting...[/dim]',
-                'options': []  # No options, just info
-            }
-
-            prompt_input.permission_prompt_data = loading_data
-            prompt_input.refresh(layout=True)
-            print("[CommandRouter] SDK loading buffer displayed")
+            sdk_buffer = self.app.query_one("#sdk-loading")
+            sdk_buffer.start_loading()
+            sdk_buffer.remove_class("hidden")
+            print("[CommandRouter] SDK loading dropdown displayed")
         except Exception as e:
-            print(f"[CommandRouter] Could not show loading buffer: {e}")
+            print(f"[CommandRouter] Could not show SDK dropdown: {e}")
 
         # Single registration point (with SDK enforcement!)
         # This will update the buffer LIVE as each module registers
@@ -85,6 +77,16 @@ class CommandRouter:
         print(f"  ✓ Accepted: {enforcement.accepted_count}")
         print(f"  ⚠ Converted: {enforcement.converted_count}")
         print(f"  ✗ Rejected: {enforcement.rejected_count}")
+
+        # Hide SDK loading dropdown
+        try:
+            sdk_buffer = self.app.query_one("#sdk-loading")
+            sdk_buffer.stop_loading()
+            sdk_buffer.add_class("hidden")
+            sdk_buffer.clear_data()
+            print("[CommandRouter] SDK loading dropdown hidden")
+        except Exception as e:
+            print(f"[CommandRouter] Could not hide SDK dropdown: {e}")
 
         # Store enforcement for startup buffer
         self.enforcement = enforcement
