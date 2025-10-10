@@ -559,6 +559,17 @@ class OpenCLITUI(App):
         color: #B3B1AD;
     }
 
+    #sdk-loading {
+        width: 1fr;
+        height: auto;
+        max-height: 8;
+        margin: 0;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
     .hidden {
         display: none;
     }
@@ -663,12 +674,12 @@ class OpenCLITUI(App):
         with Container(id="footer"):
             yield StatusLine(self.session, self.config)
             with Container(id="prompt-container"):
-                # Multi-line input with integrated spinner
+                # Multi-line input with integrated spinner (permission prompts render INSIDE this)
                 yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
-                # Command suggestion buffer (initially hidden)
-                yield CommandSuggestionBuffer(id="command-suggestions", classes="hidden")
-                # SDK loading buffer (initially hidden)
+                # SDK loading buffer (initially hidden) - dropdown BELOW input
                 yield SDKLoadingBuffer(id="sdk-loading", classes="hidden")
+                # Command suggestion buffer (initially hidden) - dropdown BELOW SDK
+                yield CommandSuggestionBuffer(id="command-suggestions", classes="hidden")
             yield PerformanceStatusLine(self.session)
             yield RefactoringStatusLine(self.session)
 
