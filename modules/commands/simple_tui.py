@@ -56,6 +56,16 @@ except (ImportError, ValueError) as e:
         create_ansi_background_app = None
         FRONTIER_COLORS = {}
         STATUS_COLORS = {}
+
+try:
+    from .permission_buffer_manager import get_permission_buffer_manager
+except (ImportError, ValueError):
+    from permission_buffer_manager import get_permission_buffer_manager
+
+try:
+    from .permission_buffer_manager import get_permission_buffer_manager
+except (ImportError, ValueError):
+    from permission_buffer_manager import get_permission_buffer_manager
         print(f"Warning: Custom TUI widgets not available: {e2}")
 
 
@@ -750,6 +760,13 @@ Session: {self.session.session_id[:8]} | Ready
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
 
+        manager = get_permission_buffer_manager()
+        response_value = event.option.get('response') if isinstance(event.option, dict) else None
+        if manager.resolve(event.option):
+            if response_value == 'cancel':
+                self.session._execution_cancelled = True
+            return
+
         # ========================================================================
         # PRIORITY 1: UNIVERSAL SDK PERMISSION HANDLER
         # ========================================================================
@@ -1361,6 +1378,9 @@ Session: {self.session.session_id[:8]} | Ready
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
+        manager = get_permission_buffer_manager()
+        if manager.clear():
+            return
         # Get the async permission handler
         try:
             from async_permissions import get_global_handler

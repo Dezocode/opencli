@@ -7,6 +7,12 @@ Non-blocking dropdown that auto-dismisses.
 
 import asyncio
 from typing import Optional
+
+try:
+    from permission_buffer_manager import get_permission_buffer_manager
+except ImportError:
+    from ..permission_buffer_manager import get_permission_buffer_manager
+
 from .enforcement import get_enforcement
 
 
@@ -47,7 +53,6 @@ class StartupBuffer:
         print("[StartupBuffer] Building content...")
         content = self._build_content(executor)
 
-        # Create buffer data
         buffer_data = {
             'title': '🚀 OpenCLI Startup - Module Registration',
             'message': content,
@@ -56,25 +61,26 @@ class StartupBuffer:
                     'text': 'Continue (or wait for auto-dismiss)',
                     'response': 'continue'
                 }
-            ],
-            'auto_dismiss_ms': duration_ms if auto_dismiss else None
+            ]
         }
 
-        # Show in buffer
-        print(f"[StartupBuffer] Setting permission_prompt_data with {len(content)} chars...")
-        prompt_input.permission_prompt_data = buffer_data
-        prompt_input.permission_selected_option = 0
-        # Don't call refresh - reactive watcher handles it
-        print("[StartupBuffer] Buffer should now be visible!")
+        session = getattr(executor, 'session', None)
+        manager = get_permission_buffer_manager()
 
-        # Auto-dismiss if enabled
         if auto_dismiss:
-            print(f"[StartupBuffer] Will auto-dismiss in {duration_ms}ms...")
-            await asyncio.sleep(duration_ms / 1000)
-            print("[StartupBuffer] Dismissing buffer...")
-            prompt_input.permission_prompt_data = None
-            # Don't call refresh - reactive watcher handles it
-            print("[StartupBuffer] Buffer dismissed")
+            await manager.show_transient(
+                app,
+                session,
+                buffer_data,
+                duration=max(duration_ms / 1000, 0.1)
+            )
+        else:
+            await manager.prompt(
+                app,
+                session,
+                buffer_data,
+                timeout=None
+            )
 
     def _build_content(self, executor) -> str:
         """Build display content"""

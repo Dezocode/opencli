@@ -21,6 +21,11 @@ from .async_runner import AsyncExecutionRunner
 from .circuit_breaker import CircuitBreaker
 from .retry_manager import RetryManager
 
+try:
+    from permission_buffer_manager import get_permission_buffer_manager
+except ImportError:
+    from ..permission_buffer_manager import get_permission_buffer_manager
+
 
 class StepStatus(Enum):
     """Step execution status"""
@@ -324,11 +329,11 @@ class ExecutionSystem:
         self,
         step: ExecutionStep,
         workflow_status: Dict[str, Any],
-        prompt_input
+        manager,
+        base_prompt: Dict[str, Any]
     ) -> bool:
         """Show permission prompt for individual step"""
 
-        # Update prompt to show step permission
         step_prompt = {
             'title': f'Continue with {step.title}?',
             'message': step.description or f'Execute step: {step.title}',
@@ -345,19 +350,24 @@ class ExecutionSystem:
             ]
         }
 
-        prompt_input.permission_prompt_data = step_prompt
-        prompt_input.refresh(layout=True)
+        option = await manager.prompt(
+            self.app,
+            self.session,
+            step_prompt,
+            timeout=None
+        )
 
-        # Wait for approval
-        self.session._awaiting_step_permission = True
-        self.session._step_permission_response = None
+        manager.update({**base_prompt, 'workflow_status': workflow_status})
 
-        while self.session._awaiting_step_permission:
-            await asyncio.sleep(0.1)
+        if not option:
+            return False
 
-        # Check response
-        response = getattr(self.session, '_step_permission_response', 'cancel')
-        return response == 'allow'
+        response = option.get('response')
+        if response == 'allow':
+            return True
+        if response == 'cancel':
+            self.session._execution_cancelled = True
+        return False
 
     # ========================================================================
     # SINGLE EXECUTION
