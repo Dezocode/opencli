@@ -287,6 +287,64 @@ class DockerManager:
 
         return False, None
 
+    def get_ollama_container_status(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Check status of OpenCLI Ollama container (running or stopped).
+
+        Returns:
+            (container_id, status, name) or (None, None, None)
+            status: 'running', 'exited', 'created', 'paused', etc.
+        """
+        # Check all containers including stopped ones
+        containers = self.list_containers(all_containers=True)
+
+        for container in containers:
+            name = container.get('Names', '')
+
+            # Check for our specific OpenCLI branded container
+            if self.OLLAMA_CONTAINER_NAME in name:
+                return (
+                    container.get('ID'),
+                    container.get('State', 'unknown'),
+                    name
+                )
+
+        return None, None, None
+
+    def remove_ollama_container(self, force: bool = True) -> Tuple[bool, str]:
+        """Remove OpenCLI Ollama container (including stopped/failed ones).
+
+        Args:
+            force: Force removal even if running
+
+        Returns:
+            (success, message)
+        """
+        container_id, status, name = self.get_ollama_container_status()
+
+        if not container_id:
+            return False, "No OpenCLI Ollama container found"
+
+        try:
+            cmd = ["docker", "rm"]
+            if force:
+                cmd.append("-f")
+            cmd.append(container_id)
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=30,
+                text=True
+            )
+
+            if result.returncode == 0:
+                return True, f"Removed container {name} (was {status})"
+            else:
+                return False, f"Failed to remove container: {result.stderr}"
+
+        except Exception as e:
+            return False, f"Error removing container: {str(e)}"
+
     def create_ollama_container(
         self,
         gpu_enabled: bool = False,

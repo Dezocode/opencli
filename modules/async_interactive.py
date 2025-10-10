@@ -877,6 +877,37 @@ async def interactive_async(config, session=None, initial_prompt=None):
     set_global_handler(permission_handler)
     app.permission_handler = permission_handler
 
+    # Initialize Docker async handlers
+    docker_async_handler = None
+    ollama_async_handler = None
+    try:
+        from .docker_async_handler import DockerAsyncHandler, OllamaAsyncHandler
+        from .docker_manager import DockerManager
+    except (ImportError, ValueError):
+        try:
+            from docker_async_handler import DockerAsyncHandler, OllamaAsyncHandler
+            from docker_manager import DockerManager
+        except ImportError:
+            DockerAsyncHandler = None
+            OllamaAsyncHandler = None
+            DockerManager = None
+
+    if DockerAsyncHandler and DockerManager:
+        try:
+            docker_mgr = DockerManager()
+            docker_async_handler = DockerAsyncHandler(
+                docker_manager=docker_mgr,
+                debug_callback=lambda msg: app.write(msg + "\n") if session.debug_mode else None
+            )
+            ollama_async_handler = OllamaAsyncHandler(
+                debug_callback=lambda msg: app.write(msg + "\n") if session.debug_mode else None
+            )
+            # Store on app for easy access
+            app.docker_async = docker_async_handler
+            app.ollama_async = ollama_async_handler
+        except Exception as e:
+            print(f"Warning: Docker async handler initialization failed: {e}")
+
     # Store initial prompt for processing after TUI starts
     app.initial_prompt = initial_prompt
 
@@ -914,6 +945,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
     async def handle_user_input(user_input: str):
         """Handle user input and generate response"""
         nonlocal client
+        import asyncio
 
         # Handle pending provider header prompts before other logic
         if hasattr(session, '_pending_header_update') and session._pending_header_update:
@@ -1238,8 +1270,41 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
         # Handle slash commands
         if user_input.startswith('/'):
-            # Handle /debug command - toggle debug mode
-            if user_input.startswith('/debug'):
+            # ═══════════════════════════════════════════════════════════════
+            # UNIFIED COMMAND ROUTER - Single Entry Point for ALL Commands
+            # ═══════════════════════════════════════════════════════════════
+            # Try routing through unified permission-first executor FIRST
+            # This ensures ALL commands follow the same permission buffer flow
+            try:
+                from modules.command_router import route_command_unified
+
+                # Route command through unified executor
+                was_handled = await route_command_unified(app, session, user_input, None)
+
+                if was_handled:
+                    # Command was handled by unified router
+                    return
+            except Exception as e:
+                # Router not available or error - fall back to old handling
+                import traceback
+                app.write(f"[red]✗ Router error: {e}[/red]\n")
+                app.write(f"[dim]{traceback.format_exc()}[/dim]\n")
+
+            # ═══════════════════════════════════════════════════════════════
+            # NO LEGACY HANDLERS - ALL commands go through router
+            # ═══════════════════════════════════════════════════════════════
+
+            # If we get here, command wasn't registered
+            app.write(f"[yellow]Unknown command: {user_input}[/yellow]\n")
+            app.write("[dim]Type /help for available commands[/dim]\n\n")
+            return
+
+            # EVERYTHING BELOW THIS IS DELETED - keeping for reference only
+            if False:  # Never executes
+                pass
+
+            # OLD /debug command - NOW IN commands/dev_commands.py
+            if user_input.startswith('/debug_OLD'):
                 session.debug_mode = not session.debug_mode
                 status = "enabled" if session.debug_mode else "disabled"
                 color = "green" if session.debug_mode else "yellow"
@@ -1358,392 +1423,75 @@ async def interactive_async(config, session=None, initial_prompt=None):
 
                 return
 
-            # Handle /docker command - Docker container management
-            if user_input.startswith('/docker'):
-                try:
-                    from .docker_manager import DockerManager
-                    from .permission_prompt import PermissionTemplates, PermissionResponse
-                except (ImportError, ValueError):
-                    from docker_manager import DockerManager
-                    from permission_prompt import PermissionTemplates, PermissionResponse
-
-                docker_mgr = DockerManager()
-                parts = user_input.split(maxsplit=2)
-                subcommand = parts[1] if len(parts) > 1 else None
-                args = parts[2] if len(parts) > 2 else None
-
-                # If no subcommand, show permission buffer with options
-                if not subcommand:
-                    app.write("[bold cyan]🐳 Docker Management[/bold cyan]\n\n")
-
-                    # Check Docker status first
-                    is_installed, _ = docker_mgr.is_docker_installed()
-                    is_running, _ = docker_mgr.is_docker_running() if is_installed else (False, "")
-                    is_ollama_running, _ = docker_mgr.is_ollama_running() if is_running else (False, None)
-
-                    docker_options = []
-
-                    # Status option
-                    docker_options.append({
-                        'text': '📊 Check Docker status',
-                        'response': PermissionResponse.ALLOW_ONCE,
-                        'data': {'action': 'status'}
-                    })
-
-                    # List containers
-                    if is_running:
-                        docker_options.append({
-                            'text': '📦 List running containers',
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'action': 'ps'}
-                        })
-
-                        docker_options.append({
-                            'text': '📈 Show container stats',
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'action': 'stats'}
-                        })
-
-                    # Ollama options
-                    if is_ollama_running:
-                        docker_options.append({
-                            'text': '🦙 Manage Ollama container',
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'action': 'ollama_manage'}
-                        })
-
-                        docker_options.append({
-                            'text': '🔍 Browse Ollama models by popularity',
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'action': 'browse_models'}
-                        })
-                    else:
-                        if is_running:
-                            docker_options.append({
-                                'text': '🦙 Setup Ollama in Docker',
-                                'response': PermissionResponse.ALLOW_ONCE,
-                                'data': {'action': 'ollama_setup'}
-                            })
-
-                    docker_options.append({
-                        'text': 'Cancel',
-                        'response': PermissionResponse.CANCEL
-                    })
-
-                    prompt_data = {
-                        'title': 'Docker Management',
-                        'message': f'Docker: {"✓ Running" if is_running else "✗ Not running"}\nOllama: {"✓ Running" if is_ollama_running else "Not running"}\n\nSelect an action:',
-                        'options': docker_options
-                    }
-
-                    # Show permission prompt
-                    try:
-                        prompt_input = app.query_one("#prompt-input")
-                        prompt_input.permission_prompt_data = prompt_data
-                        prompt_input.permission_selected_option = 0
-                        prompt_input.refresh()
-
-                        # Set flag to handle response
-                        session._awaiting_docker_action = True
-                    except Exception as e:
-                        app.write(f"[red]✗ Could not show Docker menu: {e}[/red]\n\n")
-
-                    return
-
-                # /docker status - Show Docker status
-                if subcommand == 'status':
-                    app.write("[bold cyan]🐳 Docker Status[/bold cyan]\n\n")
-
-                    # Check Docker installation
-                    is_installed, version_or_error = docker_mgr.is_docker_installed()
-                    if not is_installed:
-                        app.write(f"[red]✗ Docker not installed[/red]\n")
-                        app.write(f"[dim]{version_or_error}[/dim]\n\n")
-                        app.write("Install Docker:\n")
-                        app.write("  macOS: [cyan]https://docs.docker.com/desktop/install/mac-install/[/cyan]\n")
-                        app.write("  Linux: [cyan]https://docs.docker.com/engine/install/[/cyan]\n\n")
-                        return
-
-                    app.write(f"[green]✓ Docker installed[/green]\n")
-                    app.write(f"[dim]{version_or_error}[/dim]\n\n")
-
-                    # Check Docker daemon
-                    is_running, status_msg = docker_mgr.is_docker_running()
-                    if not is_running:
-                        app.write(f"[yellow]⚠ Docker daemon not running[/yellow]\n")
-                        app.write(f"[dim]{status_msg}[/dim]\n\n")
-                        app.write("Start Docker:\n")
-                        app.write("  macOS: Open Docker Desktop\n")
-                        app.write("  Linux: [cyan]sudo systemctl start docker[/cyan]\n\n")
-                        return
-
-                    app.write(f"[green]✓ {status_msg}[/green]\n\n")
-
-                    # Show system resources
-                    resources = docker_mgr.get_system_resources()
-                    app.write("[bold]System Resources:[/bold]\n")
-                    app.write(f"  CPUs: [cyan]{resources.get('cpu_count', 'unknown')}[/cyan]\n")
-                    app.write(f"  Memory: [cyan]{resources.get('memory_gb', 0):.1f}GB[/cyan]\n")
-                    app.write(f"  Disk Available: [cyan]{resources.get('disk_gb', 0)}GB[/cyan]\n\n")
-
-                    # Show Ollama container status
-                    ollama_status = docker_mgr.get_ollama_container_status()
-                    app.write("[bold]Ollama Container:[/bold]\n")
-                    if ollama_status['running']:
-                        app.write(f"  Status: [green]Running[/green]\n")
-                        app.write(f"  Container: [cyan]{ollama_status['container_id'][:12]}[/cyan]\n")
-                        app.write(f"  Port: [cyan]{ollama_status['port']}[/cyan]\n")
-
-                        if ollama_status['stats']:
-                            stats = ollama_status['stats']
-                            app.write(f"  CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
-                            app.write(f"  Memory: [cyan]{stats['memory_usage']}[/cyan]\n")
-                            app.write(f"  Network: [cyan]{stats['network_io']}[/cyan]\n")
-                    else:
-                        app.write(f"  Status: [dim]Not running[/dim]\n")
-                        app.write(f"  Use [cyan]/docker ollama setup[/cyan] to create container\n")
-
-                    app.write("\n")
-                    return
-
-                # /docker ps - List containers
-                elif subcommand == 'ps':
-                    containers = docker_mgr.list_containers(all_containers=False)
-
-                    if not containers:
-                        app.write("[dim]No running containers[/dim]\n\n")
-                        return
-
-                    app.write("[bold cyan]🐳 Running Containers[/bold cyan]\n\n")
-                    for container in containers:
-                        name = container.get('Names', 'unknown')
-                        image = container.get('Image', 'unknown')
-                        status = container.get('Status', 'unknown')
-                        ports = container.get('Ports', '')
-
-                        app.write(f"[bold]{name}[/bold]\n")
-                        app.write(f"  Image: [cyan]{image}[/cyan]\n")
-                        app.write(f"  Status: {status}\n")
-                        if ports:
-                            app.write(f"  Ports: {ports}\n")
-                        app.write("\n")
-
-                    return
-
-                # /docker stats - Show container stats
-                elif subcommand == 'stats':
-                    if not args:
-                        # Show stats for all running containers
-                        containers = docker_mgr.list_containers(all_containers=False)
-                        if not containers:
-                            app.write("[dim]No running containers[/dim]\n\n")
-                            return
-
-                        app.write("[bold cyan]🐳 Container Resource Usage[/bold cyan]\n\n")
-                        for container in containers:
-                            name = container.get('Names', 'unknown')
-                            container_id = container.get('ID', '')
-
-                            stats = docker_mgr.get_container_stats(container_id)
-                            if stats:
-                                app.write(f"[bold]{name}[/bold]\n")
-                                app.write(f"  CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
-                                app.write(f"  Memory: [cyan]{stats['memory_usage']}[/cyan] ([cyan]{stats['memory_percent']}%[/cyan])\n")
-                                app.write(f"  Network: [cyan]{stats['network_io']}[/cyan]\n")
-                                app.write(f"  Block I/O: [cyan]{stats['block_io']}[/cyan]\n\n")
-                    else:
-                        # Show stats for specific container
-                        stats = docker_mgr.get_container_stats(args)
-                        if stats:
-                            app.write(f"[bold cyan]Stats for {args}[/bold cyan]\n\n")
-                            app.write(f"CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
-                            app.write(f"Memory: [cyan]{stats['memory_usage']}[/cyan] ([cyan]{stats['memory_percent']}%[/cyan])\n")
-                            app.write(f"Network: [cyan]{stats['network_io']}[/cyan]\n")
-                            app.write(f"Block I/O: [cyan]{stats['block_io']}[/cyan]\n\n")
-                        else:
-                            app.write(f"[red]✗ Could not get stats for {args}[/red]\n\n")
-
-                    return
-
-                # /docker ollama - Ollama-specific commands
-                elif subcommand == 'ollama':
-                    ollama_cmd = args
-
-                    # /docker ollama setup - Interactive setup
-                    if not ollama_cmd or ollama_cmd == 'setup':
-                        app.write("[bold cyan]🐳 Ollama Docker Setup[/bold cyan]\n\n")
-
-                        # Check Docker is running
-                        is_running, _ = docker_mgr.is_docker_running()
-                        if not is_running:
-                            app.write("[red]✗ Docker daemon not running[/red]\n\n")
-                            app.write("Start Docker first, then run [cyan]/docker ollama setup[/cyan] again\n\n")
-                            return
-
-                        # Check if Ollama container already exists
-                        is_running, container_id = docker_mgr.is_ollama_running()
-                        if is_running:
-                            app.write(f"[green]✓ Ollama container already running[/green]\n")
-                            app.write(f"[dim]Container ID: {container_id}[/dim]\n\n")
-                            app.write("Use [cyan]/docker ollama status[/cyan] to see details\n\n")
-                            return
-
-                        # Show setup options in permission buffer
-                        resources = docker_mgr.get_system_resources()
-                        cpu_count = resources.get('cpu_count', 4)
-                        memory_gb = resources.get('memory_gb', 8)
-
-                        setup_options = []
-
-                        # Conservative option (default)
-                        setup_options.append({
-                            'text': f"Conservative (4 CPUs, 8GB RAM) - Recommended",
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'cpu_limit': '4', 'memory_limit': '8g', 'gpu': False}
-                        })
-
-                        # Balanced option
-                        if cpu_count >= 6 and memory_gb >= 16:
-                            setup_options.append({
-                                'text': f"Balanced ({min(6, cpu_count)} CPUs, 12GB RAM)",
-                                'response': PermissionResponse.ALLOW_ONCE,
-                                'data': {'cpu_limit': str(min(6, cpu_count)), 'memory_limit': '12g', 'gpu': False}
-                            })
-
-                        # High performance option
-                        if cpu_count >= 8 and memory_gb >= 24:
-                            setup_options.append({
-                                'text': f"High Performance ({min(8, cpu_count)} CPUs, 16GB RAM)",
-                                'response': PermissionResponse.ALLOW_ONCE,
-                                'data': {'cpu_limit': str(min(8, cpu_count)), 'memory_limit': '16g', 'gpu': False}
-                            })
-
-                        # GPU option (if available)
-                        # TODO: Detect if nvidia-docker is available
-                        setup_options.append({
-                            'text': "With GPU Support (requires nvidia-docker)",
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'cpu_limit': '4', 'memory_limit': '8g', 'gpu': True}
-                        })
-
-                        setup_options.append({
-                            'text': 'Cancel',
-                            'response': PermissionResponse.CANCEL
-                        })
-
-                        prompt_data = {
-                            'title': 'Docker Ollama Setup',
-                            'message': f'Choose resource allocation:\n\nYour system: {cpu_count} CPUs, {memory_gb:.1f}GB RAM\n\nConservative settings are safest for daily use.',
-                            'options': setup_options
-                        }
-
-                        # Show permission prompt
-                        try:
-                            prompt_input = app.query_one("#prompt-input")
-                            prompt_input.permission_prompt_data = prompt_data
-                            prompt_input.permission_selected_option = 0
-                            prompt_input.refresh()
-
-                            # Set flag to handle response
-                            session._awaiting_docker_ollama_setup = True
-                        except Exception as e:
-                            app.write(f"[red]✗ Could not show setup options: {e}[/red]\n\n")
-
-                        return
-
-                    # /docker ollama start - Start container
-                    elif ollama_cmd == 'start':
-                        is_running, container_id = docker_mgr.is_ollama_running()
-
-                        if is_running:
-                            app.write("[yellow]⚠ Ollama container already running[/yellow]\n\n")
-                            return
-
-                        # Check if container exists but is stopped
-                        all_containers = docker_mgr.list_containers(all_containers=True)
-                        ollama_container = None
-
-                        for container in all_containers:
-                            if docker_mgr.OLLAMA_CONTAINER_NAME in container.get('Names', ''):
-                                ollama_container = container
-                                break
-
-                        if ollama_container:
-                            # Container exists, start it
-                            app.write("[cyan]▸ Starting Ollama container...[/cyan]\n\n")
-                            success, msg = docker_mgr.start_container(docker_mgr.OLLAMA_CONTAINER_NAME)
-
-                            if success:
-                                app.write(f"[green]✓ {msg}[/green]\n\n")
-                                app.write(f"Ollama is now available at [cyan]http://localhost:{docker_mgr.OLLAMA_PORT}[/cyan]\n\n")
-                            else:
-                                app.write(f"[red]✗ {msg}[/red]\n\n")
-                        else:
-                            app.write("[yellow]⚠ Ollama container doesn't exist[/yellow]\n\n")
-                            app.write("Run [cyan]/docker ollama setup[/cyan] to create it first\n\n")
-
-                        return
-
-                    # /docker ollama stop - Stop container
-                    elif ollama_cmd == 'stop':
-                        is_running, container_id = docker_mgr.is_ollama_running()
-
-                        if not is_running:
-                            app.write("[yellow]⚠ Ollama container not running[/yellow]\n\n")
-                            return
-
-                        app.write("[cyan]▸ Stopping Ollama container...[/cyan]\n\n")
-                        success, msg = docker_mgr.stop_container(docker_mgr.OLLAMA_CONTAINER_NAME)
-
-                        if success:
-                            app.write(f"[green]✓ {msg}[/green]\n\n")
-                        else:
-                            app.write(f"[red]✗ {msg}[/red]\n\n")
-
-                        return
-
-                    # /docker ollama status - Show detailed status
-                    elif ollama_cmd == 'status':
-                        status = docker_mgr.get_ollama_container_status()
-
-                        app.write("[bold cyan]🐳 Ollama Container Status[/bold cyan]\n\n")
-
-                        if status['running']:
-                            app.write("[green]✓ Running[/green]\n\n")
-                            app.write(f"Container ID: [cyan]{status['container_id'][:12]}[/cyan]\n")
-                            app.write(f"Port: [cyan]http://localhost:{status['port']}[/cyan]\n\n")
-
-                            if status['stats']:
-                                stats = status['stats']
-                                app.write("[bold]Resource Usage:[/bold]\n")
-                                app.write(f"  CPU: [cyan]{stats['cpu_percent']}%[/cyan]\n")
-                                app.write(f"  Memory: [cyan]{stats['memory_usage']}[/cyan] ([cyan]{stats['memory_percent']}%[/cyan])\n")
-                                app.write(f"  Network I/O: [cyan]{stats['network_io']}[/cyan]\n")
-                                app.write(f"  Disk I/O: [cyan]{stats['block_io']}[/cyan]\n")
-                        else:
-                            app.write("[dim]Not running[/dim]\n\n")
-                            app.write("Commands:\n")
-                            app.write("  [cyan]/docker ollama setup[/cyan]  - Create new container\n")
-                            app.write("  [cyan]/docker ollama start[/cyan]  - Start stopped container\n")
-
-                        app.write("\n")
-                        return
-
-                else:
-                    app.write(f"[red]✗ Unknown docker subcommand: {subcommand}[/red]\n\n")
-                    app.write("Available commands:\n")
-                    app.write("  [cyan]/docker status[/cyan]         - Show Docker status\n")
-                    app.write("  [cyan]/docker ps[/cyan]             - List containers\n")
-                    app.write("  [cyan]/docker stats[/cyan]          - Show resource usage\n")
-                    app.write("  [cyan]/docker ollama setup[/cyan]   - Setup Ollama container\n")
-                    app.write("  [cyan]/docker ollama start[/cyan]   - Start Ollama\n")
-                    app.write("  [cyan]/docker ollama stop[/cyan]    - Stop Ollama\n")
-                    app.write("  [cyan]/docker ollama status[/cyan]  - Show Ollama status\n\n")
-
+            # ═══════════════════════════════════════════════════════════════
+            # OLD DOCKER HANDLING REMOVED - Now uses unified router above
+            # ═══════════════════════════════════════════════════════════════
+            # All Docker commands (/docker ollama setup/start/stop) are now
+            # handled by the unified command router at lines 1273-1290
+            #
+            # If you see this code executing, the unified router didn't
+            # handle the command, which means it's not registered.
+            # ═══════════════════════════════════════════════════════════════
+
+            # Minimal fallback for `/docker` with no subcommand - show help
+            if user_input.strip() == '/docker':
+                app.write("[bold cyan]🐳 Docker Commands[/bold cyan]\n\n")
+                app.write("Available Docker commands:\n\n")
+                app.write("  [cyan]/docker ollama setup[/cyan]  - Set up Ollama in Docker\n")
+                app.write("  [cyan]/docker ollama start[/cyan]  - Start Ollama container\n")
+                app.write("  [cyan]/docker ollama stop[/cyan]   - Stop Ollama container\n")
+                app.write("  [cyan]/docker ollama status[/cyan] - Show Ollama status\n\n")
+                app.write("[dim]All Docker commands use the unified permission-first flow.[/dim]\n\n")
                 return
 
             # Handle /local command - local model recommendations
             if user_input.startswith('/local'):
+                # Check if already approved to check for local Ollama
+                if not hasattr(session, '_local_check_approved') or not session._local_check_approved:
+                    # Ask permission first
+                    try:
+                        from .permission_prompt import PermissionResponse
+                    except (ImportError, ValueError):
+                        from permission_prompt import PermissionResponse
+
+                    permission_options = [
+                        {
+                            'text': 'Yes, check for local/Docker Ollama',
+                            'response': PermissionResponse.ALLOW_ONCE,
+                            'data': {'action': 'check_local'}
+                        },
+                        {
+                            'text': 'No, cancel',
+                            'response': PermissionResponse.CANCEL
+                        }
+                    ]
+
+                    prompt_data = {
+                        'title': 'Check Local Ollama Setup?',
+                        'message': 'This will check for:\n• Native Ollama installation\n• Docker Ollama container\n• Ollama server status\n\nProceed?',
+                        'options': permission_options
+                    }
+
+                    prompt_input = app.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = prompt_data
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh(layout=True)
+
+                    # Clear stale flags
+                    session._awaiting_docker_action = False
+                    session._awaiting_docker_ollama_setup = False
+                    session._awaiting_model_browser_selection = False
+                    session._awaiting_provider_selection = False
+                    session._awaiting_provider_model_selection = False
+                    session._awaiting_local_model_selection = False
+                    session._awaiting_providers_permission = False
+                    session._awaiting_ollama_setup_permission = False
+                    session._awaiting_local_check_permission = True
+                    return
+
+                # Permission granted, proceed
+                import subprocess
+
                 try:
                     from .system_capability import SystemCapability
                     from .model_recommendations import get_recommendations, get_ollama_pull_commands
@@ -1753,35 +1501,51 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     from model_recommendations import get_recommendations, get_ollama_pull_commands
                     from permission_prompt import PermissionTemplates
 
-                import subprocess
-
                 app.write("[cyan]▸ Checking Ollama installation...[/cyan]\n\n")
 
-                # Check if ollama command exists
+                # Check if ollama command exists - ASYNC
+                ollama_not_installed = False
                 try:
-                    result = subprocess.run(
-                        ["which", "ollama"],
-                        capture_output=True,
-                        timeout=2
-                    )
-                    if result.returncode != 0:
+                    if hasattr(app, 'ollama_async') and app.ollama_async:
+                        is_installed, path = await app.ollama_async.check_native_ollama()
+                        ollama_not_installed = not is_installed
+                    else:
+                        result = await asyncio.to_thread(
+                            subprocess.run,
+                            ["which", "ollama"],
+                            capture_output=True,
+                            timeout=2,
+                            text=True
+                        )
+                        ollama_not_installed = result.returncode != 0
+
+                    if ollama_not_installed:
                         app.write("[red]✗ Ollama not installed natively[/red]\n\n")
 
-                        # Check if Docker is available as fallback
+                        # Check if Docker is available as fallback - ASYNC
                         try:
                             from .docker_manager import DockerManager
                         except (ImportError, ValueError):
                             from docker_manager import DockerManager
 
-                        docker_mgr = DockerManager()
-                        docker_installed, docker_version = docker_mgr.is_docker_installed()
+                        if hasattr(app, 'docker_async') and app.docker_async:
+                            docker_installed, docker_version = await app.docker_async.check_docker_installed()
+                        else:
+                            docker_mgr = DockerManager()
+                            docker_installed, docker_version = await asyncio.to_thread(docker_mgr.is_docker_installed)
 
                         if docker_installed:
-                            docker_running, docker_msg = docker_mgr.is_docker_running()
+                            if hasattr(app, 'docker_async') and app.docker_async:
+                                docker_running, docker_msg = await app.docker_async.check_docker_running()
+                            else:
+                                docker_running, docker_msg = await asyncio.to_thread(docker_mgr.is_docker_running)
 
                             if docker_running:
-                                # Check if Ollama container is already running
-                                is_ollama_running, container_id = docker_mgr.is_ollama_running()
+                                # Check if Ollama container is already running - ASYNC
+                                if hasattr(app, 'docker_async') and app.docker_async:
+                                    is_ollama_running, container_id = await app.docker_async.is_ollama_running()
+                                else:
+                                    is_ollama_running, container_id = await asyncio.to_thread(docker_mgr.is_ollama_running)
 
                                 if is_ollama_running:
                                     app.write("[green]✓ Ollama running in Docker[/green]\n")
@@ -1789,6 +1553,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     app.write("Use [cyan]/docker ollama status[/cyan] for details\n\n")
                                     # Continue with local workflow using Docker Ollama
                                     # TODO: Integrate with Docker Ollama endpoint
+                                    session._local_check_approved = False
                                     return
                                 else:
                                     app.write("[cyan]💡 Docker is available but Ollama not set up[/cyan]\n\n")
@@ -1796,6 +1561,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                     app.write("  Run [cyan]/docker ollama setup[/cyan] to configure\n\n")
                                     app.write("Or install Ollama natively:\n")
                                     app.write("  [cyan]https://ollama.ai/[/cyan]\n\n")
+                                    session._local_check_approved = False
                                     return
                             else:
                                 app.write(f"[yellow]! Docker installed but not running[/yellow]\n")
@@ -1803,37 +1569,65 @@ async def interactive_async(config, session=None, initial_prompt=None):
                                 app.write("Options:\n")
                                 app.write("  1. Start Docker, then run [cyan]/docker ollama setup[/cyan]\n")
                                 app.write("  2. Install Ollama natively: [cyan]https://ollama.ai/[/cyan]\n\n")
+                                session._local_check_approved = False
                                 return
                         else:
                             app.write("Install Ollama to use local models:\n")
                             app.write("  Option 1 (Recommended): [cyan]https://ollama.ai/[/cyan]\n")
                             app.write("  Option 2 (Docker): Install Docker, then run [cyan]/docker ollama setup[/cyan]\n\n")
+                            session._local_check_approved = False
                             return
-                except Exception:
-                    app.write("[red]✗ Could not detect Ollama[/red]\n\n")
-                    app.write("Install Ollama first: [cyan]https://ollama.ai/[/cyan]\n\n")
+                except Exception as e:
+                    import traceback
+                    app.write(f"[red]✗ Error detecting Ollama: {e}[/red]\n\n")
+                    app.write(f"[dim]{traceback.format_exc()}[/dim]\n\n")
+                    session._local_check_approved = False
                     return
 
-                # Check if Ollama server is running by trying to list models
+                # Check if Ollama server is running by trying to list models - ASYNC
                 existing_models = []
+                server_not_running = False
                 try:
-                    result = subprocess.run(
-                        ["ollama", "list"],
-                        capture_output=True,
-                        timeout=3
-                    )
-                    if result.returncode != 0:
+                    if hasattr(app, 'ollama_async') and app.ollama_async:
+                        success, models, error = await app.ollama_async.list_ollama_models()
+                        if success:
+                            existing_models = [m['name'] for m in models]
+                        else:
+                            server_not_running = True
+                    else:
+                        result = await asyncio.to_thread(
+                            subprocess.run,
+                            ["ollama", "list"],
+                            capture_output=True,
+                            timeout=3
+                        )
+                        if result.returncode != 0:
+                            server_not_running = True
+                        else:
+                            # Parse existing models
+                            output = result.stdout.decode('utf-8')
+                            for line in output.split('\n')[1:]:  # Skip header
+                                if line.strip():
+                                    parts = line.split()
+                                    if parts:
+                                        existing_models.append(parts[0])
+
+                    if server_not_running:
                         app.write("[yellow]! Ollama installed but server not running[/yellow]\n\n")
 
-                        # Check if Docker is available with Ollama container
+                        # Check if Docker is available with Ollama container - ASYNC
                         try:
                             from .docker_manager import DockerManager
                         except (ImportError, ValueError):
                             from docker_manager import DockerManager
 
-                        docker_mgr = DockerManager()
-                        is_docker_running, _ = docker_mgr.is_docker_running()
-                        is_ollama_container_running, container_id = docker_mgr.is_ollama_running()
+                        if hasattr(app, 'docker_async') and app.docker_async:
+                            is_docker_running, _ = await app.docker_async.check_docker_running()
+                            is_ollama_container_running, container_id = await app.docker_async.is_ollama_running()
+                        else:
+                            docker_mgr = DockerManager()
+                            is_docker_running, _ = await asyncio.to_thread(docker_mgr.is_docker_running)
+                            is_ollama_container_running, container_id = await asyncio.to_thread(docker_mgr.is_ollama_running)
 
                         if is_docker_running and is_ollama_container_running:
                             app.write("[cyan]💡 Ollama is running in Docker[/cyan]\n")
@@ -1841,6 +1635,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             app.write("Options:\n")
                             app.write("  1. Use Docker Ollama: [cyan]/docker ollama status[/cyan]\n")
                             app.write("  2. Start native Ollama: [cyan]ollama serve[/cyan]\n\n")
+                            session._local_check_approved = False
                             return
                         else:
                             app.write("Options:\n")
@@ -1848,15 +1643,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
                             if is_docker_running:
                                 app.write("  2. Use Docker instead: [cyan]/docker ollama setup[/cyan]\n")
                             app.write("\nThen run [cyan]/local[/cyan] again\n\n")
+                            session._local_check_approved = False
                             return
-
-                    # Parse existing models
-                    output = result.stdout.decode('utf-8')
-                    for line in output.split('\n')[1:]:  # Skip header
-                        if line.strip():
-                            parts = line.split()
-                            if parts:
-                                existing_models.append(parts[0])
 
                     if existing_models:
                         app.write(f"[green]✓ Ollama running with {len(existing_models)} models installed[/green]\n")
@@ -1995,8 +1783,10 @@ async def interactive_async(config, session=None, initial_prompt=None):
                     # Set flag to handle response
                     session._awaiting_local_model_selection = True
                     session._local_step = 'setup_type'
+                    session._local_check_approved = False  # Clear permission flag
                 except Exception as e:
                     app.write(f"[red]✗ Could not show model selection: {e}[/red]\n\n")
+                    session._local_check_approved = False  # Clear permission flag
 
                 return
 
@@ -2015,95 +1805,222 @@ async def interactive_async(config, session=None, initial_prompt=None):
                 parts = user_input.split()
                 args = parts[1] if len(parts) > 1 else None
 
-                # Handle /model providers subcommand
+                # Handle /model providers subcommand - ask permission first
                 if args == 'providers':
-                    app.write("[bold cyan]📦 Browse Models by Provider[/bold cyan]\n\n")
+                    # Check if already approved to show providers
+                    if not hasattr(session, '_providers_approved') or not session._providers_approved:
+                        # Ask permission first
+                        permission_options = [
+                            {
+                                'text': 'Yes, browse models by provider',
+                                'response': PermissionResponse.ALLOW_ONCE,
+                                'data': {'action': 'show_providers'}
+                            },
+                            {
+                                'text': 'No, cancel',
+                                'response': PermissionResponse.CANCEL
+                            }
+                        ]
 
-                    # Get providers with API keys
-                    keys = local_model_mgr.get_configured_keys()
-                    providers = local_model_mgr.get_providers()
+                        prompt_data = {
+                            'title': 'Browse Models by Provider?',
+                            'message': 'This will check your configured providers and available models.\n\nMay also check for local Ollama installation.',
+                            'options': permission_options
+                        }
 
-                    if not keys:
-                        app.write("[yellow]⚠ No providers configured[/yellow]\n\n")
-                        app.write("Add a provider first:\n")
-                        app.write("  [cyan]/providers add[/cyan]\n\n")
+                        prompt_input = app.query_one("#prompt-input")
+
+                        # DEBUG: Show permission buffer setup
+                        app.write("[yellow]━━━ PERMISSION BUFFER: /model providers ━━━[/yellow]\n")
+                        app.write(f"[dim]Setting up permission prompt: {prompt_data['title']}[/dim]\n")
+                        app.write(f"[dim]Options available: {len(prompt_data['options'])}[/dim]\n")
+
+                        prompt_input.permission_prompt_data = prompt_data
+                        prompt_input.permission_selected_option = 0
+                        prompt_input.refresh(layout=True)
+
+                        # Clear stale flags
+                        session._awaiting_docker_action = False
+                        session._awaiting_docker_ollama_setup = False
+                        session._awaiting_model_browser_selection = False
+                        session._awaiting_provider_selection = False
+                        session._awaiting_provider_model_selection = False
+                        session._awaiting_local_model_selection = False
+                        session._awaiting_providers_permission = True
+
+                        # DEBUG: Confirm flags set
+                        app.write("[dim]Set flag: _awaiting_providers_permission = True[/dim]\n")
+                        app.write("[green]Permission buffer should now be visible - use arrow keys to navigate[/green]\n")
+                        app.write("[yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]\n\n")
+
                         return
 
-                    # Build provider options
-                    provider_options = []
+                    # Permission already granted, show providers
+                    try:
+                        # Get providers with API keys
+                        keys = local_model_mgr.get_configured_keys()
+                        providers = local_model_mgr.get_providers()
 
-                    for provider in providers:
-                        provider_id = provider["id"]
-                        provider_name = provider["name"]
+                        if not keys:
+                            app.write("[yellow]⚠ No providers configured[/yellow]\n\n")
+                            app.write("Add a provider first:\n")
+                            app.write("  [cyan]/providers add[/cyan]\n\n")
+                            session._providers_approved = False
+                            return
 
-                        # Check if configured
-                        if provider_id in keys:
-                            # Get model count
-                            models = local_model_mgr.get_models_by_provider(provider_id)
-                            model_count = len(models) if models else 0
+                        # Build provider options
+                        provider_options = []
+
+                        # Get all available models once
+                        all_models = local_model_mgr.list_available_models()
+
+                        for provider in providers:
+                            provider_id = provider["id"]
+                            provider_name = provider["name"]
+
+                            # Check if configured
+                            if provider_id in keys:
+                                # Filter models for this provider
+                                provider_models = [m for m in all_models if m.get('provider') == provider_id]
+                                model_count = len(provider_models)
+
+                                provider_options.append({
+                                    'text': f"{provider_name} ({model_count} models available)",
+                                    'response': PermissionResponse.ALLOW_ONCE,
+                                    'data': {'provider_id': provider_id, 'provider_name': provider_name}
+                                })
+
+                        # Add local option if Ollama is available - ASYNC with timeout
+                        is_ollama_running = False
+                        native_ollama = False
+
+                        # DEBUG: Show Docker check starting
+                        app.write("[yellow]━━━ Checking for local Ollama (Docker) ━━━[/yellow]\n")
+                        app.write("[dim]Starting Docker Ollama check with 2s timeout...[/dim]\n")
+
+                        try:
+                            # Check Docker Ollama with 2 second timeout
+                            if hasattr(app, 'docker_async') and app.docker_async:
+                                is_ollama_running, _ = await asyncio.wait_for(
+                                    app.docker_async.is_ollama_running(),
+                                    timeout=2.0
+                                )
+                            else:
+                                try:
+                                    from .docker_manager import DockerManager
+                                except (ImportError, ValueError):
+                                    from docker_manager import DockerManager
+                                docker_mgr = DockerManager()
+                                is_ollama_running, _ = await asyncio.wait_for(
+                                    asyncio.to_thread(docker_mgr.is_ollama_running),
+                                    timeout=2.0
+                                )
+                        except asyncio.TimeoutError:
+                            app.write("[yellow]⚠ Docker Ollama check TIMED OUT after 2s[/yellow]\n")
+                            is_ollama_running = False
+                        except Exception as e:
+                            app.write(f"[yellow]⚠ Docker Ollama check ERROR: {e}[/yellow]\n")
+                            is_ollama_running = False
+
+                        # DEBUG: Show Docker check result
+                        if is_ollama_running:
+                            app.write("[green]✓ Docker Ollama is running[/green]\n")
+                        else:
+                            app.write("[dim]✗ Docker Ollama not found[/dim]\n")
+
+                        app.write("[yellow]━━━ Checking for local Ollama (Native) ━━━[/yellow]\n")
+                        app.write("[dim]Starting native Ollama check with 2s timeout...[/dim]\n")
+
+                        # Also check native Ollama - ASYNC with timeout
+                        try:
+                            if hasattr(app, 'ollama_async') and app.ollama_async:
+                                server_running, _ = await asyncio.wait_for(
+                                    app.ollama_async.check_ollama_server(),
+                                    timeout=2.0
+                                )
+                                native_ollama = server_running
+                            else:
+                                import subprocess
+                                result = await asyncio.wait_for(
+                                    asyncio.to_thread(
+                                        subprocess.run,
+                                        ["ollama", "list"],
+                                        capture_output=True,
+                                        timeout=2
+                                    ),
+                                    timeout=3.0
+                                )
+                                if result.returncode == 0:
+                                    native_ollama = True
+                        except asyncio.TimeoutError:
+                            app.write("[yellow]⚠ Native Ollama check TIMED OUT after 2s[/yellow]\n")
+                            native_ollama = False
+                        except Exception as e:
+                            app.write(f"[yellow]⚠ Native Ollama check ERROR: {e}[/yellow]\n")
+                            native_ollama = False
+
+                        # DEBUG: Show native Ollama check result
+                        if native_ollama:
+                            app.write("[green]✓ Native Ollama is running[/green]\n")
+                        else:
+                            app.write("[dim]✗ Native Ollama not found[/dim]\n")
+
+                        app.write("[yellow]━━━ Building provider list ━━━[/yellow]\n")
+                        app.write(f"[dim]Found {len(provider_options)} configured providers[/dim]\n")
+                        app.write(f"[dim]Ollama available: {is_ollama_running or native_ollama}[/dim]\n\n")
+
+                        if is_ollama_running or native_ollama:
+                            # Filter Ollama models from all_models
+                            ollama_models = [m for m in all_models if m.get('provider') == 'ollama']
+                            model_count = len(ollama_models)
 
                             provider_options.append({
-                                'text': f"{provider_name} ({model_count} models available)",
+                                'text': f"🦙 Local Ollama ({model_count} models installed)",
                                 'response': PermissionResponse.ALLOW_ONCE,
-                                'data': {'provider_id': provider_id, 'provider_name': provider_name}
+                                'data': {'provider_id': 'ollama', 'provider_name': 'Ollama (Local)'}
                             })
 
-                    # Add local option if Ollama is available
-                    try:
-                        from .docker_manager import DockerManager
-                    except (ImportError, ValueError):
-                        from docker_manager import DockerManager
-
-                    docker_mgr = DockerManager()
-                    is_ollama_running, _ = docker_mgr.is_ollama_running()
-
-                    # Also check native Ollama
-                    native_ollama = False
-                    try:
-                        import subprocess
-                        result = subprocess.run(
-                            ["ollama", "list"],
-                            capture_output=True,
-                            timeout=2
-                        )
-                        if result.returncode == 0:
-                            native_ollama = True
-                    except:
-                        pass
-
-                    if is_ollama_running or native_ollama:
-                        # Get local models
-                        local_models = local_model_mgr.get_models_by_provider("ollama")
-                        model_count = len(local_models) if local_models else 0
-
                         provider_options.append({
-                            'text': f"🦙 Local Ollama ({model_count} models installed)",
-                            'response': PermissionResponse.ALLOW_ONCE,
-                            'data': {'provider_id': 'ollama', 'provider_name': 'Ollama (Local)'}
+                            'text': 'Cancel',
+                            'response': PermissionResponse.CANCEL
                         })
 
-                    provider_options.append({
-                        'text': 'Cancel',
-                        'response': PermissionResponse.CANCEL
-                    })
+                        # Create prompt data
+                        prompt_data = {
+                            'title': 'Select Provider',
+                            'message': f'Browse models by provider:\n\n{len(provider_options)-1} providers available\n\nSelect a provider to see its models:',
+                            'options': provider_options
+                        }
 
-                    prompt_data = {
-                        'title': 'Select Provider',
-                        'message': f'Browse models by provider:\n\n{len(provider_options)-1} providers available\n\nSelect a provider to see its models:',
-                        'options': provider_options
-                    }
+                        # Show permission prompt in MultiLineInput
+                        app.write("[yellow]━━━ PERMISSION BUFFER: Provider Selection ━━━[/yellow]\n")
+                        app.write(f"[dim]Setting up provider selection prompt[/dim]\n")
+                        app.write(f"[dim]Total options: {len(provider_options)}[/dim]\n")
 
-                    # Show permission prompt
-                    try:
                         prompt_input = app.query_one("#prompt-input")
                         prompt_input.permission_prompt_data = prompt_data
                         prompt_input.permission_selected_option = 0
-                        prompt_input.refresh()
+                        prompt_input.refresh(layout=True)
 
-                        # Set flag to handle response
+                        # Clear any stale flags and set flag to handle response
+                        session._awaiting_docker_action = False
+                        session._awaiting_docker_ollama_setup = False
+                        session._awaiting_model_browser_selection = False
+                        session._awaiting_provider_model_selection = False
+                        session._awaiting_local_model_selection = False
+                        session._awaiting_providers_permission = False
+                        session._providers_approved = False
                         session._awaiting_provider_selection = True
+
+                        app.write("[dim]Set flag: _awaiting_provider_selection = True[/dim]\n")
+                        app.write("[green]Provider selection buffer should now be visible[/green]\n")
+                        app.write("[yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]\n\n")
+
                     except Exception as e:
-                        app.write(f"[red]✗ Could not show provider selection: {e}[/red]\n\n")
+                        import traceback
+                        app.write(f"[red]✗ Error showing provider selection: {e}[/red]\n")
+                        app.write(f"[dim]{traceback.format_exc()}[/dim]\n\n")
+                        session._providers_approved = False
 
                     return
 

@@ -23,6 +23,7 @@ except (ImportError, ValueError):
 class PermissionResponse(Enum):
     """Permission response types"""
     ALLOW_ONCE = "allow_once"
+    ALLOW_SESSION = "allow_session"
     ALLOW_ALWAYS = "allow_always"
     ALLOW_DOMAIN = "allow_domain"
     DENY = "deny"
