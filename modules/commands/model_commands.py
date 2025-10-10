@@ -65,3 +65,55 @@ async def model_switch(app, session, **context):
     else:
         error = result.get('error', 'Unknown error')
         app.write(f"[red]✗ Failed to switch model: {error}[/red]\n\n")
+
+
+async def model_list_providers(app, session, **context):
+    """List registered providers via /model providers."""
+    try:
+        from modules.model_manager import ModelManager
+    except:
+        import importlib
+        model_mgr = importlib.import_module('model_manager')
+        ModelManager = model_mgr.ModelManager
+
+    manager = ModelManager()
+    providers = manager.get_providers()
+
+    app.write("[bold cyan]Configured Providers[/bold cyan]\n")
+    for provider in providers:
+        status = "[green]✓ key[/green]" if provider.get("has_key") else "[yellow]○ no key[/yellow]"
+        models = provider.get("model_count", 0)
+        app.write(f"  {status} [cyan]{provider['name']}[/cyan] ({models} models cached)\n")
+    app.write("\nUse `/providers` commands to manage API keys.\n\n")
+
+
+async def model_switch_recent(app, session, index: int):
+    """Switch to a recent model by index (0 = most recent)."""
+    try:
+        from modules.model_manager import ModelManager
+    except:
+        import importlib
+        model_mgr = importlib.import_module('model_manager')
+        ModelManager = model_mgr.ModelManager
+
+    manager = ModelManager()
+    recent = manager.get_recent_models()
+
+    if not recent or index >= len(recent):
+        app.write("[yellow]No recent models recorded for this session yet.[/yellow]\n\n")
+        return
+
+    model_id = recent[index].get("id")
+    if not model_id:
+        app.write("[red]Recent model entry was missing an ID.[/red]\n\n")
+        return
+
+    await model_switch(app, session, model_name=model_id)
+
+
+async def model_switch_recent_1(app, session, **context):
+    await model_switch_recent(app, session, 0)
+
+
+async def model_switch_recent_2(app, session, **context):
+    await model_switch_recent(app, session, 1)

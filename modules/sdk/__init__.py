@@ -20,6 +20,12 @@ from .startup_buffer import (
     show_startup_status
 )
 
+from .validation import (
+    collect_expected_commands,
+    collect_expected_tools,
+    validate_full_coverage
+)
+
 __all__ = [
     # Handler interface
     'SDKCompliantHandler',
@@ -36,5 +42,10 @@ __all__ = [
 
     # Startup display
     'StartupBuffer',
-    'show_startup_status'
+    'show_startup_status',
+
+    # Validation
+    'collect_expected_commands',
+    'collect_expected_tools',
+    'validate_full_coverage'
 ]

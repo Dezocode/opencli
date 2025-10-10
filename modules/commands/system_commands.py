@@ -101,12 +101,36 @@ async def api_server_control(app, session, **context):
                 cwd="/Users/dezmondhollins/opencli"
             )
             app.write("[green]✓ API server restarted[/green]\n\n")
-        except Exception as e:
-            app.write(f"[red]✗ Failed to restart: {e}[/red]\n\n")
+    except Exception as e:
+        app.write(f"[red]✗ Failed to restart: {e}[/red]\n\n")
 
     else:
         app.write(f"[red]✗ Unknown action: {action}[/red]\n")
         app.write("[dim]Usage: /api-server <start|stop|status|restart>[/dim]\n\n")
+
+
+async def rollback_opencli(app, session, **context):
+    """List available backups and guide through rollback."""
+    from rollback_manager import RollbackManager
+
+    manager = RollbackManager()
+    backups = manager.list_backups()
+
+    if not backups:
+        app.write("[yellow]No OpenCLI backups were found. Unable to rollback.[/yellow]\n\n")
+        return
+
+    app.write("[bold cyan]Available OpenCLI Backups[/bold cyan]\n")
+    for backup in backups:
+        app.write(
+            f"  [cyan]{backup['timestamp_str']}[/cyan] · "
+            f"Version {backup['version']} · {backup['age']} · {backup['size']}\n"
+        )
+
+    app.write(
+        "\nTo perform a rollback, run `./emergency-rollback.sh <timestamp>` "
+        "from the project root. Always back up your current configuration first.\n\n"
+    )
 
 
 # Placeholders for advanced features - will implement when needed

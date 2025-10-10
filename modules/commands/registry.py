@@ -21,6 +21,7 @@ register_all(executor) → SDK Enforcement → ExecutionRegistry → PermissionM
 
 from execution.registry import ExecutionType, ExecutionCategory, RiskLevel
 from sdk.enforcement import enforce_handler, EnforcementAction
+from sdk.validation import validate_full_coverage
 
 
 async def register_all(executor):
@@ -40,6 +41,12 @@ async def register_all(executor):
     # TOOLS
     # ========================================================================
     await _register_tools(executor)
+
+    # ========================================================================
+    # COVERAGE VALIDATION
+    # ========================================================================
+    print("[SDK] Validating registration coverage…")
+    validate_full_coverage(executor)
 
 
 async def _safe_register(
@@ -112,16 +119,178 @@ async def _register_commands(executor):
     """Register ALL commands - ASYNC"""
 
     # ========================================================================
+    # BASIC COMMANDS
+    # ========================================================================
+    from commands.basic_commands import (
+        show_help,
+        show_status,
+        clear_history,
+        list_background_tasks,
+        show_command_overview,
+        show_permissions,
+        exit_session,
+        quit_session,
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/help',
+        show_help,
+        ExecutionCategory.BASIC,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show available commands with descriptions",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/status',
+        show_status,
+        ExecutionCategory.BASIC,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Display current session status",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/clear',
+        clear_history,
+        ExecutionCategory.BASIC,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Clear chat history for this session",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/bashes',
+        list_background_tasks,
+        ExecutionCategory.BASIC,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List background shell tasks",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/commands',
+        show_command_overview,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show enabled/disabled command permissions",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/permissions',
+        show_permissions,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show stored permission decisions",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/exit',
+        exit_session,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Exit the OpenCLI session",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/quit',
+        quit_session,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Exit the OpenCLI session",
+    )
+
+    # ========================================================================
+    # AGENT COMMANDS
+    # ========================================================================
+    from commands.agent_commands import (
+        agent_main,
+        list_agents,
+        agent_assistant,
+        agent_debugger,
+        agent_reviewer,
+        agent_refactor,
+        agent_tester,
+        agent_documenter,
+        agent_architect,
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/agent',
+        agent_main,
+        ExecutionCategory.BASIC,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Switch to a specific agent",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/agents',
+        list_agents,
+        ExecutionCategory.BASIC,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List available agents",
+    )
+
+    for name, handler in [
+        ('/agent assistant', agent_assistant),
+        ('/agent debugger', agent_debugger),
+        ('/agent reviewer', agent_reviewer),
+        ('/agent refactor', agent_refactor),
+        ('/agent tester', agent_tester),
+        ('/agent documenter', agent_documenter),
+        ('/agent architect', agent_architect),
+    ]:
+        await _safe_register(
+            executor,
+            ExecutionType.COMMAND,
+            name,
+            handler,
+            ExecutionCategory.BASIC,
+            RiskLevel.SAFE,
+            requires_approval=False,
+            description=f"Switch to the {name.split()[-1]} agent",
+        )
+
+    # ========================================================================
     # DOCKER COMMANDS
     # ========================================================================
     from docker_commands import (
         docker_main,
         docker_ollama_setup,
         docker_ollama_start,
-        docker_ollama_stop
+        docker_ollama_stop,
+        docker_status,
+        docker_ps,
+        docker_stats,
+        docker_ollama_status,
     )
 
-    # Parent /docker command
     await _safe_register(
         executor,
         ExecutionType.COMMAND,
@@ -130,7 +299,40 @@ async def _register_commands(executor):
         ExecutionCategory.DOCKER,
         RiskLevel.SAFE,
         requires_approval=False,
-        description="Docker operations and management"
+        description="Docker operations and management",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/docker status',
+        docker_status,
+        ExecutionCategory.DOCKER,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show Docker daemon status",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/docker ps',
+        docker_ps,
+        ExecutionCategory.DOCKER,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List running Docker containers",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/docker stats',
+        docker_stats,
+        ExecutionCategory.DOCKER,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show resource usage for containers",
     )
 
     await _safe_register(
@@ -142,7 +344,7 @@ async def _register_commands(executor):
         RiskLevel.HIGH,
         requires_approval=True,
         description="Setup Ollama in Docker with resource configuration",
-        estimated_duration="2-3 minutes"
+        estimated_duration="2-3 minutes",
     )
 
     await _safe_register(
@@ -153,7 +355,7 @@ async def _register_commands(executor):
         ExecutionCategory.DOCKER,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Start Ollama Docker container"
+        description="Start Ollama Docker container",
     )
 
     await _safe_register(
@@ -164,7 +366,18 @@ async def _register_commands(executor):
         ExecutionCategory.DOCKER,
         RiskLevel.LOW,
         requires_approval=False,
-        description="Stop Ollama Docker container"
+        description="Stop Ollama Docker container",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/docker ollama status',
+        docker_ollama_status,
+        ExecutionCategory.DOCKER,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show Ollama container status",
     )
 
     # ========================================================================
@@ -173,7 +386,7 @@ async def _register_commands(executor):
     from commands.dev_commands import (
         debug_toggle,
         performance_monitor,
-        reload_modules
+        reload_modules,
     )
 
     await _safe_register(
@@ -184,7 +397,7 @@ async def _register_commands(executor):
         ExecutionCategory.DEV,
         RiskLevel.SAFE,
         requires_approval=False,
-        description="Toggle debug mode on/off"
+        description="Toggle debug mode on/off",
     )
 
     await _safe_register(
@@ -195,7 +408,7 @@ async def _register_commands(executor):
         ExecutionCategory.DEV,
         RiskLevel.SAFE,
         requires_approval=False,
-        description="Show performance metrics"
+        description="Show performance metrics",
     )
 
     await _safe_register(
@@ -206,7 +419,7 @@ async def _register_commands(executor):
         ExecutionCategory.DEV,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Reload modules (may affect running session)"
+        description="Reload modules (may affect running session)",
     )
 
     # ========================================================================
@@ -214,7 +427,10 @@ async def _register_commands(executor):
     # ========================================================================
     from commands.model_commands import (
         model_list,
-        model_switch
+        model_switch,
+        model_list_providers,
+        model_switch_recent_1,
+        model_switch_recent_2,
     )
 
     await _safe_register(
@@ -225,7 +441,7 @@ async def _register_commands(executor):
         ExecutionCategory.MODEL,
         RiskLevel.SAFE,
         requires_approval=False,
-        description="List available models"
+        description="List available models",
     )
 
     await _safe_register(
@@ -236,14 +452,51 @@ async def _register_commands(executor):
         ExecutionCategory.MODEL,
         RiskLevel.SAFE,
         requires_approval=False,
-        description="List available models"
+        description="List available models",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/model providers',
+        model_list_providers,
+        ExecutionCategory.MODEL,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List configured providers",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/model r1',
+        model_switch_recent_1,
+        ExecutionCategory.MODEL,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Switch to most recent model",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/model r2',
+        model_switch_recent_2,
+        ExecutionCategory.MODEL,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Switch to second most recent model",
     )
 
     # ========================================================================
     # PROVIDER COMMANDS
     # ========================================================================
     from commands.provider_commands import (
-        provider_manage
+        provider_manage,
+        provider_list,
+        provider_add,
+        provider_add_ollama,
+        provider_remove,
     )
 
     await _safe_register(
@@ -254,7 +507,7 @@ async def _register_commands(executor):
         ExecutionCategory.PROVIDER,
         RiskLevel.LOW,
         requires_approval=False,
-        description="Manage API providers (OpenAI, Anthropic, Google, etc.)"
+        description="Manage API providers (OpenAI, Anthropic, Google, etc.)",
     )
 
     await _safe_register(
@@ -265,14 +518,58 @@ async def _register_commands(executor):
         ExecutionCategory.PROVIDER,
         RiskLevel.LOW,
         requires_approval=False,
-        description="Manage API providers (OpenAI, Anthropic, Google, etc.)"
+        description="Manage API providers (OpenAI, Anthropic, Google, etc.)",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/providers list',
+        provider_list,
+        ExecutionCategory.PROVIDER,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List configured providers",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/providers add',
+        provider_add,
+        ExecutionCategory.PROVIDER,
+        RiskLevel.MEDIUM,
+        requires_approval=False,
+        description="Add provider API key",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/providers add ollama',
+        provider_add_ollama,
+        ExecutionCategory.PROVIDER,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Register local Ollama provider",
+    )
+
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/providers remove',
+        provider_remove,
+        ExecutionCategory.PROVIDER,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Remove stored provider API key",
     )
 
     # ========================================================================
     # LOCAL COMMANDS
     # ========================================================================
     from commands.local_commands import (
-        local_setup
+        local_setup,
     )
 
     await _safe_register(
@@ -284,15 +581,48 @@ async def _register_commands(executor):
         RiskLevel.MEDIUM,
         requires_approval=True,
         description="Setup local model deployment",
-        estimated_duration="< 1 minute"
+        estimated_duration="< 1 minute",
     )
+
+    # ========================================================================
+    # SPEC COMMANDS
+    # ========================================================================
+    from commands.spec_commands import (
+        run_specify,
+        run_constitution,
+        run_plan,
+        run_tasks,
+        run_implement,
+        run_test,
+        run_spec_check,
+    )
+
+    for name, handler, desc in [
+        ('/specify', run_specify, "Create a project specification"),
+        ('/constitution', run_constitution, "Create project principles and guidelines"),
+        ('/plan', run_plan, "Create a technical implementation plan"),
+        ('/tasks', run_tasks, "Break plan into actionable tasks"),
+        ('/implement', run_implement, "Implementation workflow guidance"),
+        ('/test', run_test, "Testing strategy guidance"),
+        ('/spec-check', run_spec_check, "Validate spec completeness"),
+    ]:
+        await _safe_register(
+            executor,
+            ExecutionType.COMMAND,
+            name,
+            handler,
+            ExecutionCategory.SPEC,
+            RiskLevel.SAFE,
+            requires_approval=False,
+            description=desc,
+        )
 
     # ========================================================================
     # REFACTOR COMMANDS
     # ========================================================================
     from commands.refactor_commands import (
         refactor_interactive,
-        autorefactor
+        autorefactor,
     )
 
     await _safe_register(
@@ -303,7 +633,7 @@ async def _register_commands(executor):
         ExecutionCategory.REFACTOR,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Interactive code refactoring"
+        description="Interactive code refactoring",
     )
 
     await _safe_register(
@@ -314,7 +644,7 @@ async def _register_commands(executor):
         ExecutionCategory.REFACTOR,
         RiskLevel.HIGH,
         requires_approval=True,
-        description="Automated code refactoring (use with caution)"
+        description="Automated code refactoring (use with caution)",
     )
 
     # ========================================================================
@@ -322,7 +652,9 @@ async def _register_commands(executor):
     # ========================================================================
     from commands.system_commands import (
         restart_session,
-        upgrade_opencli
+        upgrade_opencli,
+        rollback_opencli,
+        api_server_control,
     )
 
     await _safe_register(
@@ -333,7 +665,7 @@ async def _register_commands(executor):
         ExecutionCategory.SYSTEM,
         RiskLevel.LOW,
         requires_approval=False,
-        description="Restart current session"
+        description="Restart current session",
     )
 
     await _safe_register(
@@ -344,14 +676,18 @@ async def _register_commands(executor):
         ExecutionCategory.SYSTEM,
         RiskLevel.HIGH,
         requires_approval=True,
-        description="Upgrade OpenCLI to latest version"
+        description="Upgrade OpenCLI to latest version",
     )
 
-    # ========================================================================
-    # API COMMANDS
-    # ========================================================================
-    from commands.api_commands import (
-        api_server_control
+    await _safe_register(
+        executor,
+        ExecutionType.COMMAND,
+        '/rollback',
+        rollback_opencli,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.MEDIUM,
+        requires_approval=False,
+        description="Show available OpenCLI backups",
     )
 
     await _safe_register(
@@ -362,14 +698,26 @@ async def _register_commands(executor):
         ExecutionCategory.SYSTEM,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Control API server (start/stop/status)"
+        description="Control API server (start/stop/status)",
     )
+
+    for sub_name in ['start', 'stop', 'status']:
+        await _safe_register(
+            executor,
+            ExecutionType.COMMAND,
+            f'/api {sub_name}',
+            api_server_control,
+            ExecutionCategory.SYSTEM,
+            RiskLevel.MEDIUM,
+            requires_approval=True,
+            description=f"{sub_name.title()} the API server",
+        )
 
     # ========================================================================
     # INJECTION COMMANDS
     # ========================================================================
     from commands.inject_commands import (
-        code_inject
+        code_inject,
     )
 
     await _safe_register(
@@ -380,7 +728,7 @@ async def _register_commands(executor):
         ExecutionCategory.DEV,
         RiskLevel.CRITICAL,
         requires_approval=True,
-        description="Inject code into running process (DANGEROUS)"
+        description="Inject code into running process (DANGEROUS)",
     )
 
 

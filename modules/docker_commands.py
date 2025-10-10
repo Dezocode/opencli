@@ -160,3 +160,111 @@ async def docker_ollama_stop(app, session, **context):
     except Exception as e:
         app.write(f"[red]✗ Error: {e}[/red]\n\n")
         return False
+
+
+async def docker_status(app, session, **context):
+    """Show Docker daemon status and core diagnostics."""
+    from docker_manager import DockerManager
+    from docker_async_handler import DockerAsyncHandler
+
+    docker_mgr = DockerManager()
+    docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
+
+    installed, version_msg = await docker_async.check_docker_installed()
+    running, running_msg = await docker_async.check_docker_running()
+
+    app.write("[bold cyan]Docker Status[/bold cyan]\n")
+    app.write(f"  Installed: {'[green]✓[/green]' if installed else '[red]✗[/red]'} {version_msg}\n")
+    app.write(f"  Daemon: {'[green]✓[/green]' if running else '[red]✗[/red]'} {running_msg}\n")
+
+    resources = await docker_async.get_system_resources()
+    if resources:
+        cpu = resources.get('cpu_count')
+        mem = resources.get('memory_gb')
+        disk = resources.get('disk_gb')
+        app.write("\n[bold]System resources[/bold]\n")
+        if cpu:
+            app.write(f"  CPUs: {cpu}\n")
+        if mem:
+            app.write(f"  Memory: {mem:.1f} GB\n")
+        if disk:
+            app.write(f"  Disk free: {disk} GB\n")
+    app.write("\n")
+
+
+async def docker_ps(app, session, **context):
+    """List running Docker containers."""
+    from docker_manager import DockerManager
+    from docker_async_handler import DockerAsyncHandler
+
+    docker_mgr = DockerManager()
+    docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
+
+    containers = await docker_async.list_containers(all_containers=False)
+    app.write("[bold cyan]Running Containers[/bold cyan]\n")
+    if not containers:
+        app.write("[dim]No running containers.[/dim]\n\n")
+        return
+
+    for container in containers:
+        name = container.get("Names", "unknown")
+        image = container.get("Image", "unknown")
+        status = container.get("Status", "unknown")
+        app.write(f"  [cyan]{name}[/cyan] · {image} · {status}\n")
+    app.write("\n")
+
+
+async def docker_stats(app, session, **context):
+    """Show lightweight stats for running containers."""
+    from docker_manager import DockerManager
+    from docker_async_handler import DockerAsyncHandler
+
+    docker_mgr = DockerManager()
+    docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
+
+    containers = await docker_async.list_containers(all_containers=False)
+    app.write("[bold cyan]Container Stats[/bold cyan]\n")
+    if not containers:
+        app.write("[dim]No running containers to inspect.[/dim]\n\n")
+        return
+
+    for container in containers:
+        name = container.get("Names", "unknown")
+        stats = await docker_async.get_container_stats(container.get("ID", name))
+        if not stats:
+            app.write(f"  [cyan]{name}[/cyan] - [red]unable to fetch stats[/red]\n")
+            continue
+
+        app.write(
+            f"  [cyan]{name}[/cyan] · CPU {stats.get('cpu_percent', '0')}% · "
+            f"Mem {stats.get('memory_usage', 'N/A')} ({stats.get('memory_percent', '0')}%) · "
+            f"Net {stats.get('network_io', 'N/A')}"
+        )
+        app.write("\n")
+    app.write("\n")
+
+
+async def docker_ollama_status(app, session, **context):
+    """Show status for the OpenCLI Ollama container."""
+    from docker_manager import DockerManager
+    from docker_async_handler import DockerAsyncHandler
+
+    docker_mgr = DockerManager()
+    docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
+
+    container_id, status, name = await docker_async.get_ollama_container_status()
+    if not container_id:
+        app.write("[yellow]No OpenCLI Ollama container detected.[/yellow]\n")
+        app.write("Use `/docker ollama setup` to create one.\n\n")
+        return
+
+    app.write("[bold cyan]Ollama Container[/bold cyan]\n")
+    app.write(f"  Name: [cyan]{name}[/cyan]\n")
+    app.write(f"  Status: {status}\n")
+    stats = await docker_async.get_container_stats(container_id)
+    if stats:
+        app.write(
+            f"  CPU: {stats.get('cpu_percent', '0')}% · "
+            f"Mem: {stats.get('memory_usage', 'N/A')} ({stats.get('memory_percent', '0')}%)\n"
+        )
+    app.write("\n")
