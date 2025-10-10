@@ -535,3 +535,4 @@ async def _register_tools(executor):
         requires_approval=True,
         description="Interact with GitHub API"
     )
+    """
