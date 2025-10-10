@@ -201,10 +201,21 @@ class MultiLineInput(Widget):
 
             output.append("\n")
 
-        # Message (wrapped)
-        for line in message.split('\n'):
-            if line.strip():
-                output.append(line + "\n", style=Style(color=text_color))
+        # Message (with Rich markup support)
+        # Parse Rich markup tags like [cyan], [bold], etc.
+        try:
+            # Text.from_markup() handles [color] tags properly
+            markup_text = Text.from_markup(message)
+            output.append(markup_text)
+            # Add newline if message doesn't end with one
+            if not message.endswith('\n'):
+                output.append("\n")
+        except Exception as e:
+            # Fallback to plain text if markup parsing fails
+            print(f"[MultiLineInput] Markup parsing failed: {e}")
+            for line in message.split('\n'):
+                if line.strip():
+                    output.append(line + "\n", style=Style(color=text_color))
 
         output.append("\n")
 

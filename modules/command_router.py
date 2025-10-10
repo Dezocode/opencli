@@ -61,7 +61,7 @@ class CommandRouter:
             }
 
             prompt_input.permission_prompt_data = loading_data
-            prompt_input.refresh(layout=True)
+            # Don't call refresh - reactive watcher handles it
             print("[CommandRouter] SDK loading buffer displayed")
         except Exception as e:
             print(f"[CommandRouter] Could not show loading buffer: {e}")
@@ -89,6 +89,14 @@ class CommandRouter:
         # Store enforcement for startup buffer
         self.enforcement = enforcement
         self._initialized = True
+
+        # CRITICAL: Clear the loading buffer now that registration is complete
+        try:
+            prompt_input = self.app.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            print("[CommandRouter] SDK loading buffer cleared")
+        except Exception as e:
+            print(f"[CommandRouter] Could not clear loading buffer: {e}")
 
     async def route_command(self, command: str, args: Optional[str] = None) -> bool:
         """

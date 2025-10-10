@@ -391,8 +391,16 @@ async def _register_tools(executor):
     """Register ALL tools - ASYNC"""
 
     # ========================================================================
-    # FILE TOOLS
+    # TOOLS DISABLED - No tools directory exists
     # ========================================================================
+    # Tools were removed during sync. Re-enable when tools are implemented.
+    print("[Registry] Tool registration skipped - tools module not found")
+    return
+
+    # ========================================================================
+    # FILE TOOLS (DISABLED)
+    # ========================================================================
+    """
     from tools.file_tools import (
         file_read,
         file_write,

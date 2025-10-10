@@ -64,7 +64,7 @@ class StartupBuffer:
         print(f"[StartupBuffer] Setting permission_prompt_data with {len(content)} chars...")
         prompt_input.permission_prompt_data = buffer_data
         prompt_input.permission_selected_option = 0
-        prompt_input.refresh(layout=True)
+        # Don't call refresh - reactive watcher handles it
         print("[StartupBuffer] Buffer should now be visible!")
 
         # Auto-dismiss if enabled
@@ -73,7 +73,7 @@ class StartupBuffer:
             await asyncio.sleep(duration_ms / 1000)
             print("[StartupBuffer] Dismissing buffer...")
             prompt_input.permission_prompt_data = None
-            prompt_input.refresh(layout=True)
+            # Don't call refresh - reactive watcher handles it
             print("[StartupBuffer] Buffer dismissed")
 
     def _build_content(self, executor) -> str:
@@ -173,7 +173,7 @@ class StartupBuffer:
         # Show and wait
         prompt_input.permission_prompt_data = buffer_data
         prompt_input.permission_selected_option = 0
-        prompt_input.refresh(layout=True)
+        # Don't call refresh - reactive watcher handles it
 
         # This would normally wait for user input
         # The event handler in simple_tui.py will catch the response
