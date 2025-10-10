@@ -49,22 +49,14 @@ class CommandRouter:
         # Store app reference for live updates
         self.executor.app = self.app
 
-        # Show LIVE SDK loading buffer
+        # Show LIVE SDK loading dropdown
         try:
-            prompt_input = self.app.query_one("#prompt-input")
-
-            # Initial loading message
-            loading_data = {
-                'title': '🔄 OpenCLI SDK - Loading Modules',
-                'message': 'Validating and registering modules...\n\nThis ensures all commands are secure and compliant.\n\n[dim]Starting...[/dim]',
-                'options': []  # No options, just info
-            }
-
-            prompt_input.permission_prompt_data = loading_data
-            # Don't call refresh - reactive watcher handles it
-            print("[CommandRouter] SDK loading buffer displayed")
+            sdk_buffer = self.app.query_one("#sdk-loading")
+            sdk_buffer.start_loading()
+            sdk_buffer.remove_class("hidden")
+            print("[CommandRouter] SDK loading dropdown displayed")
         except Exception as e:
-            print(f"[CommandRouter] Could not show loading buffer: {e}")
+            print(f"[CommandRouter] Could not show SDK dropdown: {e}")
 
         # Single registration point (with SDK enforcement!)
         # This will update the buffer LIVE as each module registers
@@ -90,13 +82,15 @@ class CommandRouter:
         self.enforcement = enforcement
         self._initialized = True
 
-        # CRITICAL: Clear the loading buffer now that registration is complete
+        # CRITICAL: Hide and clear the loading dropdown
         try:
-            prompt_input = self.app.query_one("#prompt-input")
-            prompt_input.permission_prompt_data = None
-            print("[CommandRouter] SDK loading buffer cleared")
+            sdk_buffer = self.app.query_one("#sdk-loading")
+            sdk_buffer.stop_loading()
+            sdk_buffer.add_class("hidden")
+            sdk_buffer.clear_data()
+            print("[CommandRouter] SDK loading dropdown hidden")
         except Exception as e:
-            print(f"[CommandRouter] Could not clear loading buffer: {e}")
+            print(f"[CommandRouter] Could not hide SDK dropdown: {e}")
 
     async def route_command(self, command: str, args: Optional[str] = None) -> bool:
         """

@@ -83,29 +83,26 @@ async def _safe_register(
         **kwargs
     )
 
-    # Update SDK loading buffer (if app available)
+    # Update SDK loading dropdown (if app available)
     if hasattr(executor, 'app') and executor.app:
         try:
             from sdk import get_enforcement
             enforcement = get_enforcement()
 
-            # Update live count in buffer
+            # Update live count in dropdown
             cmd_count = len(executor.registry.commands)
             tool_count = len(executor.registry.tools)
 
-            loading_message = f"Validating and registering modules...\n\n"
-            loading_message += f"[cyan]Registered so far:[/cyan]\n"
-            loading_message += f"Commands: [cyan]{cmd_count}[/cyan] | Tools: [cyan]{tool_count}[/cyan]\n\n"
-            loading_message += f"[green]✓ Compliant: {enforcement.accepted_count}[/green]\n"
-            loading_message += f"[yellow]⚠ Converted: {enforcement.converted_count}[/yellow]\n"
-            loading_message += f"[red]✗ Rejected: {enforcement.rejected_count}[/red]\n\n"
-            loading_message += f"[dim]Latest: {name}[/dim]"
-
-            prompt_input = executor.app.query_one("#prompt-input")
-            if prompt_input.permission_prompt_data:
-                # Update existing buffer
-                prompt_input.permission_prompt_data['message'] = loading_message
-                prompt_input.refresh(layout=True)
+            # Update SDK loading dropdown
+            sdk_buffer = executor.app.query_one("#sdk-loading")
+            sdk_buffer.update_progress(
+                command_count=cmd_count,
+                tool_count=tool_count,
+                accepted_count=enforcement.accepted_count,
+                converted_count=enforcement.converted_count,
+                rejected_count=enforcement.rejected_count,
+                latest_module=name
+            )
         except Exception as e:
             # Silently fail - don't break registration
             pass

@@ -28,9 +28,11 @@ except (ImportError, ValueError):
 try:
     from .command_suggestions import CommandSuggestionBuffer, CommandMatch
     from .command_registry import CommandRegistry
+    from .sdk_loading_buffer import SDKLoadingBuffer
 except (ImportError, ValueError):
     from command_suggestions import CommandSuggestionBuffer, CommandMatch
     from command_registry import CommandRegistry
+    from sdk_loading_buffer import SDKLoadingBuffer
 
 # Import custom modules - relative imports since we're in modules/ dir
 try:
@@ -665,6 +667,8 @@ class OpenCLITUI(App):
                 yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
                 # Command suggestion buffer (initially hidden)
                 yield CommandSuggestionBuffer(id="command-suggestions", classes="hidden")
+                # SDK loading buffer (initially hidden)
+                yield SDKLoadingBuffer(id="sdk-loading", classes="hidden")
             yield PerformanceStatusLine(self.session)
             yield RefactoringStatusLine(self.session)
 
@@ -2070,6 +2074,20 @@ Session: {self.session.session_id[:8]} | Ready
         # Note: Permission prompts are handled by MultiLineInput itself
         # When permission_prompt_data is set, MultiLineInput handles up/down/enter/esc
 
+        prompt = self.query_one("#prompt-input")
+
+        # CRITICAL: Check if permission prompt is active - if so, let MultiLineInput handle ALL keys
+        if hasattr(prompt, 'permission_prompt_data') and prompt.permission_prompt_data:
+            # Permission prompt is active - don't intercept ANY keys
+            # MultiLineInput.on_key will handle up/down/enter/esc for permissions
+            return
+
+        # CRITICAL: Check if command suggestions are active - if so, let MultiLineInput handle navigation
+        if hasattr(prompt, 'suggestions_active') and prompt.suggestions_active:
+            # Command suggestions are active - don't intercept arrow keys
+            # MultiLineInput will pass navigation events to simple_tui handlers
+            return
+
         # PRIORITY 1: ESC - Cancel streaming API call
         if event.key == "escape":
             if hasattr(self, '_streaming_task') and self._streaming_task and not self._streaming_task.done():
@@ -2078,8 +2096,6 @@ Session: {self.session.session_id[:8]} | Ready
                 event.prevent_default()
                 event.stop()
                 return
-
-        prompt = self.query_one("#prompt-input")
 
         # Up arrow - previous in history
         if event.key == "up":

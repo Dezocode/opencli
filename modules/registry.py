@@ -54,14 +54,19 @@ async def _safe_register(
     **kwargs
 ):
     """
-    SDK-enforced registration
+    SDK-enforced registration with LIVE buffer update
 
     Validates handler, auto-converts if needed, then registers.
     Raises ValueError if handler cannot be made compliant.
     """
     # Enforce SDK compliance
     cat_name = category.value if hasattr(category, 'value') else str(category)
+
+    print(f"[SDK] Enforcing: {name}")
     result = enforce_handler(name, handler, cat_name, auto_convert=True)
+    print(f"[SDK]   Action: {result.action.value}")
+    print(f"[SDK]   Compliance: {result.compliance.value}")
+    print(f"[SDK]   Message: {result.message}")
 
     # Use final handler (may be converted/wrapped)
     final_handler = result.final_handler
@@ -77,6 +82,30 @@ async def _safe_register(
         description,
         **kwargs
     )
+
+    # Update SDK loading dropdown (if app available)
+    if hasattr(executor, 'app') and executor.app:
+        try:
+            from sdk import get_enforcement
+            enforcement = get_enforcement()
+
+            # Update live count in dropdown
+            cmd_count = len(executor.registry.commands)
+            tool_count = len(executor.registry.tools)
+
+            # Update SDK loading dropdown
+            sdk_buffer = executor.app.query_one("#sdk-loading")
+            sdk_buffer.update_progress(
+                command_count=cmd_count,
+                tool_count=tool_count,
+                accepted_count=enforcement.accepted_count,
+                converted_count=enforcement.converted_count,
+                rejected_count=enforcement.rejected_count,
+                latest_module=name
+            )
+        except Exception as e:
+            # Silently fail - don't break registration
+            pass
 
 
 async def _register_commands(executor):
@@ -112,7 +141,8 @@ async def _register_commands(executor):
         ExecutionCategory.DOCKER,
         RiskLevel.HIGH,
         requires_approval=True,
-        description="Setup Ollama in Docker with resource configuration"
+        description="Setup Ollama in Docker with resource configuration",
+        estimated_duration="2-3 minutes"
     )
 
     await _safe_register(
@@ -253,7 +283,8 @@ async def _register_commands(executor):
         ExecutionCategory.SYSTEM,
         RiskLevel.MEDIUM,
         requires_approval=True,
-        description="Setup local model deployment"
+        description="Setup local model deployment",
+        estimated_duration="< 1 minute"
     )
 
     # ========================================================================
@@ -353,12 +384,20 @@ async def _register_commands(executor):
     )
 
 
-def _register_tools(executor):
-    """Register ALL tools"""
+async def _register_tools(executor):
+    """Register ALL tools - ASYNC"""
 
     # ========================================================================
-    # FILE TOOLS
+    # TOOLS DISABLED - No tools directory exists
     # ========================================================================
+    # Tools were removed during sync. Re-enable when tools are implemented.
+    print("[Registry] Tool registration skipped - tools module not found")
+    return
+
+    # ========================================================================
+    # FILE TOOLS (DISABLED)
+    # ========================================================================
+    """
     from tools.file_tools import (
         file_read,
         file_write,
@@ -493,3 +532,4 @@ def _register_tools(executor):
         requires_approval=True,
         description="Interact with GitHub API"
     )
+    """
