@@ -775,6 +775,11 @@ Session: {self.session.session_id[:8]} | Ready
             self.session._permission_response = response
             self.session._awaiting_permission = False
 
+            # CRITICAL: Signal the event so PermissionManager wakes up IMMEDIATELY (no 30s wait!)
+            if hasattr(self.session, '_permission_event'):
+                self.session._permission_event.set()
+                print(f"[SimpleTUI] ✓ Signaled permission event (instant wake)")
+
             print(f"[SimpleTUI] Set session._permission_response = {response}")
             print(f"[SimpleTUI] Set session._awaiting_permission = False")
 

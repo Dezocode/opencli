@@ -332,6 +332,9 @@ class PermissionManager:
             session._awaiting_permission = True
             session._permission_response = None
 
+            # Create asyncio.Event for efficient waiting (no busy loop!)
+            session._permission_event = asyncio.Event()
+
             # Now set the data - reactive watcher will handle refresh + focus
             prompt_input.permission_prompt_data = prompt_data
             prompt_input.permission_selected_option = 0
@@ -341,16 +344,13 @@ class PermissionManager:
             # CRITICAL: Yield to event loop so UI can update BEFORE we start waiting
             await asyncio.sleep(0)
 
-            # Wait for user response
-            timeout_counter = 0
-            max_timeout = 300  # 30 seconds (300 * 0.1s)
-
-            while session._awaiting_permission and timeout_counter < max_timeout:
-                await asyncio.sleep(0.1)
-                timeout_counter += 1
-
-            if timeout_counter >= max_timeout:
-                print("[PermissionManager] WARNING: Permission request timed out")
+            # Wait for user response using Event (efficient, non-blocking)
+            print(f"[PermissionManager] Waiting for permission response (event-driven)...")
+            try:
+                await asyncio.wait_for(session._permission_event.wait(), timeout=30.0)
+                print(f"[PermissionManager] Permission event received!")
+            except asyncio.TimeoutError:
+                print("[PermissionManager] WARNING: Permission request timed out after 30s")
                 session._awaiting_permission = False
                 return False
 
