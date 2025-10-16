@@ -1,9 +1,0 @@
-{
-  "session_id": "2b745838-1801-43d3-a66b-9a2a0f1988bb",
-  "pid": 27443,
-  "model": "deepseek/deepseek-chat-v3.1:free",
-  "agent": "assistant",
-  "cwd": "/Users/dezmondhollins/opencli",
-  "registered_at": 1759642634.809335,
-  "last_heartbeat": 1759642634.809335
-}

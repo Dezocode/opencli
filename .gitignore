@@ -1,2 +1,85 @@
+# Embedded git repositories
 modules/spec-kit/
 opencli-dev/
+
+# API Keys and Secrets
+.secrets
+*.key
+*.pem
+*.env
+.env.*
+secrets.json
+api_keys.json
+credentials.json
+
+# OpenCLI specific secrets
+config.json
+models.json
+command_permissions.json
+command_usage.json
+provider_settings.json
+
+# Session and cache data
+sessions/
+ipc/
+cache/
+*.log
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Profiler outputs
+*.prof
+profile_*.txt
+
+# Backup files
+*.bak
+*.backup
+*.bak2
+*.bak3
+*_backup.py
+
+# Test outputs
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+temp/
+tmp/
+*.temp

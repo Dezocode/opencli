@@ -1,9 +1,0 @@
-{
-  "session_id": "456cfd8c-925e-4036-bc98-19d215bb5a99",
-  "pid": 93674,
-  "model": "x-ai/grok-4-fast:free",
-  "agent": "assistant",
-  "cwd": "/Users/dezmondhollins/opencli",
-  "registered_at": 1759472196.6109009,
-  "last_heartbeat": 1759472196.6109009
-}
