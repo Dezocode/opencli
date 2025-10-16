@@ -1,0 +1,1 @@
+{"session_id": "6f686f93-a336-4ea2-b99b-c7a2bb3c1a00", "model": "gemini-2.0-flash-exp", "messages": [{"role": "user", "content": "hi"}], "cwd": "/Users/dezmondhollins/opencli", "debug_mode": true, "timestamp": "2025-10-08T01:26:51.517915"}

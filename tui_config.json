@@ -1,0 +1,68 @@
+{
+  "version": "1.0.0",
+  "display": {
+    "background_mode": "ansi",
+    "use_ansi_colors": true,
+    "dark_mode": false,
+    "transparency": {
+      "enabled": true,
+      "opacity": 0.95
+    }
+  },
+  "text_selection": {
+    "mode": "native",
+    "require_modifier": false,
+    "copy_on_select": false,
+    "highlight_color": "#3A3A3A"
+  },
+  "laser_effect": {
+    "enabled": true,
+    "mode": "gradient",
+    "colors": {
+      "gradient": ["#8B0000", "#FF4500", "#FFA500", "#FFFF00", "#FFFFFF"],
+      "pulse": ["#FF0000", "#FFFFFF"],
+      "trail": ["#FF6600", "#FFAA00", "#FFDD00", "#FFFFFF"]
+    },
+    "intensity": 1.0,
+    "speed": 1.0,
+    "trail_length": 10
+  },
+  "mouse": {
+    "enabled": true,
+    "capture": false,
+    "selection_enabled": true,
+    "double_click_select_word": true,
+    "triple_click_select_line": true
+  },
+  "scrolling": {
+    "smooth": true,
+    "speed": 3,
+    "mouse_wheel_enabled": true
+  },
+  "borders": {
+    "style": "solid",
+    "color": "#888888",
+    "content_border": true,
+    "footer_border": false
+  },
+  "status_bar": {
+    "enabled": true,
+    "show_model": true,
+    "show_tokens": true,
+    "show_turn": true,
+    "show_cwd": true,
+    "show_time": true,
+    "update_interval": 1.0
+  },
+  "prompt": {
+    "style": "rich",
+    "color": "#00FF00",
+    "indicator": "│ > ",
+    "placeholder": "Enter your message..."
+  },
+  "animations": {
+    "enabled": true,
+    "fade_in": false,
+    "smooth_scroll": true
+  }
+}

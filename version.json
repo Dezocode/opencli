@@ -1,0 +1,306 @@
+{
+  "version": "1.4.0",
+  "release_date": "2025-10-03",
+  "changelog": [
+    {
+      "version": "1.4.0",
+      "date": "2025-10-03",
+      "changes": [
+        "MAJOR: Full async architecture refactor",
+        "Textual TUI now works as default interface",
+        "Created async_interactive.py with full async/await support",
+        "AsyncOpenAI client for streaming responses",
+        "Message handler pattern for TUI input",
+        "Scrollable content pane with fixed prompt at bottom",
+        "Live status bar with real-time updates",
+        "Automatic fallback to prompt_toolkit if TUI fails",
+        "Slash commands run in threads to avoid blocking TUI"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test Textual TUI launches successfully",
+        "Verify scrollable responses in content pane",
+        "Check prompt stays fixed at bottom",
+        "Test async API streaming works",
+        "Verify slash commands execute properly",
+        "Test fallback to prompt_toolkit mode",
+        "Check status bar updates in real-time"
+      ]
+    },
+    {
+      "version": "1.3.6",
+      "date": "2025-10-03",
+      "changes": [
+        "Fixed rich prompt visibility with spacing workaround",
+        "Added 3 blank lines before prompt to keep it visible",
+        "Textual TUI framework added but disabled (needs async refactor)",
+        "Created simple_tui.py for future full TUI implementation",
+        "Falls back to prompt_toolkit with improved spacing",
+        "Fixed UnboundLocalError for agent_info variable",
+        "Clean fallback architecture for gradual TUI migration"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test prompt stays visible after tool output",
+        "Verify 3-line spacing before prompt works",
+        "Check CLI starts without errors",
+        "Test responses display normally",
+        "Verify rich prompt functions correctly"
+      ]
+    },
+    {
+      "version": "1.3.5",
+      "date": "2025-10-03",
+      "changes": [
+        "Fixed rich prompt visibility - adds padding and repositions cursor",
+        "Prompt now stays visible after tool output (Glob, Bash, etc.)",
+        "Added Textual TUI framework for future full TUI mode",
+        "Added --tui flag for experimental Textual interface",
+        "Created tui_app.py and tui_wrapper.py modules for TUI support",
+        "Improved prompt positioning with cursor control sequences"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test prompt stays visible after long tool output",
+        "Verify cursor positioning works correctly",
+        "Test prompt appears 7 lines from bottom consistently",
+        "Check padding and cursor movement don't break UI",
+        "Verify rich prompt still functions normally"
+      ]
+    },
+    {
+      "version": "1.3.4",
+      "date": "2025-10-03",
+      "changes": [
+        "Complete TUI print capture system",
+        "tui_print() captures all output to content buffer",
+        "Proper handling of streaming with end='' parameter",
+        "Partial line buffering for streaming responses",
+        "Hybrid mode: captures for TUI + shows output normally",
+        "Foundation ready for full TUI layout with scrollable panes"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test responses are captured to _content_lines buffer",
+        "Verify streaming responses print normally",
+        "Check partial lines accumulate correctly",
+        "Test tui_print handles end='' properly",
+        "Verify no old print implementations interfere"
+      ]
+    },
+    {
+      "version": "1.3.3",
+      "date": "2025-10-03",
+      "changes": [
+        "Implemented zone-based print system",
+        "Added ZonePrinter class to intercept print statements",
+        "Content zone (top) for scrollable responses",
+        "Prompt zone (bottom) fixed at bottom 5 lines",
+        "enter_prompt_zone() positions cursor at bottom before prompt",
+        "exit_prompt_zone() returns to normal scrolling after input",
+        "Buffered content for potential screen redraws"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test prompt appears at bottom of terminal",
+        "Verify cursor moves to bottom before prompt shows",
+        "Test prompt zone doesn't scroll with content",
+        "Verify status bar stays visible at bottom",
+        "Check content scrolls normally in top zone"
+      ]
+    },
+    {
+      "version": "1.3.2",
+      "date": "2025-10-03",
+      "changes": [
+        "Auto-switch session to worktree after /upgrade",
+        "Session automatically cd's to worktree for immediate testing",
+        "ANSI scroll region to keep prompt at bottom",
+        "Protected footer area prevents prompt scroll-off",
+        "Response content scrolls in reserved region only"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test /upgrade auto-switches session to worktree",
+        "Verify working directory changes to ~/.opencli/upgrade-test/",
+        "Test rich prompt stays at bottom during long responses",
+        "Verify scroll region protects bottom 5 lines",
+        "Check status bar remains visible during streaming"
+      ]
+    },
+    {
+      "version": "1.3.1",
+      "date": "2025-10-03",
+      "changes": [
+        "Fixed rich prompt staying at bottom of terminal",
+        "Added ensure_prompt_at_bottom() to prevent status bar scroll-off",
+        "Implemented worktree-based upgrade system",
+        "Added create_upgrade_worktree() for isolated testing",
+        "Upgrade now creates version branches in worktrees",
+        "Main branch protected from direct upgrades",
+        "Added cleanup_upgrade_worktree() for maintenance"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test rich prompt stays visible after tool output",
+        "Test /upgrade creates worktree at ~/.opencli/upgrade-test/",
+        "Verify version branch created in worktree",
+        "Test upgrade installs from worktree, not main repo",
+        "Verify Main branch remains untouched during upgrade"
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2025-10-02",
+      "changes": [
+        "Added API server for inter-CLI communication",
+        "Added HTTP/REST API on port 7890 (127.0.0.1)",
+        "Added session registry for discovering active OpenCLI sessions",
+        "Added message queue for cross-session communication",
+        "Added /api command (start/stop/sessions/messages)",
+        "Added OpenCLIClient library for external integrations",
+        "Added IPC directory (~/.opencli/ipc) for session coordination",
+        "Added automatic session registration and cleanup",
+        "Enables external tools and CLIs to interact with OpenCLI",
+        "Supports session discovery, messaging, and tool invocation"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /api start command starts server",
+        "Test /api sessions shows active sessions",
+        "Test /api messages retrieves cross-session messages",
+        "Verify session registration on startup",
+        "Verify session cleanup on exit",
+        "Test OpenCLIClient library from Python",
+        "Verify HTTP API endpoints respond correctly",
+        "Test message queue between sessions"
+      ]
+    },
+    {
+      "version": "1.2.3",
+      "date": "2025-10-02",
+      "changes": [
+        "Added path-based risk detection for file operations",
+        "Added CRITICAL risk level for system paths and parent directories",
+        "Added protection for /etc, /bin, /usr, .ssh, .aws, .config directories",
+        "Added warning displays for operations outside working directory",
+        "Enhanced permission prompts to show current vs target paths",
+        "Prevents auto-accept bypass for CRITICAL and DANGEROUS paths",
+        "Even safe tools (Read) now require confirmation for CRITICAL paths",
+        "Protects against parent directory and outside directory modifications"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test editing file in /etc triggers CRITICAL warning",
+        "Test reading ~/.ssh/id_rsa triggers CRITICAL warning",
+        "Test editing parent directory file triggers DANGEROUS warning",
+        "Test editing file outside working directory triggers warning",
+        "Verify auto-accept mode doesn't bypass path warnings",
+        "Check path warnings show current directory and target path",
+        "Confirm relative paths (../) properly detected as risky"
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "date": "2025-10-02",
+      "changes": [
+        "Added tool permission system with risk-based classification",
+        "Added user confirmation prompts for Edit, Write, and Bash tools",
+        "Added /permissions command for managing tool permissions",
+        "Added auto-accept modes (global, session, per-tool)",
+        "Added [REQUIRES PERMISSION] markers in tool descriptions for AI awareness",
+        "Added comprehensive ARCHITECTURE.md with tool/module registration SOP",
+        "Integrated permission_manager with Session class",
+        "Ensured AI model is informed when tools require user confirmation"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /permissions status command",
+        "Verify Edit tool prompts for confirmation",
+        "Verify Write tool prompts for confirmation",
+        "Verify Bash tool prompts for confirmation",
+        "Test auto-accept modes (y/a/s/n options)",
+        "Check tool descriptions include [REQUIRES PERMISSION]",
+        "Verify permission persistence across sessions"
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2025-10-01",
+      "changes": [
+        "Added video file support (.mp4, .mov, .avi, .mkv, etc.)",
+        "Added video placeholder display [video #N] with detection",
+        "Improved prompt box spacing - consistent 1-line gap",
+        "Updated border color to softer gray (#888888)",
+        "Updated status bar blue to softer Gemini-style (#7aa2f7)",
+        "Prepared for public GitHub release with MIT license",
+        "Added comprehensive CONTRIBUTING.md",
+        "Updated install.sh to support curl one-liner installation",
+        "Added banner support to README",
+        "Changed copyright to 'dezocode' as sole author"
+      ],
+      "bump_type": "patch",
+      "verification_steps": [
+        "Test pasting video file paths - should show [video #N] placeholder",
+        "Verify spacing between prompt and status bar is consistent",
+        "Check border and status bar colors are softer",
+        "Test curl install method works correctly"
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2025-10-01",
+      "changes": [
+        "Added intelligent prompt processing system",
+        "Added automatic image path detection and placeholder replacement",
+        "Added pasted text block detection and collapsing",
+        "Added /exit and /quit commands to registry (both slash and non-slash)",
+        "Added auto-merge for new commands in permission system",
+        "Fixed command registry to handle upgrades with new commands seamlessly"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test pasting image file paths - should show [image #N] placeholder",
+        "Test pasting large text blocks - should show [pasted text #N] placeholder",
+        "Test /exit and /quit commands appear in /commands setup",
+        "Verify original content is preserved and sent to API"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2025-10-01",
+      "changes": [
+        "Added comprehensive version control system with /upgrade and /rollback commands",
+        "Added command permission system with /commands for granular control",
+        "Added emergency rollback via opencli --rollback flag (standalone bash recovery)",
+        "Added orphan detection in install.sh for new/removed modules",
+        "Added extensive version control documentation (archive/VERSION_CONTROL.md)",
+        "Added automatic backup creation before upgrades",
+        "Added step-by-step verification during upgrades",
+        "Added auto-rollback on upgrade failure"
+      ],
+      "bump_type": "minor",
+      "verification_steps": [
+        "Test /commands to view and manage command permissions",
+        "Test /commands setup for interactive permission configuration",
+        "Verify command registry initialization on startup",
+        "Check that disabled commands show appropriate error messages"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2025-10-01",
+      "changes": [
+        "Initial release",
+        "Agent system with 7 built-in agents",
+        "Smart context caching (99% token reduction)",
+        "GitHub integration via gh CLI",
+        "AGENTS.md specification support",
+        "CLI environment awareness",
+        "5-file rolling cleanup",
+        "Dynamic tool discovery"
+      ],
+      "bump_type": "major"
+    }
+  ]
+}

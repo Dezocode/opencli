@@ -1,0 +1,31 @@
+{
+  "session_id": "7e537d62-2b21-461d-8ea7-74a1fb13597b",
+  "model": "deepseek/deepseek-chat-v3.1:free",
+  "messages": [
+    {
+      "role": "user",
+      "content": "use bash tool to run pwd command and show current working directory"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "call_94da",
+          "function": {
+            "name": "Bash",
+            "arguments": "{\"command\": \"pwd\", \"description\": \"Show current working directory\"}"
+          },
+          "type": "function"
+        }
+      ],
+      "content": ""
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_94da",
+      "content": "/Users/dezmondhollins/opencli\n"
+    }
+  ],
+  "cwd": "/Users/dezmondhollins/opencli",
+  "timestamp": "2025-10-05T01:31:22.657359"
+}

@@ -1,0 +1,1804 @@
+{
+  "top_unresolved_expressions": [
+    {
+      "expression": "app.write",
+      "count": 325,
+      "examples": [
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 34,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 38,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 39,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 40,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 41,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "lines.append",
+      "count": 205,
+      "examples": [
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_markdown",
+          "lineno": 154,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_markdown",
+          "lineno": 155,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_markdown",
+          "lineno": 156,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_markdown",
+          "lineno": 157,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_markdown",
+          "lineno": 164,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "f.write",
+      "count": 154,
+      "examples": [
+        {
+          "file": "cli/tools.py",
+          "function": "execute_write",
+          "lineno": 79,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_edit",
+          "lineno": 108,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/shell_injector.py",
+          "function": "CommunicationLog.log_injection",
+          "lineno": 80,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_status",
+          "lineno": 308,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_status",
+          "lineno": 309,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "output.append",
+      "count": 90,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 195,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 196,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 206,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 207,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 231,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "Style",
+      "count": 84,
+      "examples": [
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 82,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 85,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 88,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 92,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 93,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "sys.stderr.write",
+      "count": 84,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_focus",
+          "lineno": 93,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_blur",
+          "lineno": 100,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_blur",
+          "lineno": 105,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 325,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 330,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "result.get",
+      "count": 77,
+      "examples": [
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 33,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_setup",
+          "lineno": 71,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_start",
+          "lineno": 158,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_stop",
+          "lineno": 215,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_stop",
+          "lineno": 219,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "console.print",
+      "count": 77,
+      "examples": [
+        {
+          "file": "modules/spec-kit/src/specify_cli/__init__.py",
+          "function": "select_with_arrows",
+          "lineno": 261,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec-kit/src/specify_cli/__init__.py",
+          "function": "select_with_arrows.run_selection_loop",
+          "lineno": 277,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec-kit/src/specify_cli/__init__.py",
+          "function": "select_with_arrows.run_selection_loop",
+          "lineno": 283,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec-kit/src/specify_cli/__init__.py",
+          "function": "select_with_arrows",
+          "lineno": 289,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec-kit/src/specify_cli/__init__.py",
+          "function": "show_banner",
+          "lineno": 329,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "sys.stderr.flush",
+      "count": 70,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_focus",
+          "lineno": 94,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_blur",
+          "lineno": 101,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_blur",
+          "lineno": 106,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 326,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 331,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "Text",
+      "count": 69,
+      "examples": [
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 74,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_suggestions.py",
+          "function": "CommandSuggestionBuffer.render",
+          "lineno": 129,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_suggestions.py",
+          "function": "CommandSuggestionBuffer.render",
+          "lineno": 135,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_suggestions.py",
+          "function": "CommandSuggestionBuffer.render",
+          "lineno": 140,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_display.py",
+          "function": "WriteQueue._process_writes",
+          "lineno": 69,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "kwargs.get",
+      "count": 64,
+      "examples": [
+        {
+          "file": "github_tool.py",
+          "function": "execute_github_tool",
+          "lineno": 222,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "execute_github_tool",
+          "lineno": 224,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "execute_github_tool",
+          "lineno": 225,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "execute_github_tool",
+          "lineno": 226,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "execute_github_tool",
+          "lineno": 229,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "event.prevent_default",
+      "count": 63,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_paste",
+          "lineno": 303,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_paste",
+          "lineno": 317,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 338,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 346,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 352,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "text.append",
+      "count": 61,
+      "examples": [
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 82,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 85,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 88,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 91,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": "BufferStatusWidget._render_status",
+          "lineno": 92,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "FRONTIER_COLORS.get",
+      "count": 58,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 187,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 188,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 189,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 190,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 191,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "reactive",
+      "count": 56,
+      "examples": [
+        {
+          "file": "modules/buffer_widget.py",
+          "function": null,
+          "lineno": 26,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": null,
+          "lineno": 27,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": null,
+          "lineno": 28,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/buffer_widget.py",
+          "function": null,
+          "lineno": 29,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_suggestions.py",
+          "function": null,
+          "lineno": 71,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "config.get",
+      "count": 50,
+      "examples": [
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.__init__",
+          "lineno": 19,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.__init__",
+          "lineno": 20,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.__init__",
+          "lineno": 21,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.__init__",
+          "lineno": 22,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.__init__",
+          "lineno": 23,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "parts.append",
+      "count": 50,
+      "examples": [
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.build_system_message",
+          "lineno": 42,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.build_system_message",
+          "lineno": 44,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.build_system_message",
+          "lineno": 47,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.build_system_message",
+          "lineno": 49,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.build_system_message",
+          "lineno": 52,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.refresh",
+      "count": 50,
+      "examples": [
+        {
+          "file": "modules/command_suggestions.py",
+          "function": "CommandSuggestionBuffer.update_suggestions",
+          "lineno": 236,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_suggestions.py",
+          "function": "CommandSuggestionBuffer.clear",
+          "lineno": 243,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/sdk_loading_buffer.py",
+          "function": "SDKLoadingBuffer.update_progress",
+          "lineno": 114,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/sdk_loading_buffer.py",
+          "function": "SDKLoadingBuffer.start_loading",
+          "lineno": 121,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/sdk_loading_buffer.py",
+          "function": "SDKLoadingBuffer.stop_loading",
+          "lineno": 133,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "permission_manager.request_permission",
+      "count": 45,
+      "examples": [
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 31,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_setup",
+          "lineno": 69,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_start",
+          "lineno": 156,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_stop",
+          "lineno": 213,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_status",
+          "lineno": 269,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "args.get",
+      "count": 44,
+      "examples": [
+        {
+          "file": "cli/tools.py",
+          "function": "execute_tool",
+          "lineno": 263,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_tool",
+          "lineno": 265,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_tool",
+          "lineno": 265,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_tool",
+          "lineno": 268,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_tool",
+          "lineno": 269,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "'\\n'.join",
+      "count": 40,
+      "examples": [
+        {
+          "file": "agent_manager.py",
+          "function": "AgentConfig.build_system_message",
+          "lineno": 56,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_markdown",
+          "lineno": 172,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._export_text",
+          "lineno": 187,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/context_builder.py",
+          "function": "ContextBuilder._compile_context",
+          "lineno": 199,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/context_builder.py",
+          "function": "ContextBuilder._get_cli_environment",
+          "lineno": 252,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.query_one",
+      "count": 37,
+      "examples": [
+        {
+          "file": "modules/core.py",
+          "function": "OpenCLITUI.on_mount",
+          "lineno": 227,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/core.py",
+          "function": "OpenCLITUI.on_mount",
+          "lineno": 228,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/core.py",
+          "function": "OpenCLITUI.on_mount",
+          "lineno": 229,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/core.py",
+          "function": "OpenCLITUI.on_mount",
+          "lineno": 237,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/core.py",
+          "function": "OpenCLITUI.on_mount",
+          "lineno": 241,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "args.extend",
+      "count": 36,
+      "examples": [
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_list",
+          "lineno": 91,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_list",
+          "lineno": 92,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_view",
+          "lineno": 101,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_create",
+          "lineno": 112,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_create",
+          "lineno": 114,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.post_message",
+      "count": 33,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_blur",
+          "lineno": 109,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_blur",
+          "lineno": 112,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 337,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 357,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.on_key",
+          "lineno": 362,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "data.get",
+      "count": 32,
+      "examples": [
+        {
+          "file": "cli/session.py",
+          "function": "Session.load",
+          "lineno": 72,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session.load",
+          "lineno": 73,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session.load",
+          "lineno": 74,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session.load",
+          "lineno": 75,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "list_sessions",
+          "lineno": 200,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "display.append",
+      "count": 32,
+      "examples": [
+        {
+          "file": "modules/unified_display.py",
+          "function": "WriteQueue._process_writes",
+          "lineno": 74,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_display.py",
+          "function": "WriteQueue._process_writes",
+          "lineno": 75,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.render",
+          "lineno": 135,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.render",
+          "lineno": 138,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput.render",
+          "lineno": 142,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "status.append",
+      "count": 32,
+      "examples": [
+        {
+          "file": "modules/tui/status_lines.py",
+          "function": "StatusLine.render",
+          "lineno": 164,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/status_lines.py",
+          "function": "StatusLine.render",
+          "lineno": 165,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/status_lines.py",
+          "function": "StatusLine.render",
+          "lineno": 191,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/status_lines.py",
+          "function": "StatusLine.render",
+          "lineno": 197,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/status_lines.py",
+          "function": "StatusLine.render",
+          "lineno": 199,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "datetime.now().isoformat",
+      "count": 31,
+      "examples": [
+        {
+          "file": "advanced_profiler.py",
+          "function": "AdvancedProfiler.capture_sample",
+          "lineno": 105,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "thread_analyzer.py",
+          "function": "ThreadAnalyzer.capture_snapshot",
+          "lineno": 109,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "detailed_profiler.py",
+          "function": "DetailedProfiler._on_key_press",
+          "lineno": 183,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "detailed_profiler.py",
+          "function": "DetailedProfiler.capture_sample",
+          "lineno": 215,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session.save",
+          "lineno": 54,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "context.get",
+      "count": 31,
+      "examples": [
+        {
+          "file": "cli/commands.py",
+          "function": "handle_slash_command",
+          "lineno": 248,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec_memory.py",
+          "function": "SpecMemory.format_context_for_system_message",
+          "lineno": 251,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec_memory.py",
+          "function": "SpecMemory.format_context_for_system_message",
+          "lineno": 257,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/spec_memory.py",
+          "function": "SpecMemory.format_context_for_system_message",
+          "lineno": 268,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tools/core_tools.py",
+          "function": "_base_dir",
+          "lineno": 26,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "prompt_input.refresh",
+      "count": 31,
+      "examples": [
+        {
+          "file": "modules/unified_command_executor.py",
+          "function": "CommandExecution.show_initial_permission_prompt",
+          "lineno": 352,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 395,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 408,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 415,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 439,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "result.append",
+      "count": 31,
+      "examples": [
+        {
+          "file": "modules/markdown_renderer.py",
+          "function": "MarkdownRenderer.render",
+          "lineno": 52,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/markdown_renderer.py",
+          "function": "MarkdownRenderer.render",
+          "lineno": 54,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/markdown_renderer.py",
+          "function": "MarkdownRenderer.render",
+          "lineno": 55,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/markdown_renderer.py",
+          "function": "MarkdownRenderer.render",
+          "lineno": 59,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/markdown_renderer.py",
+          "function": "MarkdownRenderer.render",
+          "lineno": 60,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.app.write",
+      "count": 29,
+      "examples": [
+        {
+          "file": "modules/unified_display.py",
+          "function": "WriteQueue._process_writes",
+          "lineno": 54,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_display.py",
+          "function": "WriteQueue._process_writes",
+          "lineno": 78,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/unified_display.py",
+          "function": "WriteQueue._process_writes",
+          "lineno": 80,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 426,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 434,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "prompt_data.get",
+      "count": 29,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 181,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 182,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 183,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 184,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input_backup.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 181,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "f.read",
+      "count": 27,
+      "examples": [
+        {
+          "file": "agent_manager.py",
+          "function": "AgentManager.find_agents_md",
+          "lineno": 160,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "AgentManager.find_agents_md",
+          "lineno": 165,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "run_with_profiler.py",
+          "function": null,
+          "lineno": 64,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_read",
+          "lineno": 62,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "execute_edit",
+          "lineno": 91,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "result.stdout.strip",
+      "count": 27,
+      "examples": [
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.check_auth",
+          "lineno": 29,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/upgrade_manager.py",
+          "function": "UpgradeManager.run_command",
+          "lineno": 52,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/worktree_integration.py",
+          "function": "WorktreeManager.get_current_branch",
+          "lineno": 309,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/worktree_integration.py",
+          "function": "WorktreeManager.has_uncommitted_changes",
+          "lineno": 336,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_venv.py",
+          "function": "DockerVenvManager.create_venv",
+          "lineno": 152,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.debug",
+      "count": 26,
+      "examples": [
+        {
+          "file": "modules/docker_async_handler.py",
+          "function": "DockerAsyncHandler._safe_thread_call",
+          "lineno": 44,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_async_handler.py",
+          "function": "DockerAsyncHandler._safe_thread_call",
+          "lineno": 49,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_async_handler.py",
+          "function": "DockerAsyncHandler._safe_thread_call",
+          "lineno": 52,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_async_handler.py",
+          "function": "DockerAsyncHandler._safe_thread_call",
+          "lineno": 55,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_async_handler.py",
+          "function": "DockerAsyncHandler._safe_thread_call",
+          "lineno": 58,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.write",
+      "count": 26,
+      "examples": [
+        {
+          "file": "modules/tui/permission_handlers.py",
+          "function": "PermissionHandlers._handle_provider_model_selection",
+          "lineno": 104,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/permission_handlers.py",
+          "function": "PermissionHandlers._handle_provider_model_selection",
+          "lineno": 128,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/permission_handlers.py",
+          "function": "PermissionHandlers._handle_provider_model_selection",
+          "lineno": 129,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/permission_handlers.py",
+          "function": "PermissionHandlers._handle_provider_model_selection",
+          "lineno": 131,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tui/permission_handlers.py",
+          "function": "PermissionHandlers._handle_local_model_selection",
+          "lineno": 149,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "model.get",
+      "count": 24,
+      "examples": [
+        {
+          "file": "modules/model_manager.py",
+          "function": "ModelManager.fetch_models_from_openrouter",
+          "lineno": 350,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/model_manager.py",
+          "function": "ModelManager.fetch_models_from_openrouter",
+          "lineno": 351,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/model_manager.py",
+          "function": "ModelManager.fetch_models_from_openrouter",
+          "lineno": 351,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/model_manager.py",
+          "function": "ModelManager.fetch_models_from_openrouter",
+          "lineno": 352,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/model_manager.py",
+          "function": "ModelManager.fetch_models_from_openrouter",
+          "lineno": 353,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "msg.get",
+      "count": 23,
+      "examples": [
+        {
+          "file": "agent_manager.py",
+          "function": "ContextManager.optimize_tool_results",
+          "lineno": 106,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "agent_manager.py",
+          "function": "ContextManager.optimize_tool_results",
+          "lineno": 107,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._fix_malformed_messages",
+          "lineno": 89,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session._fix_malformed_messages",
+          "lineno": 95,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/session.py",
+          "function": "Session.count_messages_by_role",
+          "lineno": 136,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "', '.join",
+      "count": 23,
+      "examples": [
+        {
+          "file": "github_tool.py",
+          "function": "execute_github_tool",
+          "lineno": 274,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/tools.py",
+          "function": "validate_tool_args",
+          "lineno": 368,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "cli/commands.py",
+          "function": "handle_slash_command",
+          "lineno": 81,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/upgrade_manager.py",
+          "function": "UpgradeManager._verify_file_integrity",
+          "lineno": 693,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/upgrade_manager.py",
+          "function": "UpgradeManager._verify_module_imports",
+          "lineno": 720,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "stats.get",
+      "count": 23,
+      "examples": [
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 426,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 427,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 427,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 428,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 443,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "args.append",
+      "count": 22,
+      "examples": [
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.repo_view",
+          "lineno": 79,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.repo_view",
+          "lineno": 80,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.repo_view",
+          "lineno": 81,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_view",
+          "lineno": 102,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "github_tool.py",
+          "function": "GitHubTool.issue_view",
+          "lineno": 103,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "result.get('data', {}).get",
+      "count": 21,
+      "examples": [
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_stop",
+          "lineno": 219,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_status",
+          "lineno": 304,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ps",
+          "lineno": 366,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 435,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_status",
+          "lineno": 496,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "CommandPermissionTemplate.create_info_command_prompt",
+      "count": 19,
+      "examples": [
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_main",
+          "lineno": 20,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_status",
+          "lineno": 258,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ps",
+          "lineno": 328,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_stats",
+          "lineno": 387,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/docker_commands.py",
+          "function": "docker_ollama_status",
+          "lineno": 454,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "CommandPermission",
+      "count": 18,
+      "examples": [
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._register_default_commands",
+          "lineno": 93,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._register_default_commands",
+          "lineno": 103,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._register_default_commands",
+          "lineno": 113,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._register_default_commands",
+          "lineno": 123,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._register_default_commands",
+          "lineno": 134,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "content_lines.append",
+      "count": 18,
+      "examples": [
+        {
+          "file": "modules/permissions/widget.py",
+          "function": "PermissionPrompt.render",
+          "lineno": 68,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/permissions/widget.py",
+          "function": "PermissionPrompt.render",
+          "lineno": 69,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/permissions/widget.py",
+          "function": "PermissionPrompt.render",
+          "lineno": 74,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/permissions/widget.py",
+          "function": "PermissionPrompt.render",
+          "lineno": 76,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/permissions/widget.py",
+          "function": "PermissionPrompt.render",
+          "lineno": 79,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "self.app.query_one",
+      "count": 17,
+      "examples": [
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._update_statusline_context",
+          "lineno": 268,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "UnifiedCommandExecutor._clear_statusline_context",
+          "lineno": 290,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tool_registry.py",
+          "function": "ToolRegistry._show_tool_permission_prompt",
+          "lineno": 280,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tool_registry.py",
+          "function": "ToolRegistry._update_statusline_for_tool",
+          "lineno": 304,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tool_registry.py",
+          "function": "ToolRegistry._clear_statusline_for_tool",
+          "lineno": 322,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "process.communicate",
+      "count": 17,
+      "examples": [
+        {
+          "file": "modules/streaming_display.py",
+          "function": "StreamingDisplay._copy_selection",
+          "lineno": 512,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/streaming_display.py",
+          "function": "StreamingDisplay._copy_selection",
+          "lineno": 516,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/streaming_display.py",
+          "function": "StreamingDisplay._copy_selection",
+          "lineno": 520,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/streaming_display.py",
+          "function": "StreamingDisplay._copy_selection",
+          "lineno": 523,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/streaming_display.py",
+          "function": "StreamingDisplay.action_copy_all",
+          "lineno": 556,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "option.get",
+      "count": 16,
+      "examples": [
+        {
+          "file": "modules/multiline_input.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 261,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "CommandExecution.show_initial_permission_prompt",
+          "lineno": 358,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/command_executor.py",
+          "function": "CommandExecution.execute_with_live_progress",
+          "lineno": 411,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/tool_registry.py",
+          "function": "ToolRegistry._show_tool_permission_prompt",
+          "lineno": 293,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/multiline_input_backup.py",
+          "function": "MultiLineInput._render_permission_prompt",
+          "lineno": 261,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    },
+    {
+      "expression": "line.startswith",
+      "count": 16,
+      "examples": [
+        {
+          "file": "modules/worktree_integration.py",
+          "function": "WorktreeManager.list_worktrees",
+          "lineno": 80,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/worktree_integration.py",
+          "function": "WorktreeManager.list_worktrees",
+          "lineno": 82,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/worktree_integration.py",
+          "function": "WorktreeManager.list_worktrees",
+          "lineno": 84,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/diff_viewer.py",
+          "function": "parse_unified_diff",
+          "lineno": 239,
+          "details": "Target not resolved; likely dynamic or external"
+        },
+        {
+          "file": "modules/diff_viewer.py",
+          "function": "parse_unified_diff",
+          "lineno": 242,
+          "details": "Target not resolved; likely dynamic or external"
+        }
+      ]
+    }
+  ]
+}

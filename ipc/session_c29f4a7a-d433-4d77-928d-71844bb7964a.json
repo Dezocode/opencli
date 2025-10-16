@@ -1,0 +1,9 @@
+{
+  "session_id": "c29f4a7a-d433-4d77-928d-71844bb7964a",
+  "pid": 25230,
+  "model": "x-ai/grok-4-fast:free",
+  "agent": "assistant",
+  "cwd": "/Users/dezmondhollins",
+  "registered_at": 1759596641.26998,
+  "last_heartbeat": 1759596641.26998
+}

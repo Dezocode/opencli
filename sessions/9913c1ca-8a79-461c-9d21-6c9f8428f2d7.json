@@ -1,0 +1,1 @@
+{"session_id": "9913c1ca-8a79-461c-9d21-6c9f8428f2d7", "model": "deepseek/deepseek-chat-v3.1:free", "messages": [{"role": "user", "content": "hi"}], "cwd": "/Users/dezmondhollins/opencli", "debug_mode": false, "timestamp": "2025-10-07T20:17:59.562844"}

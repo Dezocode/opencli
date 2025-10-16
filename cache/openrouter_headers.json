@@ -1,0 +1,44 @@
+{
+  "deepseek/deepseek-chat-v3.1:free": {
+    "headers": {
+      "HTTP-Referer": "https://github.com/Dezocode/opencli",
+      "X-Title": "OpenCLI"
+    },
+    "timestamp": "2025-10-08T10:40:12.718677"
+  },
+  "invalid/model/id/that/does/not/exist": {
+    "headers": {
+      "HTTP-Referer": "https://github.com/Dezocode/opencli",
+      "X-Title": "OpenCLI"
+    },
+    "timestamp": "2025-10-08T10:40:12.914498"
+  },
+  "anthropic/claude-3.5-sonnet": {
+    "headers": {
+      "HTTP-Referer": "https://github.com/Dezocode/opencli",
+      "X-Title": "OpenCLI"
+    },
+    "timestamp": "2025-10-08T10:40:13.197225"
+  },
+  "openai/gpt-4-turbo": {
+    "headers": {
+      "HTTP-Referer": "https://github.com/Dezocode/opencli",
+      "X-Title": "OpenCLI"
+    },
+    "timestamp": "2025-10-08T10:40:13.542824"
+  },
+  "google/gemini-2.0-flash-exp:free": {
+    "headers": {
+      "HTTP-Referer": "https://github.com/Dezocode/opencli",
+      "X-Title": "OpenCLI"
+    },
+    "timestamp": "2025-10-08T12:26:26.623576"
+  },
+  "qwen/qwen3-coder:free": {
+    "headers": {
+      "HTTP-Referer": "https://github.com/Dezocode/opencli",
+      "X-Title": "OpenCLI"
+    },
+    "timestamp": "2025-10-11T19:03:29.469301"
+  }
+}

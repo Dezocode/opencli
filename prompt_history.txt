@@ -1,0 +1,100 @@
+/permissions
+/docker
+hi
+read cwd
+/docker
+/local
+/docker
+/local
+/docker
+/constitution
+/docker
+/docker ollama setup
+/docker
+hi
+/docker
+/local
+/docker
+/docker ollama setup
+/local
+/docker
+/docker ollama setup
+/performance
+/local
+/performance
+/docker ollama setup
+/local
+/performance
+hi
+/docker ollama setup
+/local
+/model
+/model providers
+/providers
+/docker
+/local
+/model
+/model providers
+hi
+/local
+/docker
+/local
+/docker ollama setup
+/local
+/docker ollama setup
+hi
+/local
+/model
+/model providers
+/local
+/docker ollama setup
+/local
+/docker ollama setup
+hi
+/local
+/model
+/performance
+/local
+hi
+/local
+/docker ollama setup
+/local
+hi
+/local
+hihi
+/docker
+/local
+/docker ollama setup
+still not using the fucking permissions manager for all commands and it's not accepting input and its crashing
+/performance
+/local
+hi
+see how the local didn't fucking run properly it's not allowing me to navigat it's being blocked!!!!
+and see how this command won't use permission manager
+/docker
+/local
+DO YOU SEE HOW THE PERMISSION MANAGER IS FUCKING BROKEN
+DO YOU SEE HOW TOOL CALLS ARE BROKEN
+/docker
+do you see how not every command uses the permisssion manager
+?
+/local
+DO YOU SEE HOW THE PERMISSION MANAGER IS FUCKING BROKEN
+do you see how i can't naviagete within the permission manager it getts blocked!!!!!!!!1
+/local
+DO YOU SEE HOW THE PERMISSION MANAGER IS FUCKING BROKEN
+/docker
+do you see how not all commands use the fucking permission manager like they should and it's not navigable!!!
+/performance
+perforamnce status line works great
+/model
+hi
+/local
+DO YOU SEE HOW THE PERMISSION MANAGER IS FUCKING BROKEN
+/model providers
+see how these aren't using the fucking permission manager!!!!
+/help
+/local
+quit
+/local
+hi

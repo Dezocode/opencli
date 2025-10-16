@@ -1,0 +1,385 @@
+# OpenCLI Architecture Blueprint
+# Defines the desired structure, dependencies, and performance budgets
+# Used by the Intelligent Refactoring Engine to maintain code quality
+
+version: "1.0"
+project: "OpenCLI"
+
+# ==============================================================================
+# MODULE STRUCTURE
+# ==============================================================================
+
+modules:
+  # Core entry point
+  - name: opencli
+    path: opencli.py
+    responsibility: "Main entry point, CLI argument parsing, mode orchestration"
+    max_lines: 500
+    allowed_imports:
+      - cli.main
+      - cli.config
+      - cli.session
+      - cli.tools
+      - cli.utils
+      - cli.commands
+    forbidden_imports:
+      - modules.api_client  # API access happens through CLI layers
+      - modules.simple_tui  # UI concerns handled in CLI or TUI components
+      - modules.streaming_display
+
+  # CLI orchestration
+  - name: cli_main
+    path: cli/main.py
+    responsibility: "CLI orchestration, argument parsing, mode selection"
+    max_lines: 600
+    allowed_imports:
+      - cli.config
+      - cli.session
+      - cli.modules.argument_parser
+      - cli.modules.initialization
+      - cli.modules.execution_flow
+      - cli.modules.interactive_helpers
+      - cli.modules.streaming_processor
+      - config
+      - session
+      - modules.argument_parser
+      - modules.initialization
+      - modules.execution_flow
+      - modules.interactive_helpers
+      - modules.streaming_processor
+    forbidden_imports:
+      - modules.streaming_display  # UI is injected via initialization
+      - modules.simple_tui
+
+  # Execution flow
+  - name: cli_execution_flow
+    path: cli/modules/execution_flow.py
+    responsibility: "Interactive execution loop, tool dispatch, agent integration"
+    max_lines: 500
+    allowed_imports:
+      - cli.session
+      - cli.tools
+      - cli.utils
+      - cli.commands
+      - modules  # Access to optional subsystems (agent manager, prompt processor, etc.)
+      - session
+      - tools
+      - utils
+      - commands
+      - streaming_processor
+      - error_handling
+    forbidden_imports:
+      - modules.streaming_display  # UI handled by TUI package
+
+  # Initialization systems
+  - name: cli_initialization
+    path: cli/modules/initialization.py
+    responsibility: "Component detection, system initialization, dependency wiring"
+    max_lines: 500
+    allowed_imports:
+      - cli.config
+      - cli.session
+      - cli.utils
+      - modules
+      - agent_manager
+      - command_registry
+      - prompt_processor
+      - prompt_toolkit
+      - config
+      - session
+      - utils
+      - tool_permissions
+      - api_server
+      - model_manager
+
+  # Session management
+  - name: cli_session
+    path: cli/session.py
+    responsibility: "Session state, conversation history, persistence"
+    max_lines: 300
+    allowed_imports:
+      - cli.utils
+      - utils
+
+  # Tool execution surface
+  - name: cli_tools
+    path: cli/tools.py
+    responsibility: "Filesystem and shell tool execution invoked by the LLM"
+    max_lines: 400
+    allowed_imports: []
+    forbidden_imports:
+      - modules.simple_tui  # Tool execution should remain headless
+      - modules.streaming_display
+
+  # API layer
+  - name: api_client
+    path: modules/api_client.py
+    responsibility: "HTTP communication with LLM providers"
+    max_lines: 800
+    allowed_imports:
+      - modules.config_loader
+      - modules.uptime_checker
+      - modules.header_autoconfig
+      - requests
+    forbidden_imports:
+      - cli.session  # No state dependencies
+      - modules.simple_tui  # No UI dependencies
+
+  # TUI layer
+  - name: simple_tui
+    path: modules/simple_tui.py
+    responsibility: "Textual UI, display rendering, user input"
+    max_lines: 200
+    allowed_imports:
+      - modules.tui
+      - tui
+    forbidden_imports:
+      - modules.api_client  # No API knowledge
+      - cli.session  # Receives session objects from CLI layers
+
+  # TUI rendering
+  - name: streaming_display
+    path: modules/streaming_display.py
+    responsibility: "Streaming text display with markdown rendering"
+    max_lines: 800
+    allowed_imports:
+      - modules.markdown_renderer
+      - modules.frontier_colors
+      - textual
+      - rich
+      - frontier_colors
+      - markdown_renderer
+    forbidden_imports:
+      - cli.session
+      - modules.api_client
+
+  # Async interactive shim
+  - name: async_interactive
+    path: modules/async_interactive.py
+    responsibility: "Compatibility layer that re-exports async interactive components"
+    max_lines: 120
+    allowed_imports:
+      - modules.async_interactive
+      - async_interactive
+    concerns:
+      - "Keep as thin re-export layer; real logic lives under modules/async_interactive/"
+
+  # Profiling and refactoring
+  - name: profiler
+    path: modules/profiler.py
+    responsibility: "Runtime profiling, thread analysis, performance monitoring"
+    max_lines: 400
+    allowed_imports: []  # Pure analysis, no dependencies
+    forbidden_imports:
+      - modules.*  # Should be completely independent
+
+# ==============================================================================
+# PERFORMANCE BUDGETS (milliseconds)
+# ==============================================================================
+
+performance_budgets:
+  # Critical path - user input processing
+  - function: "ExecutionFlowManager.handle_user_input"
+    max_time_ms: 50
+    location: "cli/modules/execution_flow.py"
+    rationale: "Runs on every user keystroke submission"
+
+  - function: "execute_tool"
+    max_time_ms: 100
+    location: "cli/tools.py"
+    rationale: "Direct tool invocation should remain responsive"
+
+  # TUI rendering
+  - function: "write_stream"
+    max_time_ms: 10
+    location: "modules/streaming_display.py"
+
+  - function: "_rebuild_display"
+    max_time_ms: 50
+    location: "modules/streaming_display.py"
+    rationale: "Called frequently during text updates"
+
+  # API calls (network-bound, higher tolerance)
+  - function: "send_message"
+    max_time_ms: 5000
+    location: "modules/api_client.py"
+    rationale: "Network I/O, but should timeout if excessive"
+
+  # Mouse event handling
+  - function: "_handle_mouse_move"
+    max_time_ms: 5
+    location: "modules/streaming_display.py"
+    rationale: "Called many times per second during drag"
+
+# ==============================================================================
+# THREADING RULES
+# ==============================================================================
+
+threading_rules:
+  # Main thread - UI only
+  - thread_name: "MainThread"
+    allowed_operations:
+      - "Textual event loop"
+      - "User input handling"
+      - "Display updates"
+    forbidden_operations:
+      - "Blocking I/O"
+      - "Heavy computation"
+      - "Long-running operations"
+
+  - thread_pattern: "AsyncWorker"
+    purpose: "Async I/O operations"
+    max_blocking_time_ms: 5000
+
+# ==============================================================================
+# REFACTORING TARGETS
+# ==============================================================================
+
+refactoring_targets:
+  # High priority - files that are too large
+  - file: "cli/modules/execution_flow.py"
+    current_lines: 395
+    target_lines: 280
+    split_strategy:
+      - extract: "Command routing"
+        to: "cli/modules/command_handlers.py"
+        functions:
+          - "handle_slash_commands"
+          - "handle_exit_commands"
+
+      - extract: "Agent/system integration"
+        to: "cli/modules/system_integration.py"
+        functions:
+          - "_initialize_execution_systems"
+          - "auto_select_agent"
+
+  - file: "cli/modules/initialization.py"
+    current_lines: 473
+    target_lines: 320
+    split_strategy:
+      - extract: "Feature detection helpers"
+        to: "cli/modules/feature_detection.py"
+        functions:
+          - "initialize_async_tui"
+          - "initialize_model_manager"
+          - "initialize_uptime_checker"
+
+  - file: "modules/streaming_display.py"
+    current_lines: 739
+    target_lines: 500
+    split_strategy:
+      - extract: "Text selection logic"
+        to: "modules/text_selector.py"
+        functions:
+          - "_handle_mouse_down"
+          - "_handle_mouse_move"
+          - "_handle_mouse_up"
+          - "_get_selected_text"
+          - "_copy_selection"
+          - "_apply_selection_highlight"
+
+# ==============================================================================
+# CODE QUALITY RULES
+# ==============================================================================
+
+quality_rules:
+  # Function complexity
+  - rule: "max_function_lines"
+    value: 50
+    exceptions:
+      - "cli/modules/execution_flow.py:ExecutionFlowManager._initialize_execution_systems"
+      - "modules/tui/core.py:compose"  # UI composition
+
+  - rule: "max_function_complexity"
+    value: 10
+    metric: "cyclomatic_complexity"
+
+  # Nesting
+  - rule: "max_nesting_depth"
+    value: 4
+    exceptions:
+      - "*.py:*compose*"  # UI composition methods
+
+  # Imports
+  - rule: "no_circular_imports"
+    value: true
+
+  - rule: "no_wildcard_imports"
+    value: true
+
+# ==============================================================================
+# ARCHITECTURAL PATTERNS
+# ==============================================================================
+
+patterns:
+  # Dependency injection
+  - pattern: "dependency_injection"
+    description: "Pass dependencies as parameters, not globals"
+    applies_to:
+      - "cli/tools.py"
+      - "modules/api_client.py"
+
+  # Single responsibility
+  - pattern: "single_responsibility"
+    description: "Each module should have one clear purpose"
+    violations:
+      - file: "cli/modules/execution_flow.py"
+        reason: "Handles commands, tool execution, AND UI updates"
+
+  # Separation of concerns
+  - pattern: "ui_business_separation"
+    description: "UI code should not contain business logic"
+    check:
+      - "modules/simple_tui.py should not import modules/api_client"
+      - "modules/streaming_display.py should not import cli.session"
+
+# ==============================================================================
+# METRICS TRACKING
+# ==============================================================================
+
+metrics:
+  # Track these over time
+  track:
+    - metric: "total_lines_of_code"
+      target: "< 15000"
+
+    - metric: "average_function_length"
+      target: "< 30"
+
+    - metric: "module_count"
+      target: "< 250"
+
+    - metric: "circular_dependency_count"
+      target: "< 1"
+
+    - metric: "test_coverage"
+      target: "> 70%"
+
+# ==============================================================================
+# COMPLIANCE CHECKS
+# ==============================================================================
+
+checks:
+  # Run these automatically
+  on_commit:
+    - check: "forbidden_imports"
+      fail_on_violation: true
+
+    - check: "max_file_size"
+      fail_on_violation: false
+      warn_only: true
+
+    - check: "performance_budgets"
+      fail_on_violation: false
+      warn_only: true
+
+  on_merge:
+    - check: "all_tests_pass"
+      fail_on_violation: true
+
+    - check: "no_circular_imports"
+      fail_on_violation: true
+
+    - check: "code_quality_rules"
+      fail_on_violation: false
+      warn_only: true

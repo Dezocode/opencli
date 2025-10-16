@@ -1,0 +1,393 @@
+"""
+Central Registration - ONE place for ALL commands and tools
+
+Everything registers here with PROPER categorization.
+NO duplicates, NO legacy code.
+
+Every registration includes:
+- ExecutionType (COMMAND, TOOL, API)
+- ExecutionCategory (DOCKER, MODEL, FILE, etc.)
+- RiskLevel (SAFE, LOW, MEDIUM, HIGH, CRITICAL)
+- requires_approval (bool)
+- description (str)
+
+STREAMLINED FLOW:
+register_all(executor) → ExecutionRegistry → PermissionManager → Buffer
+"""
+
+from execution.registry import ExecutionType, ExecutionCategory, RiskLevel
+
+
+def register_all(executor):
+    """
+    ONE registration function for EVERYTHING
+
+    Registers directly with ExecutionSystem which owns ExecutionRegistry
+    """
+
+    # ========================================================================
+    # COMMANDS
+    # ========================================================================
+    _register_commands(executor)
+
+    # ========================================================================
+    # TOOLS
+    # ========================================================================
+    _register_tools(executor)
+
+
+def _register_commands(executor):
+    """Register ALL commands"""
+
+    # ========================================================================
+    # DOCKER COMMANDS
+    # ========================================================================
+    from docker_commands import (
+        docker_ollama_setup,
+        docker_ollama_start,
+        docker_ollama_stop
+    )
+
+    executor.registry.register(
+        ExecutionType.COMMAND,
+        '/docker ollama setup',
+        docker_ollama_setup,
+        ExecutionCategory.DOCKER,
+        RiskLevel.HIGH,
+        requires_approval=True,
+        description="Setup Ollama in Docker with resource configuration"
+    )
+
+    executor.registry.register(
+        ExecutionType.COMMAND,
+        '/docker ollama start',
+        docker_ollama_start,
+        ExecutionCategory.DOCKER,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Start Ollama Docker container"
+    )
+
+    executor.registry.register(
+        ExecutionType.COMMAND,
+        '/docker ollama stop',
+        docker_ollama_stop,
+        ExecutionCategory.DOCKER,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Stop Ollama Docker container"
+    )
+
+    # ========================================================================
+    # DEV COMMANDS
+    # ========================================================================
+    from commands.dev_commands import (
+        debug_toggle,
+        performance_monitor,
+        reload_modules
+    )
+
+    executor.registry.register(
+        ExecutionType.COMMAND,
+        '/debug',
+        debug_toggle,
+        ExecutionCategory.DEV,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Toggle debug mode on/off"
+    )
+
+    executor.registry.register(
+        ExecutionType.COMMAND,
+        '/performance',
+        performance_monitor,
+        ExecutionCategory.DEV,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Show performance metrics"
+    )
+
+    executor.registry.register(
+        ExecutionType.COMMAND,
+        '/reload',
+        reload_modules,
+        ExecutionCategory.DEV,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Reload modules (may affect running session)"
+    )
+
+    # ========================================================================
+    # MODEL COMMANDS
+    # ========================================================================
+    from commands.model_commands import (
+        model_list,
+        model_switch
+    )
+
+    router.register(
+        '/model',
+        model_list,
+        ExecutionCategory.MODEL,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List available models"
+    )
+
+    router.register(
+        '/model list',
+        model_list,
+        ExecutionCategory.MODEL,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="List available models"
+    )
+
+    # ========================================================================
+    # PROVIDER COMMANDS
+    # ========================================================================
+    from commands.provider_commands import (
+        provider_manage
+    )
+
+    router.register(
+        '/provider',
+        provider_manage,
+        ExecutionCategory.PROVIDER,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Manage API providers (OpenAI, Anthropic, Google, etc.)"
+    )
+
+    router.register(
+        '/providers',
+        provider_manage,
+        ExecutionCategory.PROVIDER,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Manage API providers (OpenAI, Anthropic, Google, etc.)"
+    )
+
+    # ========================================================================
+    # LOCAL COMMANDS
+    # ========================================================================
+    from commands.local_commands import (
+        local_setup
+    )
+
+    router.register(
+        '/local',
+        local_setup,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Setup local model deployment"
+    )
+
+    # ========================================================================
+    # REFACTOR COMMANDS
+    # ========================================================================
+    from commands.refactor_commands import (
+        refactor_interactive,
+        autorefactor
+    )
+
+    router.register(
+        '/refactor',
+        refactor_interactive,
+        ExecutionCategory.REFACTOR,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Interactive code refactoring"
+    )
+
+    router.register(
+        '/autorefactor',
+        autorefactor,
+        ExecutionCategory.REFACTOR,
+        RiskLevel.HIGH,
+        requires_approval=True,
+        description="Automated code refactoring (use with caution)"
+    )
+
+    # ========================================================================
+    # SYSTEM COMMANDS
+    # ========================================================================
+    from commands.system_commands import (
+        restart_session,
+        upgrade_opencli
+    )
+
+    router.register(
+        '/restart',
+        restart_session,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Restart current session"
+    )
+
+    router.register(
+        '/upgrade',
+        upgrade_opencli,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.HIGH,
+        requires_approval=True,
+        description="Upgrade OpenCLI to latest version"
+    )
+
+    # ========================================================================
+    # API COMMANDS
+    # ========================================================================
+    from commands.api_commands import (
+        api_server_control
+    )
+
+    router.register(
+        '/api',
+        api_server_control,
+        ExecutionCategory.SYSTEM,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Control API server (start/stop/status)"
+    )
+
+    # ========================================================================
+    # INJECTION COMMANDS
+    # ========================================================================
+    from commands.inject_commands import (
+        code_inject
+    )
+
+    router.register(
+        '/inject',
+        code_inject,
+        ExecutionCategory.DEV,
+        RiskLevel.CRITICAL,
+        requires_approval=True,
+        description="Inject code into running process (DANGEROUS)"
+    )
+
+
+def register_all_tools(router):
+    """Register ALL tools in the system with PROPER metadata"""
+
+    # ========================================================================
+    # FILE TOOLS
+    # ========================================================================
+    from tools.file_tools import (
+        file_read,
+        file_write,
+        file_edit
+    )
+
+    router.register_tool(
+        'Read',
+        file_read,
+        ExecutionCategory.FILE,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Read file contents"
+    )
+
+    router.register_tool(
+        'Write',
+        file_write,
+        ExecutionCategory.FILE,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Write/create file (overwrites existing)"
+    )
+
+    router.register_tool(
+        'Edit',
+        file_edit,
+        ExecutionCategory.FILE,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Edit existing file"
+    )
+
+    # ========================================================================
+    # SEARCH TOOLS
+    # ========================================================================
+    from tools.search_tools import (
+        grep_search,
+        glob_search
+    )
+
+    router.register_tool(
+        'Grep',
+        grep_search,
+        ExecutionCategory.SEARCH,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Search file contents with regex"
+    )
+
+    router.register_tool(
+        'Glob',
+        glob_search,
+        ExecutionCategory.SEARCH,
+        RiskLevel.SAFE,
+        requires_approval=False,
+        description="Find files by pattern"
+    )
+
+    # ========================================================================
+    # EXECUTION TOOLS
+    # ========================================================================
+    from tools.exec_tools import (
+        bash_execute
+    )
+
+    router.register_tool(
+        'Bash',
+        bash_execute,
+        ExecutionCategory.BASH,
+        RiskLevel.HIGH,
+        requires_approval=True,
+        description="Execute bash commands (HIGH RISK)"
+    )
+
+    # ========================================================================
+    # NETWORK TOOLS
+    # ========================================================================
+    from tools.network_tools import (
+        web_fetch,
+        web_search
+    )
+
+    router.register_tool(
+        'WebFetch',
+        web_fetch,
+        ExecutionCategory.NETWORK,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Fetch content from URL"
+    )
+
+    router.register_tool(
+        'WebSearch',
+        web_search,
+        ExecutionCategory.NETWORK,
+        RiskLevel.LOW,
+        requires_approval=False,
+        description="Search the web"
+    )
+
+    # ========================================================================
+    # GITHUB TOOLS
+    # ========================================================================
+    from tools.github_tools import (
+        github_api
+    )
+
+    router.register_tool(
+        'GitHub',
+        github_api,
+        ExecutionCategory.NETWORK,
+        RiskLevel.MEDIUM,
+        requires_approval=True,
+        description="Interact with GitHub API"
+    )

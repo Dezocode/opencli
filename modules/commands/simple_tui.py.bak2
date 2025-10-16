@@ -1,0 +1,2629 @@
+"""
+Simple Textual TUI for OpenCLI
+Provides scrollable content area with fixed prompt at bottom
+"""
+
+from textual.app import App, ComposeResult
+from textual.containers import Container, VerticalScroll
+from textual.widgets import Static, Input, RichLog, TextArea
+from textual.reactive import reactive
+from textual import events
+from textual.geometry import Offset
+from rich.text import Text
+from datetime import datetime
+import os
+import asyncio
+import time
+import threading
+from queue import Queue
+from pathlib import Path
+
+# Import custom multi-line input (with integrated spinner)
+try:
+    from .multiline_input import MultiLineInput
+except (ImportError, ValueError):
+    from multiline_input import MultiLineInput
+
+# Import command suggestion system
+try:
+    from .command_suggestions import CommandSuggestionBuffer, CommandMatch, check_command_health
+    from .command_registry import CommandRegistry
+    from .execution.registry import ExecutionType
+except (ImportError, ValueError):
+    from command_suggestions import CommandSuggestionBuffer, CommandMatch, check_command_health
+    from command_registry import CommandRegistry
+    from execution.registry import ExecutionType
+
+# Import custom modules - relative imports since we're in modules/ dir
+try:
+    from .tui_config import get_tui_config
+    from .selectable_richlog import SelectableRichLog
+    from .streaming_display import StreamingDisplay
+    from .ansi_background import create_ansi_background_app
+    from .frontier_colors import FRONTIER_COLORS, STATUS_COLORS
+    CUSTOM_WIDGETS_AVAILABLE = True
+except (ImportError, ValueError) as e:
+    # ValueError for relative imports when run as script
+    # Try absolute fallback
+    try:
+        from tui_config import get_tui_config
+        from selectable_richlog import SelectableRichLog
+        from streaming_display import StreamingDisplay
+        from ansi_background import create_ansi_background_app
+        from frontier_colors import FRONTIER_COLORS, STATUS_COLORS
+        CUSTOM_WIDGETS_AVAILABLE = True
+    except ImportError as e2:
+        CUSTOM_WIDGETS_AVAILABLE = False
+        StreamingDisplay = None
+        create_ansi_background_app = None
+        FRONTIER_COLORS = {}
+        STATUS_COLORS = {}
+        print(f"Warning: Custom TUI widgets not available: {e2}")
+
+
+class PerformanceStatusLine(Static):
+    """Live performance monitoring statusline (bottom of screen)"""
+
+    enabled = reactive(False)
+
+    def __init__(self, session):
+        super().__init__()
+        self.session = session
+        self._update_interval = None
+        self.perf_monitor = None
+
+    def on_mount(self) -> None:
+        """Initialize performance monitor when mounted"""
+        # Import performance monitor
+        try:
+            from .performance_monitor import get_monitor
+        except (ImportError, ValueError):
+            from performance_monitor import get_monitor
+
+        self.perf_monitor = get_monitor()
+
+        # Lightweight: Update every 2 seconds to minimize overhead
+        self._update_interval = self.set_interval(2.0, self._update_display)
+
+    def _update_display(self) -> None:
+        """Periodic update callback - lightweight (2 sec)"""
+        if self.enabled and self.perf_monitor and self.perf_monitor.enabled:
+            self.refresh()
+
+    def render(self) -> Text:
+        """Render performance statusline"""
+        if not self.enabled or not self.perf_monitor or not self.perf_monitor.enabled:
+            return Text("")  # Hidden when disabled
+
+        # Get statusline from performance monitor
+        status_str = self.perf_monitor.get_status_line()
+
+        if not status_str:
+            return Text("")
+
+        # Convert Rich markup to Text
+        try:
+            return Text.from_markup(status_str)
+        except:
+            return Text(status_str)
+
+    def toggle(self) -> bool:
+        """Toggle performance monitoring on/off, returns new state"""
+        if self.perf_monitor:
+            if self.perf_monitor.enabled:
+                self.perf_monitor.stop()
+                self.enabled = False
+            else:
+                self.perf_monitor.start()
+                self.enabled = True
+            self.refresh()
+            return self.enabled
+        return False
+
+
+class RefactoringStatusLine(Static):
+    """Live refactoring system statusline (bottom of screen)"""
+
+    enabled = reactive(False)
+
+    def __init__(self, session):
+        super().__init__()
+        self.session = session
+        self._update_interval = None
+        self.orchestrator = None
+
+    def on_mount(self) -> None:
+        """Initialize refactoring orchestrator when mounted"""
+        # Import orchestrator
+        try:
+            from .refactor_orchestrator import get_orchestrator
+        except (ImportError, ValueError):
+            try:
+                from refactor_orchestrator import get_orchestrator
+            except ImportError:
+                return
+
+        try:
+            self.orchestrator = get_orchestrator()
+        except Exception:
+            pass
+
+        # Lightweight: Update every 2 seconds to minimize overhead
+        self._update_interval = self.set_interval(2.0, self._update_display)
+
+    def _update_display(self) -> None:
+        """Periodic update callback - lightweight (2 sec)"""
+        if self.enabled and self.orchestrator and self.orchestrator._monitoring:
+            self.refresh()
+
+    def render(self) -> Text:
+        """Render refactoring statusline"""
+        if not self.enabled or not self.orchestrator or not self.orchestrator._monitoring:
+            return Text("")  # Hidden when disabled
+
+        # Get statusline from orchestrator
+        status_str = self.orchestrator.get_status_line()
+
+        if not status_str:
+            return Text("")
+
+        # Convert Rich markup to Text
+        try:
+            return Text.from_markup(status_str)
+        except:
+            return Text(status_str)
+
+    def toggle(self) -> bool:
+        """Toggle refactoring monitoring on/off, returns new state"""
+        if self.orchestrator:
+            if self.orchestrator._monitoring:
+                self.orchestrator.stop_monitoring()
+                self.enabled = False
+            else:
+                self.orchestrator.start_monitoring()
+                self.enabled = True
+            self.refresh()
+            return self.enabled
+        return False
+
+
+class StatusLine(Static):
+    """Fixed status line showing session info with IPC activity spinner and Docker stats"""
+
+    is_spinning = reactive(False)
+    spinner_frame = reactive(0)
+    spinner_mode = reactive("idle")  # "idle", "read", "write"
+    show_docker_stats = reactive(False)
+    docker_cpu_percent = reactive("0")
+    docker_memory_usage = reactive("0MB")
+
+    # Spinner frames
+    SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def __init__(self, session, config):
+        super().__init__()
+        self.session = session
+        self.config = config
+        self._spin_task = None
+        self._docker_stats_task = None
+
+    def render(self) -> Text:
+        """Render status bar"""
+        now = datetime.now().strftime("%H:%M:%S")
+        model_short = (self.session.model or self.config.get("model", "grok-4-fast")).split('/')[-1].split(':')[0]
+
+        # Count tokens and turns
+        try:
+            # Estimate tokens (simple approximation: 1 token ≈ 4 chars)
+            total_chars = sum(len(str(m.get('content', ''))) for m in self.session.messages)
+            tokens = total_chars // 4
+        except:
+            tokens = 0
+
+        turns = len([m for m in self.session.messages if m.get('role') == 'user'])
+        cwd_short = os.path.basename(self.session.cwd)
+
+        # Get IPC server status
+        ipc_status = "off"
+        subagent_count = 0
+        if hasattr(self.session, 'ipc_server') and self.session.ipc_server:
+            if self.session.ipc_server.running:
+                subagent_count = self.session.ipc_server.get_subagent_count()
+                ipc_status = str(subagent_count)
+
+        status = Text()
+
+        # Use frontier colors if available
+        if FRONTIER_COLORS:
+            status.append(" S: ", style=f"dim {STATUS_COLORS['time']}")
+
+            # Show spinner when IPC is active, otherwise show count
+            if self.is_spinning:
+                frame = self.SPINNER_FRAMES[self.spinner_frame % len(self.SPINNER_FRAMES)]
+                if self.spinner_mode == "read":
+                    status.append(frame, style="#6B9E78")  # Frontier green/blue for read
+                elif self.spinner_mode == "write":
+                    status.append(frame, style="#9B86BD")  # Purple for write
+                else:
+                    status.append(frame, style="#89B8C2")  # Soft cyan default
+            elif ipc_status == "off":
+                status.append(f"{ipc_status}", style="#5C6773")  # Gray for off
+            else:
+                status.append(f"{ipc_status}", style="#89B8C2")  # Soft cyan for active
+            status.append(" │ Model: ", style=f"dim {STATUS_COLORS['time']}")
+            status.append(f"{model_short}", style=STATUS_COLORS['model'])
+            status.append(" │ Tokens: ", style=f"dim {STATUS_COLORS['time']}")
+            status.append(f"{tokens:,}", style=STATUS_COLORS['tokens'])
+            status.append(" │ Turn: ", style=f"dim {STATUS_COLORS['time']}")
+            status.append(f"{turns}", style=STATUS_COLORS['turn'])
+            status.append(" │ CWD: ", style=f"dim {STATUS_COLORS['time']}")
+            status.append(f"{cwd_short}", style=STATUS_COLORS['cwd'])
+
+            # Docker stats if enabled
+            if self.show_docker_stats:
+                status.append(" │ 🐳 ", style=f"dim {STATUS_COLORS['time']}")
+                status.append(f"CPU: {self.docker_cpu_percent}%", style=STATUS_COLORS['tokens'])
+                status.append(" │ ", style="dim")
+                status.append(f"Mem: {self.docker_memory_usage}", style=STATUS_COLORS['tokens'])
+
+            status.append(f" │ {now}", style=STATUS_COLORS['time'])
+        else:
+            # Fallback to original colors
+            status.append(" S: ", style="dim")
+            status.append(f"{ipc_status}", style="dim" if ipc_status == "off" else "cyan")
+            status.append(" │ Model: ", style="dim")
+            status.append(f"{model_short}", style="cyan")
+            status.append(" │ Tokens: ", style="dim")
+            status.append(f"{tokens:,}", style="magenta")
+            status.append(" │ Turn: ", style="dim")
+            status.append(f"{turns}", style="magenta")
+            status.append(" │ CWD: ", style="dim")
+            status.append(f"{cwd_short}", style="yellow")
+            status.append(f" │ {now}", style="dim")
+
+        return status
+
+    def start_spinner(self, mode: str = "idle") -> None:
+        """Start the IPC activity spinner
+
+        Args:
+            mode: "read" (blue), "write" (purple), or "idle" (cyan)
+        """
+        self.spinner_mode = mode
+        if not self.is_spinning:
+            self.is_spinning = True
+            if self._spin_task is None or self._spin_task.done():
+                self._spin_task = asyncio.create_task(self._spin())
+
+    def stop_spinner(self) -> None:
+        """Stop the IPC activity spinner"""
+        self.is_spinning = False
+        if self._spin_task and not self._spin_task.done():
+            try:
+                self._spin_task.cancel()
+            except Exception:
+                pass
+        self.spinner_frame = 0
+        self.spinner_mode = "idle"
+        self._spin_task = None
+        self.refresh()
+
+    async def _spin(self) -> None:
+        """Async task that updates the spinner"""
+        try:
+            while self.is_spinning:
+                self.spinner_frame = (self.spinner_frame + 1) % len(self.SPINNER_FRAMES)
+                self.refresh()
+                await asyncio.sleep(0.08)  # 80ms per frame
+        except asyncio.CancelledError:
+            pass
+
+    def watch_is_spinning(self, old_value: bool, new_value: bool) -> None:
+        """React to spinning state changes"""
+        if old_value != new_value:
+            self.refresh()
+
+    def watch_spinner_frame(self, old_value: int, new_value: int) -> None:
+        """React to frame changes - refresh already handled by _spin"""
+        pass
+
+    def watch_spinner_mode(self, old_value: str, new_value: str) -> None:
+        """React to mode changes"""
+        if old_value != new_value and self.is_spinning:
+            self.refresh()
+
+    def enable_docker_stats(self, container_name: str = None) -> None:
+        """Enable Docker stats monitoring in statusline.
+
+        Args:
+            container_name: Docker container to monitor (default: opencli-ollama)
+        """
+        if not self.show_docker_stats:
+            self.show_docker_stats = True
+            if self._docker_stats_task is None or self._docker_stats_task.done():
+                self._docker_stats_task = asyncio.create_task(
+                    self._update_docker_stats(container_name or "opencli-ollama")
+                )
+
+    def disable_docker_stats(self) -> None:
+        """Disable Docker stats monitoring"""
+        self.show_docker_stats = False
+        if self._docker_stats_task and not self._docker_stats_task.done():
+            try:
+                self._docker_stats_task.cancel()
+            except Exception:
+                pass
+        self._docker_stats_task = None
+        self.refresh()
+
+    async def _update_docker_stats(self, container_name: str) -> None:
+        """Async task that periodically updates Docker container stats.
+
+        Args:
+            container_name: Docker container to monitor
+        """
+        try:
+            from .docker_manager import DockerManager
+        except (ImportError, ValueError):
+            from docker_manager import DockerManager
+
+        docker_mgr = DockerManager()
+
+        try:
+            while self.show_docker_stats:
+                # Get container stats
+                stats = await asyncio.to_thread(
+                    docker_mgr.get_container_stats,
+                    container_name
+                )
+
+                if stats:
+                    # Update reactive properties
+                    self.docker_cpu_percent = stats.get('cpu_percent', '0')
+                    self.docker_memory_usage = stats.get('memory_usage', '0MB').split('/')[0].strip()
+                    self.refresh()
+                else:
+                    # Container not found or not running
+                    self.docker_cpu_percent = "N/A"
+                    self.docker_memory_usage = "N/A"
+                    self.refresh()
+
+                # Update every 2 seconds
+                await asyncio.sleep(2.0)
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            # Error fetching stats
+            self.docker_cpu_percent = "ERR"
+            self.docker_memory_usage = "ERR"
+            self.refresh()
+
+    def watch_show_docker_stats(self, old_value: bool, new_value: bool) -> None:
+        """React to Docker stats toggle"""
+        if old_value != new_value:
+            self.refresh()
+
+    def show_indicator(self, category: str, icon: str, color: str) -> None:
+        """
+        Show a contextual indicator in the statusline
+
+        Args:
+            category: Category name (e.g., "docker", "model", "config")
+            icon: Icon to show (e.g., "⋯", "✓", "✗")
+            color: Color name or hex (e.g., "cyan", "#6B9E78")
+        """
+        # For now, use the spinner as a simple indicator
+        # TODO: Extend statusline to show multiple contextual indicators
+        if icon == "⋯":
+            self.start_spinner("idle")
+        elif icon == "✓":
+            self.stop_spinner()
+        elif icon == "✗":
+            self.stop_spinner()
+
+    def hide_indicator(self, category: str) -> None:
+        """
+        Hide a contextual indicator in the statusline
+
+        Args:
+            category: Category name to hide
+        """
+        self.stop_spinner()
+
+
+class OpenCLITUI(App):
+    """Simple TUI with scrollable content and fixed prompt"""
+
+    # Force ANSI colors mode and disable dark mode
+    ENABLE_COMMAND_PALETTE = False
+
+    # Global text selection state
+    _selection_start = None
+    _selection_end = None
+    _is_selecting = False
+
+    CSS = """
+    Screen {
+        layout: vertical;
+        background: transparent;
+    }
+
+    Container {
+        background: transparent;
+        border: none;
+    }
+
+    #content {
+        height: 1fr;
+        border: none;
+        background: transparent;
+        overflow-y: auto;
+        scrollbar-size: 0 0;
+    }
+
+    VerticalScroll {
+        background: transparent;
+        height: 100%;
+        overflow-y: auto;
+        scrollbar-size: 0 0;
+    }
+
+    #stream-display {
+        background: transparent;
+        height: auto;
+        min-height: 100%;
+    }
+
+    #footer {
+        height: auto;
+        dock: bottom;
+        background: transparent;
+        border: none;
+    }
+
+    StatusLine {
+        height: 1;
+        padding: 0 1;
+        background: $background;
+        color: auto;
+    }
+
+    PerformanceStatusLine {
+        height: 1;
+        padding: 0 1;
+        background: $background;
+        color: auto;
+    }
+
+    RefactoringStatusLine {
+        height: 1;
+        padding: 0 1;
+        background: $background;
+        color: auto;
+    }
+
+    #prompt-container {
+        height: auto;
+        layout: vertical;
+        padding: 0 1;
+        background: transparent;
+        border: none;
+    }
+
+    #prompt-label {
+        width: auto;
+        height: 1;
+        padding: 0;
+        background: $background;
+        color: auto;
+    }
+
+    Input {
+        width: 1fr;
+        height: 3;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
+    Input:focus {
+        border: round #3E4B59;
+    }
+
+    MultiLineInput {
+        width: 1fr;
+        height: auto;
+        min-height: 3;
+        max-height: 20;
+        margin: 0;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
+    MultiLineInput:focus {
+        border: round #6B9E78;
+    }
+
+    #command-suggestions {
+        width: 1fr;
+        height: auto;
+        max-height: 12;
+        margin: 0;
+        background: #151A21;
+        border: round #3E4B59;
+        padding: 0 1;
+        color: #B3B1AD;
+    }
+
+    .hidden {
+        display: none;
+    }
+    """
+
+    BINDINGS = [
+        ("ctrl+c", "quit_app", "Quit"),
+        ("ctrl+d", "quit_app", "Quit"),
+    ]
+
+    def __init__(self, session, config, ipc_server=None):
+        super().__init__()
+        self.session = session
+        self.config = config
+        self.ipc_server = ipc_server
+
+        # Load TUI configuration
+        if CUSTOM_WIDGETS_AVAILABLE:
+            self.tui_config = get_tui_config()
+        else:
+            self.tui_config = None
+
+        # Configure color mode BEFORE anything else
+        if self.tui_config and CUSTOM_WIDGETS_AVAILABLE:
+            try:
+                from .color_manager import configure_color_mode
+            except (ImportError, ValueError):
+                from color_manager import configure_color_mode
+            color_mode = configure_color_mode(self.tui_config.config)
+            print(f"🎨 Color mode: {color_mode.value}")
+
+        self.input_future = None
+        self.should_exit = False
+        self.message_handler = None  # Async callback for messages
+        self.initial_prompt = None
+        self._write_buffer = ""  # Buffer for streaming text
+
+        # Configure laser effect from config
+        if self.tui_config:
+            self._laser_mode = self.tui_config.laser_enabled
+            self._laser_colors = self.tui_config.laser_colors
+            self._laser_intensity = self.tui_config.laser_intensity
+        else:
+            self._laser_mode = True
+            # Use frontier colors if available, otherwise fallback
+            if FRONTIER_COLORS:
+                try:
+                    from .frontier_colors import FRONTIER_LASER_COLORS
+                    self._laser_colors = FRONTIER_LASER_COLORS
+                except (ImportError, ValueError):
+                    from frontier_colors import FRONTIER_LASER_COLORS
+                    self._laser_colors = FRONTIER_LASER_COLORS
+            else:
+                self._laser_colors = ["#3E4450", "#5C6773", "#7B91A3", "#89B8C2", "#B3B1AD"]
+            self._laser_intensity = 1.0
+
+        self._char_timestamps = []  # Track when each char was written
+        self._streaming_active = False  # Track if currently streaming
+
+        # Thread-safe queue for decoupling streaming writes from the UI thread
+        self._write_queue_threadsafe = Queue()
+        self._queue_thread = None
+        self._stop_queue_thread = threading.Event()
+        self._content_widget = None  # Output widget resolved on mount
+
+        # Prompt history for up/down arrow navigation
+        self._prompt_history = []
+        self._history_index = -1
+        self._load_prompt_history()
+
+        # Permission prompt state
+        self._permission_selected_option = 0
+
+        # Always disable dark mode for ANSI background mode
+        self.dark = False
+
+    def compose(self) -> ComposeResult:
+        """Create TUI layout"""
+        # Scrollable content area with streaming support
+        if CUSTOM_WIDGETS_AVAILABLE and StreamingDisplay:
+            # Use streaming display wrapped in scrollable container
+            with VerticalScroll(id="content"):
+                yield StreamingDisplay(id="stream-display")
+        elif CUSTOM_WIDGETS_AVAILABLE and self.tui_config and self.tui_config.get('text_selection.mode') == 'custom':
+            yield SelectableRichLog(
+                id="content",
+                highlight=True,
+                markup=True,
+                wrap=True,
+                auto_scroll=True,
+            )
+        else:
+            yield RichLog(
+                id="content",
+                highlight=True,
+                markup=True,
+                wrap=True,
+                auto_scroll=True,
+            )
+
+        # Fixed footer
+        with Container(id="footer"):
+            yield StatusLine(self.session, self.config)
+            with Container(id="prompt-container"):
+                # Multi-line input with integrated spinner
+                yield MultiLineInput(id="prompt-input", placeholder="Type your message...")
+                # Command suggestion buffer (initially hidden)
+                yield CommandSuggestionBuffer(id="command-suggestions", classes="hidden")
+            yield PerformanceStatusLine(self.session)
+            yield RefactoringStatusLine(self.session)
+
+    async def on_mount(self) -> None:
+        """Initialize - Pre-load command system BEFORE user can type"""
+        # Start background queue processor thread
+        self._start_queue_thread()
+
+        # ═══════════════════════════════════════════════════════════════
+        # PRE-INITIALIZE COMMAND ROUTER - FIX SDK REGISTRATION BLOCKING
+        # ═══════════════════════════════════════════════════════════════
+        # This prevents first command from blocking while SDK registers
+        # By initializing here (on_mount), registration completes BEFORE
+        # user can type any command
+        from modules.command_router import CommandRouter
+
+        if not hasattr(self.app, '_command_router'):
+            self.app._command_router = CommandRouter(self.app, self.session)
+
+            # Initialize registrations in BACKGROUND (non-blocking)
+            # This prevents deadlock: on_mount must complete for call_from_thread to work
+            async def init_registrations():
+                await self.app._command_router._initialize_registrations()
+                self.app._startup_buffer_shown = True
+
+            import asyncio
+            asyncio.create_task(init_registrations())
+
+        # Try to get StreamingDisplay widget
+        stream_display = None
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+        except:
+            # Might be old structure
+            try:
+                content = self.query_one("#content")
+                if StreamingDisplay is not None and isinstance(content, StreamingDisplay):
+                    stream_display = content
+            except:
+                pass
+
+        # Configure if it's StreamingDisplay
+        if stream_display is not None:
+            self._content_widget = stream_display
+            self.stream_display = stream_display  # For permission handler access
+            stream_display.set_laser_colors(self._laser_colors)
+            stream_display.set_laser_enabled(self._laser_mode)
+
+            # Show welcome
+            welcome = f""" ██████╗ ██████╗ ███████╗███╗   ██╗     ██████╗██╗     ██╗
+██╔═══██╗██╔══██╗██╔════╝████╗  ██║    ██╔════╝██║     ██║
+██║   ██║██████╔╝█████╗  ██╔██╗ ██║    ██║     ██║     ██║
+██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║    ██║     ██║     ██║
+╚██████╔╝██║     ███████╗██║ ╚████║    ╚██████╗███████╗██║
+ ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚═════╝╚══════╝╚═╝
+
+Session: {self.session.session_id[:8]} | Ready
+"""
+            stream_display.write_line(welcome)
+        else:
+            # RichLog fallback
+            content = self.query_one("#content")
+            self._content_widget = content
+            content.border_title = f"OpenCLI - {self.session.session_id[:8]}"
+            content.write(f"""[bold white] ██████╗ ██████╗ ███████╗███╗   ██╗     ██████╗██╗     ██╗[/bold white]
+[bold white]██╔═══██╗██╔══██╗██╔════╝████╗  ██║    ██╔════╝██║     ██║[/bold white]
+[bold white]██║   ██║██████╔╝█████╗  ██╔██╗ ██║    ██║     ██║     ██║[/bold white]
+[bold white]██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║    ██║     ██║     ██║[/bold white]
+[bold white]╚██████╔╝██║     ███████╗██║ ╚████║    ╚██████╗███████╗██║[/bold white]
+[bold white] ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚═════╝╚══════╝╚═╝[/bold white]
+
+[dim]Session: {self.session.session_id[:8]} | Ready[/dim]
+
+""")
+
+        # Focus input
+        self.query_one("#prompt-input", MultiLineInput).focus()
+
+        # Process initial prompt if provided
+        if self.initial_prompt and self.message_handler:
+            self.call_later(self._process_initial_prompt)
+
+    async def _process_initial_prompt(self):
+        """Process initial prompt after mount"""
+        if self.initial_prompt:
+            # Write user prompt using our write method
+            user_color = FRONTIER_COLORS.get('user_name', '#7B91A3') if FRONTIER_COLORS else 'green'
+            text_color = FRONTIER_COLORS.get('text_secondary', '#5C6773') if FRONTIER_COLORS else 'dim'
+            self.write(f"[{user_color}]You:[/{user_color}] [{text_color}]{self.initial_prompt}[/{text_color}]\n\n")
+
+            await self.message_handler(self.initial_prompt)
+            self.initial_prompt = None
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle user input from Input widget"""
+        await self._handle_user_message(event.value.strip(), event.input)
+
+    async def on_multi_line_input_submitted(self, event: MultiLineInput.Submitted) -> None:
+        """Handle user input from MultiLineInput widget"""
+        widget = self.query_one("#prompt-input", MultiLineInput)
+        await self._handle_user_message(event.value.strip(), widget)
+
+    def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
+        """Handle permission response from MultiLineInput"""
+
+        manager = get_permission_buffer_manager()
+        if manager.resolve(event.option):
+            return
+
+        # ========================================================================
+        # PRIORITY 1: UNIVERSAL SDK PERMISSION HANDLER
+        # ========================================================================
+        if hasattr(self.session, '_awaiting_permission') and self.session._awaiting_permission:
+            print(f"[SimpleTUI] UNIVERSAL permission response received: {event.option}")
+
+            # Get response from option
+            response = event.option.get('response')
+            print(f"[SimpleTUI] Response value: {response}")
+
+            # Set response on session - PermissionManager is waiting for this
+            self.session._permission_response = response
+            self.session._awaiting_permission = False
+
+            print(f"[SimpleTUI] Set session._permission_response = {response}")
+            print(f"[SimpleTUI] Set session._awaiting_permission = False")
+
+            # Clear permission buffer
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh(layout=True)
+                print(f"[SimpleTUI] Cleared permission buffer")
+            except Exception as e:
+                print(f"[SimpleTUI] Error clearing buffer: {e}")
+
+            return
+
+        # ========================================================================
+        # LEGACY HANDLERS (will be removed once all commands use SDK)
+        # ========================================================================
+
+        # Check if this is Docker action selection
+        if hasattr(self.session, '_awaiting_docker_action') and self.session._awaiting_docker_action:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_docker_action = False
+                self.write("\n[dim]Docker action cancelled[/dim]\n\n")
+                return
+
+            # Get action data
+            option_data = event.option.get('data', {})
+            action = option_data.get('action', '')
+
+            self.session._awaiting_docker_action = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Execute the action by simulating command
+            import asyncio
+            if action == 'status':
+                asyncio.create_task(self._handle_user_message('/docker status', self.query_one("#prompt-input")))
+            elif action == 'ps':
+                asyncio.create_task(self._handle_user_message('/docker ps', self.query_one("#prompt-input")))
+            elif action == 'stats':
+                asyncio.create_task(self._handle_user_message('/docker stats', self.query_one("#prompt-input")))
+            elif action == 'ollama_setup':
+                asyncio.create_task(self._handle_user_message('/docker ollama setup', self.query_one("#prompt-input")))
+            elif action == 'ollama_manage':
+                asyncio.create_task(self._handle_user_message('/docker ollama status', self.query_one("#prompt-input")))
+            elif action == 'browse_models':
+                # Show Ollama model browser
+                asyncio.create_task(self._show_ollama_model_browser())
+
+            return
+
+        # Check if this is workflow permission request
+        if hasattr(self.session, '_awaiting_workflow_permission') and self.session._awaiting_workflow_permission:
+            try:
+                from modules.permission_workflow import WorkflowManager
+            except ImportError:
+                try:
+                    import importlib
+                    workflow_mod = importlib.import_module('permission_workflow')
+                    WorkflowManager = workflow_mod.WorkflowManager
+                except:
+                    return
+
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL or event.option.get('response') == 'cancel':
+                # Cancel the workflow
+                if hasattr(self.session, '_workflow_manager') and hasattr(self.session, '_current_workflow_id'):
+                    workflow = self.session._workflow_manager.get_workflow(self.session._current_workflow_id)
+                    if workflow:
+                        workflow.cancel()
+
+                self.session._awaiting_workflow_permission = False
+                return
+
+            # User approved - clear waiting flag (workflow will continue)
+            self.session._awaiting_workflow_permission = False
+            return
+
+        # Check if this is Docker resource selection (NEW UNIFIED FLOW)
+        if hasattr(self.session, '_awaiting_docker_resource_selection') and self.session._awaiting_docker_resource_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_docker_resource_selection = False
+                self.session._docker_resource_choice = None
+                return
+
+            # Get resource choice from option data
+            self.session._docker_resource_choice = event.option.get('data', {})
+            self.session._awaiting_docker_resource_selection = False
+            return
+
+        # Check if this is Docker Ollama setup (old flow - resource selection)
+        if hasattr(self.session, '_awaiting_docker_ollama_setup') and self.session._awaiting_docker_ollama_setup:
+            try:
+                from modules.permission_prompt import PermissionResponse
+                from modules.docker_manager import DockerManager
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                    docker_mgr_mod = importlib.import_module('docker_manager')
+                    DockerManager = docker_mgr_mod.DockerManager
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_docker_ollama_setup = False
+                self.write("\n[dim]Docker setup cancelled[/dim]\n\n")
+
+                # Clear permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except:
+                    pass
+                return
+
+            # Get setup options
+            option_data = event.option.get('data', {})
+            cpu_limit = option_data.get('cpu_limit', '4')
+            memory_limit = option_data.get('memory_limit', '8g')
+            gpu_enabled = option_data.get('gpu', False)
+
+            self.session._awaiting_docker_ollama_setup = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Start unified command execution (permission-first flow)
+            import asyncio
+            from modules.docker_commands_unified import docker_ollama_setup_unified
+            asyncio.create_task(docker_ollama_setup_unified(self, self.session, cpu_limit, memory_limit, gpu_enabled))
+            return
+
+        # Check if this is model browser selection
+        if hasattr(self.session, '_awaiting_model_browser_selection') and self.session._awaiting_model_browser_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_model_browser_selection = False
+                self.write("\n[dim]Model browser cancelled[/dim]\n\n")
+                return
+
+            # Get model data
+            option_data = event.option.get('data', {})
+            model_name = option_data.get('model_name', '')
+            model_size = option_data.get('model_size', '')
+
+            self.session._awaiting_model_browser_selection = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Pull the model asynchronously
+            import asyncio
+            asyncio.create_task(self._pull_ollama_model_from_browser(model_name, model_size))
+            return
+
+        # Check if this is local check permission request
+        if hasattr(self.session, '_awaiting_local_check_permission') and self.session._awaiting_local_check_permission:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_local_check_permission = False
+                self.write("\n[dim]Local check cancelled[/dim]\n\n")
+                # Clear permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except:
+                    pass
+                return
+
+            # User approved - set flag and re-run command
+            self.session._awaiting_local_check_permission = False
+            self.session._local_check_approved = True
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Re-run the /local command
+            import asyncio
+            asyncio.create_task(self._handle_user_message('/local', self.query_one("#prompt-input")))
+            return
+
+        # Check if this is Ollama setup permission request
+        if hasattr(self.session, '_awaiting_ollama_setup_permission') and self.session._awaiting_ollama_setup_permission:
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_ollama_setup_permission = False
+                self.write("\n[dim]Ollama setup cancelled[/dim]\n\n")
+                # Clear permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except:
+                    pass
+                return
+
+            # User approved - set flag and re-run command
+            self.session._awaiting_ollama_setup_permission = False
+            self.session._ollama_setup_approved = True
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Re-run the /docker ollama setup command
+            import asyncio
+            asyncio.create_task(self._handle_user_message('/docker ollama setup', self.query_one("#prompt-input")))
+            return
+
+        # Check if this is providers permission request
+        if hasattr(self.session, '_awaiting_providers_permission') and self.session._awaiting_providers_permission:
+            self.write("[yellow]━━━ RESPONSE RECEIVED: /model providers permission ━━━[/yellow]\n")
+
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.write("[dim]User cancelled - clearing permission buffer[/dim]\n")
+                self.session._awaiting_providers_permission = False
+                self.write("\n[dim]Provider browsing cancelled[/dim]\n\n")
+                # Clear permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except:
+                    pass
+                return
+
+            # User approved - set flag and re-run command
+            self.write("[dim]User approved - clearing permission buffer and re-running command[/dim]\n")
+            self.session._awaiting_providers_permission = False
+            self.session._providers_approved = True
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Re-run the /model providers command
+            self.write("[dim]Re-running: /model providers[/dim]\n")
+            self.write("[yellow]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/yellow]\n\n")
+            import asyncio
+            asyncio.create_task(self._handle_user_message('/model providers', self.query_one("#prompt-input")))
+            return
+
+        # Check if this is provider selection for model browsing
+        if hasattr(self.session, '_awaiting_provider_selection') and self.session._awaiting_provider_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+                from modules.model_manager import ModelManager
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                    model_mgr_mod = importlib.import_module('model_manager')
+                    ModelManager = model_mgr_mod.ModelManager
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_provider_selection = False
+                self.write("\n[dim]Provider selection cancelled[/dim]\n\n")
+                return
+
+            # Get provider data
+            option_data = event.option.get('data', {})
+            provider_id = option_data.get('provider_id', '')
+            provider_name = option_data.get('provider_name', '')
+
+            self.session._awaiting_provider_selection = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Show models for this provider
+            self.write(f"\n[cyan]▸ Loading models for {provider_name}...[/cyan]\n\n")
+
+            model_mgr = ModelManager()
+            all_models = model_mgr.list_available_models()
+
+            # Filter models for this provider
+            models = [m for m in all_models if m.get('provider') == provider_id]
+
+            if not models:
+                self.write(f"[yellow]⚠ No models found for {provider_name}[/yellow]\n\n")
+                return
+
+            # Sort models by ranking or name
+            models_sorted = sorted(models, key=lambda m: (m.get('ranking', 9999), m.get('name', '')))
+
+            # Build model options (limit to top 20 for usability)
+            model_options = []
+            for model in models_sorted[:20]:
+                model_name = model['name']
+                model_id = model['id']
+                context = f"{model.get('context', 0)//1000}K" if model.get('context') else "?"
+
+                # Check if free
+                pricing = model.get("pricing", {})
+                is_free = ":free" in model_id or pricing.get("prompt") == "0"
+                free_badge = " [FREE]" if is_free else ""
+
+                model_options.append({
+                    'text': f"{model_name} (ctx: {context}){free_badge}",
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {'model_id': model_id, 'model_name': model_name}
+                })
+
+            if len(models_sorted) > 20:
+                model_options.append({
+                    'text': f"... and {len(models_sorted) - 20} more (use /model --provider {provider_id} to see all)",
+                    'response': PermissionResponse.CANCEL
+                })
+
+            model_options.append({
+                'text': 'Back to providers',
+                'response': PermissionResponse.CANCEL
+            })
+
+            prompt_data = {
+                'title': f'{provider_name} Models',
+                'message': f'Select a model to switch to:\n\nShowing top {min(20, len(models_sorted))} models sorted by ranking',
+                'options': model_options
+            }
+
+            # Show permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+
+                # Set flag to handle response
+                self.session._awaiting_provider_model_selection = True
+            except Exception as e:
+                self.write(f"[red]✗ Could not show model selection: {e}[/red]\n\n")
+
+            return
+
+        # Check if this is provider model selection
+        if hasattr(self.session, '_awaiting_provider_model_selection') and self.session._awaiting_provider_model_selection:
+            try:
+                from modules.permission_prompt import PermissionResponse
+                from modules.model_manager import ModelManager
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                    model_mgr_mod = importlib.import_module('model_manager')
+                    ModelManager = model_mgr_mod.ModelManager
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_provider_model_selection = False
+                self.write("\n[dim]Model selection cancelled[/dim]\n\n")
+                return
+
+            # Get model data
+            option_data = event.option.get('data', {})
+            model_id = option_data.get('model_id', '')
+            model_name = option_data.get('model_name', '')
+
+            self.session._awaiting_provider_model_selection = False
+
+            # Clear permission prompt
+            try:
+                prompt_input = self.query_one("#prompt-input")
+                prompt_input.permission_prompt_data = None
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+            except:
+                pass
+
+            # Switch to the selected model
+            model_mgr = ModelManager()
+            success = model_mgr.set_current_model(self.session, model_id)
+
+            if success:
+                model_mgr.record_model_use(model_id)
+                self.write(f"\n[green]✓ Switched to {model_name}[/green]\n")
+                self.write(f"[dim]Model ID: {model_id}[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Failed to switch to {model_name}[/red]\n\n")
+
+            return
+
+        # Check if this is a local model selection
+        if hasattr(self.session, '_awaiting_local_model_selection') and self.session._awaiting_local_model_selection:
+            # Import PermissionResponse
+            try:
+                from modules.permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            # Check if user cancelled
+            if event.option.get('response') == PermissionResponse.CANCEL:
+                self.session._awaiting_local_model_selection = False
+                if hasattr(self.session, '_local_context'):
+                    del self.session._local_context
+                if hasattr(self.session, '_local_step'):
+                    del self.session._local_step
+                if hasattr(self.session, '_local_selections'):
+                    del self.session._local_selections
+
+                # Clear the permission prompt
+                try:
+                    prompt_input = self.query_one("#prompt-input")
+                    prompt_input.permission_prompt_data = None
+                    prompt_input.permission_selected_option = 0
+                    prompt_input.refresh()
+                except Exception:
+                    pass
+
+                self.write("\n[dim]Model installation cancelled[/dim]\n\n")
+                return
+
+            # Get current step
+            current_step = getattr(self.session, '_local_step', 'setup_type')
+            option_data = event.option.get('data', {})
+
+            # Initialize selections if not exists
+            if not hasattr(self.session, '_local_selections'):
+                self.session._local_selections = {}
+
+            # Handle multi-step workflow
+            import asyncio
+            asyncio.create_task(self._handle_local_model_step(current_step, option_data))
+            return
+
+        # Get the async permission handler
+        try:
+            from async_permissions import get_global_handler
+        except ImportError:
+            try:
+                import importlib
+                async_perms = importlib.import_module('async_permissions')
+                get_global_handler = async_perms.get_global_handler
+            except:
+                return
+
+        handler = get_global_handler()
+        if handler:
+            # Build response dict
+            response_data = {
+                'response': event.option.get('response'),
+                'data': event.option.get('data', {})
+            }
+            handler.handle_response(response_data)
+            return
+
+        # No async handler – treat as generic prompt dismissal
+        response = event.option.get('response') if isinstance(event.option, dict) else None
+
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass
+
+        if response == 'exit':
+            self.action_quit_app()
+
+    def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
+        """Handle permission cancellation from MultiLineInput"""
+        manager = get_permission_buffer_manager()
+        if manager.clear():
+            return
+        # Get the async permission handler
+        try:
+            from async_permissions import get_global_handler
+        except ImportError:
+            try:
+                import importlib
+                async_perms = importlib.import_module('async_permissions')
+                get_global_handler = async_perms.get_global_handler
+            except:
+                return
+
+        handler = get_global_handler()
+        if handler:
+            # Import PermissionResponse enum
+            try:
+                from permission_prompt import PermissionResponse
+            except ImportError:
+                try:
+                    import importlib
+                    perm_prompt = importlib.import_module('permission_prompt')
+                    PermissionResponse = perm_prompt.PermissionResponse
+                except:
+                    return
+
+            response_data = {
+                'response': PermissionResponse.CANCEL,
+                'data': {}
+            }
+            handler.handle_response(response_data)
+
+    # ========================================================================
+    # COMMAND SUGGESTION HANDLERS
+    # ========================================================================
+
+    def on_multi_line_input_show_command_suggestions(self, event: MultiLineInput.ShowCommandSuggestions) -> None:
+        """Handle slash command typed - show/update command suggestions"""
+        # DEBUG LOGGING
+        import os
+        if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+            with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                f.write(f"[SimpleTUI] Received ShowCommandSuggestions('{event.query}')\n")
+
+        try:
+            # Get command suggestion buffer
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Found suggestions buffer\n")
+
+            # Get command registry - USE LEGACY PATH (SDK disabled)
+            query = event.query
+            sdk_registry = None
+
+            # Try to get ExecutionRegistry from SDK (ExecutionSystem)
+            if hasattr(self.app, '_command_router'):
+                executor = getattr(self._command_router, 'executor', None)
+                if executor and hasattr(executor, 'registry'):
+                    sdk_registry = executor.registry
+                    # DEBUG
+                    if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                        with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                            f.write(f"[SimpleTUI] Using SDK ExecutionRegistry\n")
+
+            # Use SDK if available, otherwise fallback
+            if sdk_registry:
+                # USE SDK EXECUTIONREGISTRY - THE SOURCE OF TRUTH
+                matches = sdk_registry.search_commands(query)
+
+                # DEBUG
+                if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                    with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                        f.write(f"[SimpleTUI] Found {len(matches)} matches from SDK\n")
+
+                # Convert ExecutionRegistration objects to CommandMatch with health check
+                command_matches = []
+                for m in matches:
+                    reg = m['registration']
+                    cmd_name = m['name']
+
+                    # Health check: is command properly integrated?
+                    is_healthy = (
+                        reg.handler is not None and      # Has valid handler
+                        reg.requires_approval and         # Permission-integrated
+                        reg.enabled                       # Is enabled
+                    )
+
+                    command_matches.append(
+                        CommandMatch(
+                            name=cmd_name,
+                            description=reg.description,
+                            category=reg.category.value if hasattr(reg.category, 'value') else str(reg.category),
+                            score=m['score'],
+                            usage_count=reg.usage_count,
+                            health_status=is_healthy
+                        )
+                    )
+            else:
+                # FALLBACK: Use old CommandRegistry (backwards compatibility)
+                if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                    with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                        f.write(f"[SimpleTUI] Falling back to old CommandRegistry\n")
+
+                executor = None
+                if hasattr(self.app, '_command_router') and hasattr(self._command_router, 'executor'):
+                    executor = self._command_router.executor
+
+                registry = CommandRegistry(executor=executor)
+
+                # Get feature flags for filtering
+                feature_flags = {
+                    'AGENT_SYSTEM': True,  # TODO: Get from config
+                    'UPGRADE_SYSTEM': True,
+                    'TOOL_PERMISSIONS': True
+                }
+
+                # Search commands
+                matches = registry.search_commands(query, feature_flags=feature_flags)
+
+                # DEBUG
+                if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                    with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                        f.write(f"[SimpleTUI] Found {len(matches)} matches from legacy registry\n")
+
+                # Convert to CommandMatch objects with health check
+                command_matches = [
+                    CommandMatch(
+                        name=m['name'],
+                        description=m['description'],
+                        category=m['category'],
+                        score=m['score'],
+                        usage_count=m['usage_count'],
+                        health_status=True  # Legacy commands assumed healthy
+                    )
+                    for m in matches
+                ]
+
+            # Update suggestion buffer
+            suggestions_buffer.update_suggestions(command_matches, query)
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Updated suggestions buffer\n")
+
+            # Show the buffer
+            suggestions_buffer.remove_class("hidden")
+
+            # DEBUG
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] Removed 'hidden' class from buffer\n")
+
+        except Exception as e:
+            # Log error in debug mode
+            if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
+                with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
+                    f.write(f"[SimpleTUI] ERROR: {e}\n")
+                    import traceback
+                    f.write(traceback.format_exc())
+            pass
+
+    def on_multi_line_input_hide_command_suggestions(self, event: MultiLineInput.HideCommandSuggestions) -> None:
+        """Handle hiding command suggestions"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+            suggestions_buffer.add_class("hidden")
+            suggestions_buffer.clear()
+        except Exception:
+            pass
+
+    def on_multi_line_input_command_suggestion_navigate(self, event: MultiLineInput.CommandSuggestionNavigate) -> None:
+        """Handle arrow key navigation in command suggestions"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+
+            if event.direction == "up":
+                suggestions_buffer.move_selection_up()
+            elif event.direction == "down":
+                suggestions_buffer.move_selection_down()
+
+        except Exception:
+            pass
+
+    async def on_multi_line_input_command_suggestion_select(self, event: MultiLineInput.CommandSuggestionSelect) -> None:
+        """Handle Enter key with command suggestions active"""
+        try:
+            suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
+            prompt_input = self.query_one("#prompt-input", MultiLineInput)
+
+            # Get selected command
+            selected = suggestions_buffer.get_selected_command()
+
+            if selected:
+                # Get command registry for usage tracking
+                executor = None
+                if hasattr(self.app, '_command_router') and hasattr(self.app._command_router, 'executor'):
+                    executor = self.app._command_router.executor
+
+                registry = CommandRegistry(executor=executor)
+
+                # Record usage
+                registry.record_usage(selected.name)
+
+                # Hide suggestions
+                suggestions_buffer.add_class("hidden")
+                suggestions_buffer.clear()
+                prompt_input.suggestions_active = False
+
+                # Execute the command
+                await self._handle_user_message(selected.name, prompt_input)
+
+        except Exception as e:
+            # Silent failure
+            pass
+
+    async def _handle_local_model_step(self, current_step: str, option_data: dict) -> None:
+        """Handle multi-step local model selection workflow"""
+        try:
+            from modules.permission_prompt import PermissionResponse
+        except ImportError:
+            try:
+                import importlib
+                perm_prompt = importlib.import_module('permission_prompt')
+                PermissionResponse = perm_prompt.PermissionResponse
+            except:
+                return
+
+        # Get context
+        if not hasattr(self.session, '_local_context'):
+            self.write("\n[red]✗ Context lost[/red]\n\n")
+            return
+
+        ctx = self.session._local_context
+        recs = ctx['recs']
+        is_installed = ctx['is_installed']
+
+        # Clear current prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass
+
+        # STEP 1: Setup type selected
+        if current_step == 'setup_type':
+            setup_type = option_data.get('setup_type')
+            self.session._local_selections['setup_type'] = setup_type
+
+            if setup_type == 'existing':
+                # User selected an existing installed model - use it directly
+                model_name = option_data.get('model', '')
+                self.session._awaiting_local_model_selection = False
+
+                self.write(f"\n[green]✓ Selected {model_name}[/green]\n\n")
+                self.write("[dim]Configure Ollama as a provider:[/dim]\n")
+                self.write(f"  1. Run [cyan]/providers add ollama[/cyan]\n")
+                self.write(f"  2. Use [cyan]/model[/cyan] to see your Ollama models\n")
+                self.write(f"  3. Select [cyan]{model_name}[/cyan] from the list\n\n")
+
+                # Clean up session state
+                if hasattr(self.session, '_local_context'):
+                    del self.session._local_context
+                if hasattr(self.session, '_local_step'):
+                    del self.session._local_step
+                if hasattr(self.session, '_local_selections'):
+                    del self.session._local_selections
+
+                return
+
+            elif setup_type == 'single':
+                # Show single model options
+                self.write("\n[cyan]▸ Single model setup selected[/cyan]\n\n")
+
+                # Build single model options
+                options = []
+                primary = recs['single_model']['primary']
+                primary_installed = is_installed(primary['name'])
+
+                options.append({
+                    'text': f"{primary['name']} - Recommended" + (" [green]✓ Installed[/green]" if primary_installed else ""),
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {
+                        'model': primary['name'],
+                        'pull_command': f"ollama pull {primary['name']}",
+                        'installed': primary_installed
+                    }
+                })
+
+                # Alternative if exists
+                if 'alternative' in recs['single_model']:
+                    alt = recs['single_model']['alternative']
+                    alt_installed = is_installed(alt['name'])
+                    options.append({
+                        'text': f"{alt['name']} - Alternative" + (" [green]✓ Installed[/green]" if alt_installed else ""),
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {
+                            'model': alt['name'],
+                            'pull_command': f"ollama pull {alt['name']}",
+                            'installed': alt_installed
+                        }
+                    })
+
+                options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+                prompt_data = {
+                    'title': 'Select Single Model',
+                    'message': 'Choose which model to install:',
+                    'details': {},
+                    'options': options
+                }
+
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+                self.session._local_step = 'single_model_select'
+
+            elif setup_type == 'dual':
+                # Show planner selection
+                self.write("\n[cyan]▸ Dual model setup selected[/cyan]\n\n")
+                self.write("[dim]Step 1/2: Select planner model[/dim]\n\n")
+
+                # Build planner options
+                options = []
+                if 'dual_model' in recs:
+                    planner = recs['dual_model']['planner']
+                    planner_installed = is_installed(planner['name'])
+
+                    options.append({
+                        'text': f"{planner['name']} - Recommended" + (" [green]✓ Installed[/green]" if planner_installed else ""),
+                        'response': PermissionResponse.ALLOW_ONCE,
+                        'data': {
+                            'model': planner['name'],
+                            'pull_command': f"ollama pull {planner['name']}",
+                            'installed': planner_installed
+                        }
+                    })
+
+                options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+                prompt_data = {
+                    'title': 'Select Planner Model',
+                    'message': 'Choose the planner model for task decomposition:',
+                    'details': {},
+                    'options': options
+                }
+
+                prompt_input.permission_prompt_data = prompt_data
+                prompt_input.permission_selected_option = 0
+                prompt_input.refresh()
+                self.session._local_step = 'planner_select'
+
+        # STEP 2a: Single model selected - execute
+        elif current_step == 'single_model_select':
+            model_name = option_data.get('model', '')
+            pull_command = option_data.get('pull_command', '')
+            installed = option_data.get('installed', False)
+
+            self.session._awaiting_local_model_selection = False
+
+            if installed:
+                self.write(f"\n[green]✓ {model_name} is already installed[/green]\n\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+            else:
+                self.write(f"\n[cyan]▸ Installing {model_name}...[/cyan]\n\n")
+                self.write(f"[dim]Running: {pull_command}[/dim]\n\n")
+                await self._run_ollama_pull(pull_command, model_name)
+
+        # STEP 2b: Planner selected for dual - show coder selection
+        elif current_step == 'planner_select':
+            planner_model = option_data.get('model', '')
+            planner_command = option_data.get('pull_command', '')
+            planner_installed = option_data.get('installed', False)
+
+            self.session._local_selections['planner'] = {
+                'model': planner_model,
+                'command': planner_command,
+                'installed': planner_installed
+            }
+
+            self.write("[dim]Step 2/2: Select coder model[/dim]\n\n")
+
+            # Build coder options
+            options = []
+            if 'dual_model' in recs:
+                coder = recs['dual_model']['coder']
+                coder_installed = is_installed(coder['name'])
+
+                options.append({
+                    'text': f"{coder['name']} - Recommended" + (" [green]✓ Installed[/green]" if coder_installed else ""),
+                    'response': PermissionResponse.ALLOW_ONCE,
+                    'data': {
+                        'model': coder['name'],
+                        'pull_command': f"ollama pull {coder['name']}",
+                        'installed': coder_installed
+                    }
+                })
+
+            options.append({'text': 'Back', 'response': PermissionResponse.CANCEL})
+
+            prompt_data = {
+                'title': 'Select Coder Model',
+                'message': 'Choose the coder model for precise edits:',
+                'details': {},
+                'options': options
+            }
+
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+            self.session._local_step = 'coder_select'
+
+        # STEP 3: Coder selected for dual - execute both
+        elif current_step == 'coder_select':
+            coder_model = option_data.get('model', '')
+            coder_command = option_data.get('pull_command', '')
+            coder_installed = option_data.get('installed', False)
+
+            self.session._awaiting_local_model_selection = False
+
+            # Get planner from selections
+            planner_data = self.session._local_selections.get('planner', {})
+
+            self.write("\n[cyan]▸ Installing dual model setup...[/cyan]\n\n")
+
+            # Install planner if needed
+            if not planner_data.get('installed', False):
+                self.write(f"[dim]1/2 Installing planner: {planner_data['model']}[/dim]\n\n")
+                await self._run_ollama_pull(planner_data['command'], planner_data['model'])
+            else:
+                self.write(f"[green]✓ Planner already installed: {planner_data['model']}[/green]\n\n")
+
+            # Install coder if needed
+            if not coder_installed:
+                self.write(f"[dim]2/2 Installing coder: {coder_model}[/dim]\n\n")
+                await self._run_ollama_pull(coder_command, coder_model)
+            else:
+                self.write(f"[green]✓ Coder already installed: {coder_model}[/green]\n\n")
+
+            self.write("\n[green]✓ Dual model setup complete![/green]\n\n")
+            self.write("[dim]Configure as provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+
+    async def _create_docker_ollama_container(self, cpu_limit: str, memory_limit: str, gpu_enabled: bool) -> None:
+        """Create Docker Ollama container with selected resources"""
+        try:
+            from modules.docker_manager import DockerManager
+        except ImportError:
+            import importlib
+            docker_mgr_mod = importlib.import_module('docker_manager')
+            DockerManager = docker_mgr_mod.DockerManager
+
+        docker_mgr = DockerManager()
+
+        self.write(f"\n[cyan]▸ Creating Ollama Docker container...[/cyan]\n\n")
+        self.write(f"[dim]Resource limits: {cpu_limit} CPUs, {memory_limit} RAM")
+        if gpu_enabled:
+            self.write(", GPU enabled")
+        self.write("[/dim]\n\n")
+
+        # Check for existing container (running or stopped)
+        container_id, container_status, container_name = docker_mgr.get_ollama_container_status()
+
+        if container_id:
+            if container_status == 'running':
+                self.write(f"[green]✓ Ollama container already running[/green]\n")
+                self.write(f"[dim]Container: {container_name}[/dim]\n\n")
+                return
+            else:
+                # Container exists but is not running
+                self.write(f"[yellow]⚠ Found existing OpenCLI Ollama container[/yellow]\n")
+                self.write(f"[dim]Container: {container_name}[/dim]\n")
+                self.write(f"[dim]Status: {container_status}[/dim]\n\n")
+                self.write("[cyan]Removing failed container before recreating...[/cyan]\n")
+
+                success, msg = await asyncio.to_thread(
+                    docker_mgr.remove_ollama_container,
+                    True
+                )
+
+                if success:
+                    self.write(f"[green]✓ {msg}[/green]\n\n")
+                else:
+                    self.write(f"[red]✗ {msg}[/red]\n\n")
+                    self.write(f"Run [cyan]docker rm -f {container_name}[/cyan] manually, then try again\n\n")
+                    return
+
+        # Pull image first if needed
+        self.write("[dim]Checking for Ollama Docker image...[/dim]\n")
+
+        # Check if image exists (simple check)
+        import subprocess
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["docker", "images", "-q", docker_mgr.OLLAMA_IMAGE],
+            capture_output=True,
+            text=True
+        )
+
+        if not result.stdout.strip():
+            self.write("[cyan]▸ Pulling Ollama image (this may take a few minutes)...[/cyan]\n\n")
+            success, msg = await asyncio.to_thread(
+                docker_mgr.pull_image,
+                docker_mgr.OLLAMA_IMAGE
+            )
+
+            if not success:
+                self.write(f"[red]✗ Failed to pull image: {msg}[/red]\n\n")
+                return
+
+            self.write(f"[green]✓ Image pulled successfully[/green]\n\n")
+
+        # Create container
+        self.write("[cyan]▸ Creating container...[/cyan]\n\n")
+        success, result_msg = await asyncio.to_thread(
+            docker_mgr.create_ollama_container,
+            gpu_enabled,
+            cpu_limit,
+            memory_limit
+        )
+
+        if success:
+            container_id = result_msg
+            self.write(f"[green]✓ Container created successfully![/green]\n")
+            self.write(f"[dim]Container ID: {container_id[:12]}[/dim]\n\n")
+            self.write(f"[bold]Ollama is now available at:[/bold] [cyan]http://localhost:{docker_mgr.OLLAMA_PORT}[/cyan]\n\n")
+
+            # Enable Docker stats in statusline
+            try:
+                status_line = self.query_one("StatusLine", StatusLine)
+                status_line.enable_docker_stats(docker_mgr.OLLAMA_CONTAINER_NAME)
+                self.write("[dim]✓ Docker stats monitoring enabled in statusline[/dim]\n\n")
+            except Exception:
+                pass
+
+            self.write("[dim]Next steps:[/dim]\n")
+            self.write("  1. [cyan]/providers add ollama[/cyan]  - Add as provider\n")
+            self.write("  2. [cyan]/model[/cyan]  - See and switch to Ollama models\n")
+            self.write("  3. [cyan]/docker ollama status[/cyan]  - Check container status\n\n")
+        else:
+            self.write(f"[red]✗ Failed to create container:[/red]\n")
+            self.write(f"[dim]{result_msg}[/dim]\n\n")
+
+    async def _run_ollama_pull(self, pull_command: str, model_name: str) -> None:
+        """Execute ollama pull command and stream output"""
+        import asyncio
+        import subprocess
+
+        try:
+            # Parse command (should be "ollama pull model:tag")
+            parts = pull_command.split()
+            if len(parts) < 3 or parts[0] != "ollama" or parts[1] != "pull":
+                self.write(f"[red]✗ Invalid command format: {pull_command}[/red]\n\n")
+                return
+
+            # Run ollama pull with streaming output
+            process = await asyncio.create_subprocess_exec(
+                *parts,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Stream output line by line
+            async def read_stream(stream, prefix=""):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8').rstrip()
+                    if text:
+                        self.write(f"{prefix}{text}\n")
+
+            # Read both stdout and stderr concurrently
+            await asyncio.gather(
+                read_stream(process.stdout, "[dim]  "),
+                read_stream(process.stderr, "[dim red]  ")
+            )
+
+            # Wait for process to complete
+            await process.wait()
+
+            if process.returncode == 0:
+                self.write(f"\n[green]✓ {model_name} installed successfully![/green]\n\n")
+                self.write("[dim]You can now use this model with Ollama[/dim]\n")
+                self.write("[dim]Configure it as a provider with [cyan]/model add[/cyan] → type 'ollama'[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Installation failed (exit code {process.returncode})[/red]\n\n")
+                self.write("[dim]Make sure Ollama is installed and running:[/dim]\n")
+                self.write("[dim]  Install: https://ollama.ai/[/dim]\n")
+                self.write("[dim]  Start: ollama serve[/dim]\n\n")
+
+        except FileNotFoundError:
+            self.write(f"\n[red]✗ Ollama command not found[/red]\n\n")
+            self.write("[dim]Install Ollama first:[/dim]\n")
+            self.write("[dim]  https://ollama.ai/[/dim]\n\n")
+        except Exception as e:
+            self.write(f"\n[red]✗ Error: {e}[/red]\n\n")
+
+    async def _show_ollama_model_browser(self) -> None:
+        """Show popular Ollama models in permission buffer for selection"""
+        self.write("\n[cyan]▸ Fetching popular Ollama models...[/cyan]\n\n")
+
+        # Popular Ollama models by category and popularity
+        # Source: ollama.ai/library (top models as of 2025)
+        popular_models = [
+            {'name': 'llama3.2:latest', 'size': '2B', 'desc': 'Fast, lightweight model for general use'},
+            {'name': 'llama3.2:3b', 'size': '3B', 'desc': 'Balanced performance and speed'},
+            {'name': 'qwen2.5-coder:latest', 'size': '7B', 'desc': 'Excellent coding assistant'},
+            {'name': 'llama3.1:8b', 'size': '8B', 'desc': 'Strong general purpose model'},
+            {'name': 'gemma2:9b', 'size': '9B', 'desc': 'Google\'s efficient model'},
+            {'name': 'mistral:latest', 'size': '7B', 'desc': 'High quality open model'},
+            {'name': 'deepseek-r1:7b', 'size': '7B', 'desc': 'Reasoning and math specialist'},
+            {'name': 'phi3:latest', 'size': '3.8B', 'desc': 'Microsoft\'s compact model'},
+            {'name': 'nomic-embed-text', 'size': '137M', 'desc': 'Text embeddings model'},
+            {'name': 'codellama:latest', 'size': '7B', 'desc': 'Code generation specialist'},
+        ]
+
+        # Check if Ollama is available (Docker or native)
+        try:
+            from modules.docker_manager import DockerManager
+        except ImportError:
+            import importlib
+            docker_mgr_mod = importlib.import_module('docker_manager')
+            DockerManager = docker_mgr_mod.DockerManager
+
+        docker_mgr = DockerManager()
+        is_ollama_running, container_id = docker_mgr.is_ollama_running()
+
+        # Build options for permission buffer
+        try:
+            from modules.permission_prompt import PermissionResponse
+        except ImportError:
+            import importlib
+            perm_prompt = importlib.import_module('permission_prompt')
+            PermissionResponse = perm_prompt.PermissionResponse
+
+        model_options = []
+
+        for model in popular_models:
+            model_options.append({
+                'text': f"{model['name']} ({model['size']}) - {model['desc']}",
+                'response': PermissionResponse.ALLOW_ONCE,
+                'data': {'model_name': model['name'], 'model_size': model['size']}
+            })
+
+        model_options.append({
+            'text': 'Cancel',
+            'response': PermissionResponse.CANCEL
+        })
+
+        prompt_data = {
+            'title': 'Ollama Model Browser',
+            'message': f'Select a model to pull and install:\n\nOllama Status: {"✓ Running in Docker" if is_ollama_running else "Not running"}\n\nModels sorted by popularity:',
+            'options': model_options
+        }
+
+        # Show permission prompt
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+
+            # Set flag to handle response
+            self.session._awaiting_model_browser_selection = True
+        except Exception as e:
+            self.write(f"[red]✗ Could not show model browser: {e}[/red]\n\n")
+
+    async def _pull_ollama_model_from_browser(self, model_name: str, model_size: str) -> None:
+        """Pull an Ollama model selected from the browser"""
+        self.write(f"\n[cyan]▸ Pulling {model_name} ({model_size})...[/cyan]\n\n")
+
+        # Check if Ollama is in Docker or native
+        try:
+            from modules.docker_manager import DockerManager
+        except ImportError:
+            import importlib
+            docker_mgr_mod = importlib.import_module('docker_manager')
+            DockerManager = docker_mgr_mod.DockerManager
+
+        docker_mgr = DockerManager()
+        is_docker_ollama, container_id = docker_mgr.is_ollama_running()
+
+        if is_docker_ollama:
+            # Pull in Docker container
+            self.write(f"[dim]Pulling model in Docker container...[/dim]\n\n")
+            pull_cmd = ['docker', 'exec', container_id, 'ollama', 'pull', model_name]
+
+            process = await asyncio.create_subprocess_exec(
+                *pull_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Stream output
+            async def read_stream(stream, prefix=""):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8').rstrip()
+                    if text:
+                        self.write(f"{prefix}{text}\n")
+
+            await asyncio.gather(
+                read_stream(process.stdout, "[dim]  "),
+                read_stream(process.stderr, "[dim red]  ")
+            )
+
+            await process.wait()
+
+            if process.returncode == 0:
+                self.write(f"\n[green]✓ {model_name} installed successfully in Docker![/green]\n\n")
+                self.write(f"[dim]Use [cyan]/providers add ollama[/cyan] to configure it as a provider[/dim]\n\n")
+            else:
+                self.write(f"\n[red]✗ Pull failed (exit code {process.returncode})[/red]\n\n")
+        else:
+            # Pull with native Ollama
+            await self._run_ollama_pull(f"ollama pull {model_name}", model_name)
+
+    async def _handle_user_message(self, user_input: str, widget) -> None:
+        """Common handler for user messages"""
+        if not user_input:
+            return
+
+        # Add to history
+        self._add_to_history(user_input)
+
+        # Clear input
+        if isinstance(widget, MultiLineInput):
+            widget.clear()
+        else:
+            widget.value = ""
+
+        # Start spinner in the input widget
+        try:
+            prompt = self.query_one("#prompt-input", MultiLineInput)
+            prompt.start_spinner()
+        except Exception:
+            pass
+
+        # Get GitHub username if authenticated
+        username = "You"
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["gh", "api", "user", "--jq", ".login"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                username = result.stdout.strip()
+        except:
+            pass  # Fall back to "You"
+
+        # Show user message with frontier colors
+        user_color = FRONTIER_COLORS.get('user_name', '#7B91A3') if FRONTIER_COLORS else 'green'
+        text_color = FRONTIER_COLORS.get('text_secondary', '#5C6773') if FRONTIER_COLORS else 'dim'
+        self.write(f"[{user_color}]{username}:[/{user_color}] [{text_color}]{user_input}[/{text_color}]\n\n")
+
+        # Call message handler if set
+        if self.message_handler:
+            await self.message_handler(user_input)
+        # Otherwise resolve future (for compatibility)
+        elif self.input_future and not self.input_future.done():
+            self.input_future.set_result(user_input)
+
+    def on_key(self, event) -> None:
+        """Handle key presses for history navigation and ESC interrupt"""
+        # Note: Permission prompts are handled by MultiLineInput itself
+        # When permission_prompt_data is set, MultiLineInput handles up/down/enter/esc
+
+        # PRIORITY 1: ESC - Cancel streaming API call
+        if event.key == "escape":
+            if hasattr(self, '_streaming_task') and self._streaming_task and not self._streaming_task.done():
+                self._streaming_task.cancel()
+                self.write("[yellow]⚠️  API call interrupted by user (ESC)[/yellow]\n")
+                event.prevent_default()
+                event.stop()
+                return
+
+        prompt = self.query_one("#prompt-input")
+
+        # Up arrow - previous in history
+        if event.key == "up":
+            if self._prompt_history:
+                if self._history_index == -1:
+                    self._history_index = len(self._prompt_history) - 1
+                elif self._history_index > 0:
+                    self._history_index -= 1
+
+                if isinstance(prompt, MultiLineInput):
+                    prompt.value = self._prompt_history[self._history_index]
+                    prompt.cursor_position = len(prompt.value)
+                else:
+                    prompt.value = self._prompt_history[self._history_index]
+                event.prevent_default()
+                event.stop()
+
+        # Down arrow - next in history
+        elif event.key == "down":
+            if self._prompt_history and self._history_index >= 0:
+                if self._history_index < len(self._prompt_history) - 1:
+                    self._history_index += 1
+                    if isinstance(prompt, MultiLineInput):
+                        prompt.value = self._prompt_history[self._history_index]
+                        prompt.cursor_position = len(prompt.value)
+                    else:
+                        prompt.value = self._prompt_history[self._history_index]
+                else:
+                    # At newest - clear input
+                    self._history_index = -1
+                    if isinstance(prompt, MultiLineInput):
+                        prompt.clear()
+                    else:
+                        prompt.value = ""
+                event.prevent_default()
+                event.stop()
+
+    def _handle_permission_key(self, event, line_index: int, prompt_data: dict) -> None:
+        """Handle keyboard input for permission prompts"""
+        try:
+            from modules.permission_prompt import PermissionResponse, PermissionPrompt
+        except ImportError:
+            from permission_prompt import PermissionResponse, PermissionPrompt
+
+        options = prompt_data.get('options', [])
+        if not options:
+            return
+
+        # Handle key events
+        if event.key == "up":
+            # Move selection up
+            if self._permission_selected_option > 0:
+                self._permission_selected_option -= 1
+                self._update_permission_prompt_display(line_index, prompt_data)
+            event.prevent_default()
+            event.stop()
+
+        elif event.key == "down":
+            # Move selection down
+            if self._permission_selected_option < len(options) - 1:
+                self._permission_selected_option += 1
+                self._update_permission_prompt_display(line_index, prompt_data)
+            event.prevent_default()
+            event.stop()
+
+        elif event.key == "enter":
+            # Confirm selection
+            selected = options[self._permission_selected_option]
+            response = {
+                'response': selected['response'],
+                'data': selected.get('data', {})
+            }
+            # Send response to permission handler
+            if self.permission_handler:
+                self.permission_handler.handle_response(response)
+            self._permission_selected_option = 0  # Reset for next prompt
+            event.prevent_default()
+            event.stop()
+
+        elif event.key == "escape":
+            # Cancel
+            response = {
+                'response': PermissionResponse.CANCEL,
+                'data': {}
+            }
+            if self.permission_handler:
+                self.permission_handler.handle_response(response)
+            self._permission_selected_option = 0  # Reset for next prompt
+            event.prevent_default()
+            event.stop()
+
+        # Number key shortcuts (1-9)
+        elif event.character and event.character.isdigit():
+            num = int(event.character)
+            if 1 <= num <= len(options):
+                selected = options[num - 1]
+                response = {
+                    'response': selected['response'],
+                    'data': selected.get('data', {})
+                }
+                if self.permission_handler:
+                    self.permission_handler.handle_response(response)
+                self._permission_selected_option = 0  # Reset for next prompt
+                event.prevent_default()
+                event.stop()
+
+    def _update_permission_prompt_display(self, line_index: int, prompt_data: dict) -> None:
+        """Update the permission prompt display with new selection"""
+        try:
+            from modules.permission_prompt import PermissionPrompt
+        except ImportError:
+            from permission_prompt import PermissionPrompt
+
+        # Create updated prompt with new selection
+        prompt = PermissionPrompt(
+            title=prompt_data.get('title', 'Permission'),
+            message=prompt_data.get('message', ''),
+            options=prompt_data.get('options', []),
+            details=prompt_data.get('details', {})
+        )
+        prompt.is_active = True
+        prompt.selected_option = self._permission_selected_option
+
+        # Render the updated prompt
+        prompt_text = prompt.render()
+
+        # Update the line in stream display
+        try:
+            stream_display = self.query_one("#stream-display")
+            if stream_display and hasattr(stream_display, '_lines'):
+                stream_display._lines[line_index] = ("__PERMISSION_PROMPT__", prompt_text, prompt_data)
+                stream_display._rebuild_display()
+        except Exception:
+            pass
+
+    def _show_permission_prompt(self, prompt_data: dict) -> None:
+        """Show permission prompt inside MultiLineInput"""
+        try:
+            # Get the MultiLineInput and set permission data on it
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = prompt_data
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass  # Silently fail if permission prompt can't be shown
+
+    def _hide_permission_prompt(self) -> None:
+        """Clear permission prompt from MultiLineInput"""
+        try:
+            # Clear permission data from MultiLineInput
+            prompt_input = self.query_one("#prompt-input")
+            prompt_input.permission_prompt_data = None
+            prompt_input.permission_selected_option = 0
+            prompt_input.refresh()
+        except Exception:
+            pass  # Silently fail if permission prompt can't be cleared
+
+    def action_quit_app(self) -> None:
+        """Quit and persist IPC server"""
+        self.should_exit = True
+
+        # Persist IPC server for 20 minutes
+        if self.ipc_server and self.ipc_server.running:
+            async def persist_ipc():
+                await self.ipc_server.stop(persist=True)
+
+            # Run persistence in event loop
+            try:
+                asyncio.create_task(persist_ipc())
+            except Exception:
+                pass  # Ignore if event loop is closing
+
+        # Stop background thread
+        self._stop_queue_thread.set()
+        if self._queue_thread and self._queue_thread.is_alive():
+            self._queue_thread.join(timeout=1.0)
+        if self.input_future and not self.input_future.done():
+            self.input_future.set_exception(KeyboardInterrupt())
+        self.exit()
+
+    # Mouse selection - forward events to StreamingDisplay with coordinate conversion
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Forward mouse down to StreamingDisplay for text selection"""
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                # Convert screen-absolute coords to widget-relative coords
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+
+                # Call handler and capture mouse to receive move events during drag
+                stream_display._handle_mouse_down(widget_x, widget_y)
+                self.capture_mouse(stream_display)
+        except Exception as e:
+            try:
+                with open('/tmp/opencli_app_mouse_debug.txt', 'w') as f:
+                    f.write(f"ERROR forwarding mouse down: {e}\n")
+            except:
+                pass
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        """Forward ALL mouse move to StreamingDisplay - needed for smooth drag selection"""
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+                stream_display._handle_mouse_move(widget_x, widget_y)
+
+                # DEBUG
+                try:
+                    with open('/tmp/opencli_app_mouse_debug.txt', 'a') as f:
+                        f.write(f"APP MOVE: screen ({event.x},{event.y}) → widget ({widget_x},{widget_y})\n")
+                except:
+                    pass
+        except:
+            pass
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Forward mouse up to StreamingDisplay for text selection"""
+        try:
+            stream_display = self.query_one("#stream-display", StreamingDisplay)
+            if stream_display:
+                widget_region = stream_display.region
+                widget_x = event.x - widget_region.x
+                widget_y = event.y - widget_region.y
+                stream_display._handle_mouse_up(widget_x, widget_y)
+
+                # Release mouse capture
+                self.release_mouse()
+        except:
+            pass
+
+    def _start_queue_thread(self):
+        """Start background thread to process write queue independently"""
+        def queue_processor():
+            """Background thread worker - batches writes to reduce UI blocking"""
+            batch = []
+            last_flush = time.time()
+
+            while not self._stop_queue_thread.is_set():
+                try:
+                    # Blocking get with longer timeout to reduce idle CPU usage
+                    # Returns immediately when data arrives, sleeps when queue empty
+                    text, end = self._write_queue_threadsafe.get(timeout=0.5)
+                    batch.append((text, end))
+
+                    # Flush batch if:
+                    # 1. We have 50+ items OR
+                    # 2. It's been 100ms since last flush OR
+                    # 3. This is an end-of-stream marker
+                    now = time.time()
+                    should_flush = (
+                        len(batch) >= 50 or
+                        (now - last_flush) >= 0.1 or
+                        end != ""
+                    )
+
+                    if should_flush and batch:
+                        # Send batch to UI thread directly
+                        self.call_from_thread(self._write_batch_to_richlog, list(batch))
+                        batch.clear()
+                        last_flush = now
+
+                except:
+                    # Timeout - flush any pending batch
+                    if batch:
+                        self.call_from_thread(self._write_batch_to_richlog, list(batch))
+                        batch.clear()
+                        last_flush = time.time()
+
+        self._queue_thread = threading.Thread(target=queue_processor, daemon=True)
+        self._queue_thread.start()
+
+    def _load_prompt_history(self):
+        """Load prompt history from file"""
+        history_file = Path.home() / ".opencli" / "prompt_history.txt"
+        if history_file.exists():
+            try:
+                with open(history_file) as f:
+                    self._prompt_history = [line.strip() for line in f if line.strip()]
+            except Exception:
+                self._prompt_history = []
+
+    def _save_prompt_history(self):
+        """Save prompt history to file"""
+        history_file = Path.home() / ".opencli" / "prompt_history.txt"
+        try:
+            with open(history_file, 'w') as f:
+                # Save last 100 prompts
+                for prompt in self._prompt_history[-100:]:
+                    f.write(f"{prompt}\n")
+        except Exception:
+            pass
+
+    def _add_to_history(self, prompt: str):
+        """Add prompt to history"""
+        if prompt and prompt.strip():
+            # Avoid consecutive duplicates
+            if not self._prompt_history or self._prompt_history[-1] != prompt:
+                self._prompt_history.append(prompt)
+                self._save_prompt_history()
+        self._history_index = -1
+
+    def stop_spinner(self):
+        """Stop the activity spinner in input widget"""
+        try:
+            prompt = self.query_one("#prompt-input", MultiLineInput)
+            prompt.stop_spinner()
+        except Exception:
+            pass
+
+    def start_ipc_spinner(self, mode: str = "read"):
+        """Start the IPC activity spinner in status line
+
+        Args:
+            mode: "read" (green/blue) or "write" (purple)
+        """
+        try:
+            from textual.widgets import Static
+            status = self.query_one(StatusLine)
+            status.start_spinner(mode)
+        except Exception:
+            pass
+
+    def stop_ipc_spinner(self):
+        """Stop the IPC activity spinner in status line"""
+        try:
+            status = self.query_one(StatusLine)
+            status.stop_spinner()
+        except Exception:
+            pass
+
+    def _resolve_content_widget(self):
+        """Find the active output widget (StreamingDisplay or RichLog)."""
+        if self._content_widget and not getattr(self._content_widget, "is_destroyed", False):
+            return self._content_widget
+
+        # Prefer StreamingDisplay when custom widgets are available
+        if CUSTOM_WIDGETS_AVAILABLE and StreamingDisplay is not None:
+            try:
+                self._content_widget = self.query_one("#stream-display", StreamingDisplay)
+                return self._content_widget
+            except Exception:
+                pass
+
+        # Fall back to whatever is mounted at #content (RichLog or similar)
+        try:
+            self._content_widget = self.query_one("#content")
+        except Exception:
+            self._content_widget = None
+
+        return self._content_widget
+
+    def _write_batch_to_richlog(self, batch: list):
+        """Write a batch of text items to RichLog - called from background thread via call_from_thread"""
+        try:
+            content_widget = self._resolve_content_widget()
+            if content_widget is None:
+                return
+
+            # Combine batch into single write to minimize UI blocking
+            if StreamingDisplay is not None and isinstance(content_widget, StreamingDisplay):
+                for text, end in batch:
+                    if text:
+                        # Use write_stream() ONLY if currently streaming (end is empty)
+                        # Otherwise use write() to preserve Rich markup
+                        if end == "":
+                            content_widget.write_stream(text)
+                        else:
+                            # Not streaming - write with markup support
+                            content_widget.write(text)
+
+                    if end != "":
+                        # Finish stream if we were streaming
+                        if self._streaming_active:
+                            content_widget.finish_stream()
+
+                        # Write the end marker (newlines, etc)
+                        if end.strip("\n"):
+                            content_widget.write(end)
+                        elif end:
+                            # Just newlines - add them
+                            content_widget.write(end)
+
+                # Streaming is active only if the last batch item keeps the stream open
+                self._streaming_active = not (batch and batch[-1][1] != "")
+            else:
+                combined_text = ""
+                for text, end in batch:
+                    combined_text += text
+                    if end != "":
+                        combined_text += end
+
+                # Single write for entire batch
+                if combined_text and hasattr(content_widget, "write"):
+                    try:
+                        renderable = Text.from_markup(combined_text)
+                    except Exception:
+                        renderable = combined_text
+
+                    content_widget.write(renderable)
+
+                    # Ensure the widget repaints after incremental updates
+                    content_widget.refresh(layout=True)
+
+                # Check if streaming ended (last item has non-empty end)
+                if batch and batch[-1][1] != "":
+                    self._streaming_active = False
+                else:
+                    self._streaming_active = True
+
+            # Update streaming status
+            self.update_status()
+        except Exception:
+            # Swallow rendering errors to avoid crashing the UI loop
+            pass
+
+    def write(self, text: str, end: str = "\n", style: str = None) -> None:
+        """Queue write - returns instantly without blocking"""
+        # Just queue it - background thread will process
+        self._write_queue_threadsafe.put((text, end))
+        # Returns immediately!
+
+    def finish_stream(self) -> None:
+        """Finish streaming and render markdown"""
+        try:
+            content = self._resolve_content_widget()
+            if content and hasattr(content, 'finish_stream'):
+                content.finish_stream()
+        except Exception as e:
+            pass  # Silently handle errors
+
+    def update_status(self) -> None:
+        """Refresh status"""
+        try:
+            status = self.query_one(StatusLine)
+            status.refresh()
+        except:
+            pass  # Status bar might not be mounted yet
+
+    async def get_input(self) -> str:
+        """Get user input (async)"""
+        self.input_future = asyncio.Future()
+        return await self.input_future
+
+
+# Apply ANSI background support if available
+if CUSTOM_WIDGETS_AVAILABLE and create_ansi_background_app:
+    OpenCLITUI = create_ansi_background_app(OpenCLITUI)
