@@ -75,35 +75,56 @@ class UnifiedPermissionManager:
     def handle_permission_response(self, response: PermissionResponse, data: Dict[str, Any] = None) -> bool:
         """Handle permission response from UI or other sources"""
         try:
+            import sys
+            sys.stderr.write(f"\n[UnifiedPermissionManager.handle_permission_response] ENTERED\n")
+            sys.stderr.write(f"[UnifiedPermissionManager] Response: {response}\n")
+            sys.stderr.write(f"[UnifiedPermissionManager] Data: {data}\n")
+            sys.stderr.flush()
+
             response_data = {
                 'response': response,
                 'data': data or {}
             }
-            
+
             # Validate response
             is_valid, error = self._buffer_manager.validate_prompt_response(response_data)
             if not is_valid:
-                import sys
                 sys.stderr.write(f"[UnifiedPermissionManager] Invalid response: {error}\n")
                 sys.stderr.flush()
                 return False
-            
+
+            sys.stderr.write(f"[UnifiedPermissionManager] Response validated successfully\n")
+            sys.stderr.flush()
+
             # Route to specific handler if available
             handler_name = getattr(self._current_widget, 'handler_name', None)
             if handler_name and handler_name in self._response_handlers:
+                sys.stderr.write(f"[UnifiedPermissionManager] Routing to specific handler: {handler_name}\n")
+                sys.stderr.flush()
                 handler = self._response_handlers[handler_name]
                 result = handler(response, data)
                 self._clear_current_prompt()
+                sys.stderr.write(f"[UnifiedPermissionManager] Handler completed, prompt cleared\n")
+                sys.stderr.flush()
                 return result
-            
-            # Default handling
+
+            # Default handling - resolve through buffer manager
+            sys.stderr.write(f"[UnifiedPermissionManager] Using default handling - resolving buffer manager\n")
+            sys.stderr.flush()
             self._buffer_manager.resolve(response_data)
+            sys.stderr.write(f"[UnifiedPermissionManager] Buffer manager resolved\n")
+            sys.stderr.flush()
+
             self._clear_current_prompt()
+            sys.stderr.write(f"[UnifiedPermissionManager] Prompt cleared, returning True\n")
+            sys.stderr.flush()
             return True
-            
+
         except Exception as e:
             import sys
+            import traceback
             sys.stderr.write(f"[UnifiedPermissionManager] Error handling response: {e}\n")
+            traceback.print_exc(file=sys.stderr)
             sys.stderr.flush()
             return False
     

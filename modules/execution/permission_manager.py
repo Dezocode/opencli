@@ -319,11 +319,29 @@ class PermissionManager:
 
         # Show in permission buffer - ROBUST ERROR HANDLING
         try:
+            import sys
+            sys.stderr.write(f"\n[PermissionManager._show_permission_prompt] Starting for {registration.name}\n")
+            sys.stderr.flush()
+
             print(f"[PermissionManager] Showing permission prompt for {registration.name}")
             from ..permission_buffer_manager import get_permission_buffer_manager
 
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Getting buffer manager\n")
+            sys.stderr.flush()
+
             buffer_manager = get_permission_buffer_manager()
+
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Got buffer_manager: {type(buffer_manager)}\n")
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Has request_permission: {hasattr(buffer_manager, 'request_permission')}\n")
+            sys.stderr.flush()
+
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Calling buffer_manager.request_permission()\n")
+            sys.stderr.flush()
+
             option = await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] request_permission() returned: {option}\n")
+            sys.stderr.flush()
 
             if not option:
                 return False

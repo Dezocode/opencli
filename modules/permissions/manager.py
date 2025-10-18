@@ -207,7 +207,10 @@ class PermissionBufferManager:
             
             # Complete the task
             try:
-                if hasattr(task, 'completion_future') and task.completion_future:
+                # Check for both 'future' and 'completion_future' attribute names
+                if hasattr(task, 'future') and task.future:
+                    task.future.set_result(option)
+                elif hasattr(task, 'completion_future') and task.completion_future:
                     task.completion_future.set_result(option)
             except Exception as e:
                 import sys
@@ -417,8 +420,15 @@ class PermissionBufferManager:
         Returns:
             Dict with user's response and any selected data
         """
+        import sys
+        sys.stderr.write(f"\n[PermissionBufferManager.request_permission] ENTERED - title={prompt_data.get('title')}\n")
+        sys.stderr.flush()
+
         import asyncio
         from .task import _PromptTask
+
+        sys.stderr.write(f"[PermissionBufferManager.request_permission] Imports done\n")
+        sys.stderr.flush()
 
         # Create task for this permission request
         task = _PromptTask(
@@ -441,27 +451,56 @@ class PermissionBufferManager:
         # Show in TUI if available
         if app and hasattr(app, 'query_one'):
             try:
+                import sys
+                sys.stderr.write(f"[PermissionBufferManager] Attempting to show prompt in TUI\n")
+                sys.stderr.flush()
+
                 # Get prompt input widget
                 from ..multiline_input import MultiLineInput
                 prompt_input = app.query_one("#prompt-input", MultiLineInput)
+                sys.stderr.write(f"[PermissionBufferManager] Got prompt_input widget: {prompt_input}\n")
+                sys.stderr.flush()
 
                 # Set permission prompt data on widget
+                sys.stderr.write(f"[PermissionBufferManager] Setting permission_prompt_data with title: {prompt_data.get('title')}\n")
+                sys.stderr.flush()
                 prompt_input.permission_prompt_data = prompt_data
+                sys.stderr.write(f"[PermissionBufferManager] permission_prompt_data set successfully\n")
+                sys.stderr.flush()
+
                 prompt_input.refresh()
+                sys.stderr.write(f"[PermissionBufferManager] Widget refreshed\n")
+                sys.stderr.flush()
 
                 # Focus the input so keys work
                 try:
                     app.set_focus(prompt_input)
-                except:
+                    sys.stderr.write(f"[PermissionBufferManager] Focus set via app.set_focus()\n")
+                    sys.stderr.flush()
+                except Exception as focus_err:
+                    sys.stderr.write(f"[PermissionBufferManager] app.set_focus() failed: {focus_err}, trying fallback\n")
+                    sys.stderr.flush()
                     prompt_input.focus()
+                    sys.stderr.write(f"[PermissionBufferManager] Focus set via widget.focus()\n")
+                    sys.stderr.flush()
 
             except Exception as e:
                 import sys
+                import traceback
                 sys.stderr.write(f"[PermissionBufferManager] Error showing prompt in TUI: {e}\n")
+                traceback.print_exc(file=sys.stderr)
                 sys.stderr.flush()
+
+        # CRITICAL: Yield control to event loop so TUI can render the prompt
+        # Without this, we block the event loop before the widget can display
+        await asyncio.sleep(0)
+        sys.stderr.write(f"[PermissionBufferManager] Yielded to event loop for UI render\n")
+        sys.stderr.flush()
 
         # Wait for resolution with timeout
         try:
+            sys.stderr.write(f"[PermissionBufferManager] Now waiting for user response (timeout={timeout}s)\n")
+            sys.stderr.flush()
             result = await asyncio.wait_for(task.future, timeout=timeout)
             self._analytics.update_analytics('prompt_resolved', task, {'result': result})
             self._audit.log_event('RESOLVED', task.task_id, {'result': result})

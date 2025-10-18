@@ -27,36 +27,79 @@ class PermissionHandlers:
     
     def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
+        import sys
+        sys.stderr.write(f"\n[PermissionHandlers.on_multi_line_input_permission_response] ENTERED\n")
+        sys.stderr.write(f"[PermissionHandlers] Response: {event.option.get('response')}\n")
+        sys.stderr.flush()
+
         # Check if this is provider model selection
         if hasattr(self.session, '_awaiting_provider_model_selection') and self.session._awaiting_provider_model_selection:
+            sys.stderr.write(f"[PermissionHandlers] Routing to provider model selection handler\n")
+            sys.stderr.flush()
             self._handle_provider_model_selection(event)
             return
 
         # Check if this is local model selection
         if hasattr(self.session, '_awaiting_local_model_selection') and self.session._awaiting_local_model_selection:
+            sys.stderr.write(f"[PermissionHandlers] Routing to local model selection handler\n")
+            sys.stderr.flush()
             self._handle_local_model_selection(event)
             return
 
         # Check if this is model browser selection
         if hasattr(self.session, '_awaiting_model_browser_selection') and self.session._awaiting_model_browser_selection:
+            sys.stderr.write(f"[PermissionHandlers] Routing to model browser selection handler\n")
+            sys.stderr.flush()
             self._handle_model_browser_selection(event)
             return
 
         # Check unified permission manager first
         manager = get_unified_permission_manager()
-        if manager and manager.clear_permission_prompt():
-            return
+        if manager:
+            # Extract response from event and forward to manager
+            response = event.option.get('response')
+            data = event.option.get('data', {})
+
+            sys.stderr.write(f"[PermissionHandlers] Forwarding to unified permission manager\n")
+            sys.stderr.write(f"[PermissionHandlers] Response={response}, Data={data}\n")
+            sys.stderr.flush()
+
+            # Forward response to manager to resolve the waiting future
+            if manager.handle_permission_response(response, data):
+                sys.stderr.write(f"[PermissionHandlers] Unified manager handled response successfully\n")
+                sys.stderr.flush()
+                return
+            else:
+                sys.stderr.write(f"[PermissionHandlers] Unified manager returned False, falling through\n")
+                sys.stderr.flush()
 
         # Get async permission handler
+        sys.stderr.write(f"[PermissionHandlers] Falling back to async permission handler\n")
+        sys.stderr.flush()
         self._handle_async_permission_response(event)
 
     def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
+        import sys
+        sys.stderr.write(f"\n[PermissionHandlers.on_multi_line_input_permission_cancelled] ENTERED\n")
+        sys.stderr.flush()
+
         manager = get_unified_permission_manager()
-        if manager and manager.clear_permission_prompt():
-            return
+        if manager:
+            sys.stderr.write(f"[PermissionHandlers] Forwarding CANCEL to unified permission manager\n")
+            sys.stderr.flush()
+            # Handle cancellation as a CANCEL response
+            if manager.handle_permission_response(PermissionResponse.CANCEL, {}):
+                sys.stderr.write(f"[PermissionHandlers] Unified manager handled cancellation successfully\n")
+                sys.stderr.flush()
+                return
+            else:
+                sys.stderr.write(f"[PermissionHandlers] Unified manager returned False for cancellation\n")
+                sys.stderr.flush()
 
         # Get async permission handler
+        sys.stderr.write(f"[PermissionHandlers] Falling back to async cancellation handler\n")
+        sys.stderr.flush()
         self._handle_async_permission_cancellation(event)
 
     def on_multi_line_input_navigation_event(self, event: MultiLineInput.NavigationEvent) -> None:
@@ -253,35 +296,59 @@ class PermissionHandlers:
 
     def _handle_generic_permission_response(self, event) -> None:
         """Handle generic permission response (SDK loading buffer, etc.)"""
-        print(f"[SimpleTUI] FALLBACK: Generic permission response")
-        print(f"[SimpleTUI] Response: {event.option.get('response')}")
+        import sys
+        sys.stderr.write(f"\n[SimpleTUI] FALLBACK: Generic permission response\n")
+        sys.stderr.write(f"[SimpleTUI] Response: {event.option.get('response')}\n")
+        sys.stderr.flush()
 
         response = event.option.get('response') if isinstance(event.option, dict) else None
+        data = event.option.get('data', {}) if isinstance(event.option, dict) else {}
 
-        # Clear the buffer
+        # First, try to notify unified permission manager (in case we missed it earlier)
+        manager = get_unified_permission_manager()
+        if manager:
+            sys.stderr.write(f"[SimpleTUI] Notifying unified manager from generic fallback\n")
+            sys.stderr.flush()
+            manager.handle_permission_response(response, data)
+
+        # Only clear UI after manager has been notified
         try:
             prompt_input = self.query_one("#prompt-input")
             self._clear_permission_prompt()
             prompt_input.refresh()
-            print(f"[SimpleTUI] Cleared generic permission buffer")
+            sys.stderr.write(f"[SimpleTUI] Cleared generic permission buffer (after manager notification)\n")
+            sys.stderr.flush()
         except Exception as e:
-            print(f"[SimpleTUI] Error clearing buffer: {e}")
+            sys.stderr.write(f"[SimpleTUI] Error clearing buffer: {e}\n")
+            sys.stderr.flush()
 
         if response == 'exit':
-            print("[SimpleTUI] Generic prompt requested exit")
+            sys.stderr.write(f"[SimpleTUI] Generic prompt requested exit\n")
+            sys.stderr.flush()
             self.action_quit_app()
 
     def _handle_generic_permission_cancellation(self) -> None:
         """Handle generic permission cancellation"""
-        print(f"[SimpleTUI] FALLBACK: Generic permission cancelled")
+        import sys
+        sys.stderr.write(f"\n[SimpleTUI] FALLBACK: Generic permission cancelled\n")
+        sys.stderr.flush()
 
-        # Clear the buffer
+        # First, try to notify unified permission manager (in case we missed it earlier)
+        manager = get_unified_permission_manager()
+        if manager:
+            sys.stderr.write(f"[SimpleTUI] Notifying unified manager of cancellation from generic fallback\n")
+            sys.stderr.flush()
+            manager.handle_permission_response(PermissionResponse.CANCEL, {})
+
+        # Only clear UI after manager has been notified
         try:
             prompt_input = self.query_one("#prompt-input")
             self._clear_permission_prompt()
-            print(f"[SimpleTUI] Cleared generic permission buffer (cancelled)")
+            sys.stderr.write(f"[SimpleTUI] Cleared generic permission buffer (cancelled, after manager notification)\n")
+            sys.stderr.flush()
         except Exception as e:
-            print(f"[SimpleTUI] Error clearing buffer: {e}")
+            sys.stderr.write(f"[SimpleTUI] Error clearing buffer: {e}\n")
+            sys.stderr.flush()
 
     def _cleanup_local_model_state(self) -> None:
         """Clean up local model selection state"""
