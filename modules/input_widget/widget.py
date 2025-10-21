@@ -57,26 +57,27 @@ class MultiLineInput(Widget):
         self.refresh()
 
     def on_blur(self) -> None:
-        """Track when widget loses focus - trigger navigation event for permission auto-dismiss"""
+        """Track when widget loses focus"""
         import sys
         sys.stderr.write(f"\n[MultiLineInput.on_blur] LOST FOCUS - prompt={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
 
-        # Constitution Principle V: Auto-dismiss permission prompts on navigation
-        if self.permission_prompt_data:
-            sys.stderr.write(f"[MultiLineInput.on_blur] NAVIGATION EVENT - auto-dismissing permission prompt\n")
-            sys.stderr.flush()
-
-            # Post navigation event first (for any listeners)
-            from .messages import NavigationEvent, PermissionCancelled
-            self.post_message(NavigationEvent("focus_lost"))
-
-            # Then post cancellation event to handle current prompt
-            self.post_message(PermissionCancelled())
-
-            # Clear prompt data immediately (responsive UI)
-            self.permission_prompt_data = None
-            self.permission_selected_option = 0
+        # NOTE: Do NOT auto-clear permission_prompt_data on focus loss
+        # Focus loss is a technical event, not user intent to dismiss prompt
+        # User must explicitly dismiss with ESC or make selection with ENTER
+        # Root cause: on_blur() was creating "zombie buffers" - visible but non-functional
+        # See: SEMANTIC_ROOT_CAUSE_FOUND.md for complete analysis
+        #
+        # Constitution Principle V was here - removed to fix zombie buffer issue
+        # Don't post auto-cancel messages on focus loss
+        # if self.permission_prompt_data:
+        #     sys.stderr.write(f"[MultiLineInput.on_blur] NAVIGATION EVENT - auto-dismissing permission prompt\n")
+        #     sys.stderr.flush()
+        #     from .messages import NavigationEvent, PermissionCancelled
+        #     self.post_message(NavigationEvent("focus_lost"))
+        #     self.post_message(PermissionCancelled())
+        #     self.permission_prompt_data = None
+        #     self.permission_selected_option = 0
 
         self.refresh()
 
