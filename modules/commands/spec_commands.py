@@ -33,7 +33,7 @@ def _render_result(app, result, heading: str):
 # /specify - Define project specification
 # ============================================================================
 
-async def run_specify_prompt(app, session, registration, context):
+def run_specify_prompt(app, session, registration, context):
     """Interactive prompt for /specify command"""
 
     content = (context.get("args") or "").strip()
@@ -65,9 +65,7 @@ async def run_specify_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_specify(app, session, **context):
@@ -97,7 +95,7 @@ async def run_specify(app, session, **context):
 # /constitution - Define project principles
 # ============================================================================
 
-async def run_constitution_prompt(app, session, registration, context):
+def run_constitution_prompt(app, session, registration, context):
     """Interactive prompt for /constitution command"""
 
     content = (context.get("args") or "").strip()
@@ -128,9 +126,7 @@ async def run_constitution_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_constitution(app, session, **context):
@@ -160,7 +156,7 @@ async def run_constitution(app, session, **context):
 # /plan - Create implementation plan
 # ============================================================================
 
-async def run_plan_prompt(app, session, registration, context):
+def run_plan_prompt(app, session, registration, context):
     """Interactive prompt for /plan command"""
 
     content = (context.get("args") or "").strip()
@@ -191,9 +187,7 @@ async def run_plan_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_plan(app, session, **context):
@@ -223,7 +217,7 @@ async def run_plan(app, session, **context):
 # /tasks - Break plan into tasks
 # ============================================================================
 
-async def run_tasks_prompt(app, session, registration, context):
+def run_tasks_prompt(app, session, registration, context):
     """Interactive prompt for /tasks command"""
 
     prompt_data = {
@@ -250,9 +244,7 @@ async def run_tasks_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_tasks(app, session, **context):
@@ -281,7 +273,7 @@ async def run_tasks(app, session, **context):
 # /implement - Execute development workflow
 # ============================================================================
 
-async def run_implement_prompt(app, session, registration, context):
+def run_implement_prompt(app, session, registration, context):
     """Interactive prompt for /implement command"""
 
     prompt_data = {
@@ -308,9 +300,7 @@ async def run_implement_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_implement(app, session, **context):
@@ -339,7 +329,7 @@ async def run_implement(app, session, **context):
 # /test - Generate testing strategy
 # ============================================================================
 
-async def run_test_prompt(app, session, registration, context):
+def run_test_prompt(app, session, registration, context):
     """Interactive prompt for /test command"""
 
     prompt_data = {
@@ -366,9 +356,7 @@ async def run_test_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_test(app, session, **context):
@@ -397,7 +385,7 @@ async def run_test(app, session, **context):
 # /spec-check - Check spec completeness
 # ============================================================================
 
-async def run_spec_check_prompt(app, session, registration, context):
+def run_spec_check_prompt(app, session, registration, context):
     """Interactive prompt for /spec-check command"""
 
     prompt_data = {
@@ -425,9 +413,7 @@ async def run_spec_check_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def run_spec_check(app, session, **context):

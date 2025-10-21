@@ -48,7 +48,7 @@ async def interactive_async(config, session=None, initial_prompt=None):
     sys.stderr.flush()
 
     try:
-        from cli.modules.command_router import CommandRouter
+        from modules.command_router import CommandRouter
 
         # Create command router
         app._command_router = CommandRouter(app, session)
@@ -104,30 +104,30 @@ async def interactive_async(config, session=None, initial_prompt=None):
         await async_write(app, f"\n[cyan]>[/cyan] {initial_prompt}\n")
 
     # Start the TUI event loop with proper cleanup
+    import sys
+    sys.stderr.write("[TUI] Starting app.run_async()...\n")
+    sys.stderr.flush()
+
     try:
         await app.run_async()
+        sys.stderr.write("[TUI] app.run_async() completed normally\n")
+        sys.stderr.flush()
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
-        import sys
         sys.stderr.write("\n[TUI] KeyboardInterrupt - shutting down\n")
         sys.stderr.flush()
     except Exception as e:
         # Handle other exceptions
-        import sys
         sys.stderr.write(f"\n[TUI] Exception during run: {e}\n")
+        import traceback
+        traceback.print_exc()
         sys.stderr.flush()
         raise
-    finally:
-        # Ensure cleanup happens even if run_async() doesn't call on_unmount
-        import sys
-        sys.stderr.write("[TUI] Ensuring cleanup in finally block\n")
-        sys.stderr.flush()
-        try:
-            if hasattr(app, 'on_unmount'):
-                await app.on_unmount()
-        except Exception as e:
-            sys.stderr.write(f"[TUI] Error during cleanup: {e}\n")
-            sys.stderr.flush()
+
+    # NOTE: Textual handles cleanup automatically via on_unmount()
+    # Do NOT manually call on_unmount() here - it causes double cleanup
+    sys.stderr.write("[TUI] TUI shutdown complete\n")
+    sys.stderr.flush()
 
 
 def run_interactive_async(config, session, initial_prompt=None):

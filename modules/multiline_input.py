@@ -29,6 +29,9 @@ class MultiLineInput(Widget):
     BINDINGS = [
         Binding("enter", "submit", "Submit message"),
         Binding("ctrl+c", "cancel", "Cancel input"),
+        # Permission buffer navigation
+        Binding("up", "permission_up", "Navigate up in permission options", show=False),
+        Binding("down", "permission_down", "Navigate down in permission options", show=False),
     ]
 
     value = reactive("", layout=True)
@@ -43,39 +46,47 @@ class MultiLineInput(Widget):
 
     class Submitted(Message):
         """Posted when user submits the input"""
+        bubble = True  # CRITICAL: Must reach parent TUI for message sending!
+
         def __init__(self, value: str) -> None:
             self.value = value
             super().__init__()
 
     class PermissionResponse(Message):
         """Posted when user selects a permission option"""
+        bubble = True  # CRITICAL: Must reach parent TUI for permission handling!
+
         def __init__(self, option: dict) -> None:
             self.option = option
             super().__init__()
 
     class PermissionCancelled(Message):
         """Posted when user cancels permission prompt"""
-        pass
+        bubble = True  # CRITICAL: Must reach parent TUI for permission handling!
 
     class ShowCommandSuggestions(Message):
         """Posted when slash command typed - triggers suggestion buffer"""
+        bubble = True  # CRITICAL: Must reach parent TUI for autosuggest!
+
         def __init__(self, query: str) -> None:
             self.query = query
             super().__init__()
 
     class HideCommandSuggestions(Message):
         """Posted when suggestions should be hidden"""
-        pass
+        bubble = True  # CRITICAL: Must reach parent TUI!
 
     class CommandSuggestionNavigate(Message):
         """Posted when user navigates in suggestions with arrow keys"""
+        bubble = True  # CRITICAL: Must reach parent TUI!
+
         def __init__(self, direction: str) -> None:
             self.direction = direction  # "up" or "down"
             super().__init__()
 
     class CommandSuggestionSelect(Message):
         """Posted when user presses Enter with suggestions active"""
-        pass
+        bubble = True  # CRITICAL: Must reach parent TUI!
 
     class NavigationEvent(Message):
         """Posted when user navigates away (focus lost) - triggers auto-dismiss"""
@@ -328,12 +339,15 @@ class MultiLineInput(Widget):
         key = event.key
 
         # AGGRESSIVE DEBUG - Log ALL key events
-        sys.stderr.write(f"\n[MultiLineInput.on_key] KEY={key} prompt={bool(self.permission_prompt_data)} focused={self.has_focus}\n")
+        sys.stderr.write(f"\n[MultiLineInput.on_key] 🔥 KEY='{key}' prompt={bool(self.permission_prompt_data)} focused={self.has_focus} 🔥\n")
+        if hasattr(self, 'app') and self.app and hasattr(self.app, 'focused'):
+            sys.stderr.write(f"[MultiLineInput.on_key] app_focused={self.app.focused}\n")
         sys.stderr.flush()
 
         # PRIORITY 1: Handle permission prompt navigation if active
         if self.permission_prompt_data:
             sys.stderr.write(f"[MultiLineInput] INSIDE PERMISSION HANDLER for key={key}\n")
+            sys.stderr.write(f"[MultiLineInput] Current selected_option: {self.permission_selected_option}\n")
             sys.stderr.flush()
             options = self.permission_prompt_data.get('options', [])
 
@@ -344,7 +358,7 @@ class MultiLineInput(Widget):
                     event.prevent_default()
                 return  # Ignore all other keys for informational prompts
 
-            # Handle navigation for prompts with options
+            # Handle navigation - up/down arrows
             if key == "up":
                 if self.permission_selected_option > 0:
                     self.permission_selected_option -= 1
@@ -386,17 +400,10 @@ class MultiLineInput(Widget):
                 return
             # For other keys (including enter), let action_submit handle it
 
-        # Don't handle up/down for history (only if no suggestions)
-        if key in ("up", "down") and not self.suggestions_active:
+        # Don't handle up/down for history (only if no suggestions AND no permission buffer)
+        if key in ("up", "down") and not self.suggestions_active and not self.permission_prompt_data:
             return
 
-        # EXPLICIT ENTER HANDLING - binding not reliable
-        if key == "enter":
-            sys.stderr.write(f"[on_key] ENTER detected, calling action_submit directly\n")
-            sys.stderr.flush()
-            self.action_submit()
-            event.prevent_default()
-            return
 
         # Backspace
         if key == "backspace":
@@ -460,12 +467,24 @@ class MultiLineInput(Widget):
             event.prevent_default()
 
     def action_submit(self) -> None:
-        """Submit the current value"""
+        """Submit the current value or select permission option"""
         import sys
         sys.stderr.write(f"\n[ACTION_SUBMIT] CALLED\n")
         sys.stderr.write(f"[ACTION_SUBMIT] value='{self.value}'\n")
         sys.stderr.write(f"[ACTION_SUBMIT] suggestions_active={self.suggestions_active}\n")
+        sys.stderr.write(f"[ACTION_SUBMIT] permission_prompt_data={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
+
+        # If permission prompt is active, select the current option
+        if self.permission_prompt_data:
+            options = self.permission_prompt_data.get('options', [])
+            if options and 0 <= self.permission_selected_option < len(options):
+                selected_option = options[self.permission_selected_option]
+                sys.stderr.write(f"[ACTION_SUBMIT] Selecting permission option: {selected_option.get('text')}\n")
+                sys.stderr.flush()
+                self.post_message(self.PermissionResponse(selected_option))
+                self.permission_prompt_data = None  # Clear prompt after selection
+                return
 
         # If suggestions are active, handle as command selection instead
         if self.suggestions_active:
@@ -484,9 +503,67 @@ class MultiLineInput(Widget):
             sys.stderr.flush()
 
     def action_cancel(self) -> None:
-        """Cancel input (clear the field)"""
+        """Cancel input (clear the field) or cancel permission prompt"""
+        import sys
+        sys.stderr.write(f"\n[ACTION_CANCEL] CALLED\n")
+        sys.stderr.write(f"[ACTION_CANCEL] permission_prompt_data={bool(self.permission_prompt_data)}\n")
+        sys.stderr.flush()
+
+        # If permission prompt is active, cancel it
+        if self.permission_prompt_data:
+            sys.stderr.write(f"[ACTION_CANCEL] Cancelling permission prompt\n")
+            sys.stderr.flush()
+            self.post_message(self.PermissionCancelled())
+            self.permission_prompt_data = None  # Clear prompt after cancel
+            return
+
+        # Normal cancel - clear the field
         self.value = ""
         self.cursor_position = 0
+
+    def action_permission_up(self) -> None:
+        """Navigate up in permission options"""
+        import sys
+        sys.stderr.write(f"[MultiLineInput.action_permission_up] ENTERED\n")
+        sys.stderr.flush()
+
+        if self.permission_prompt_data:
+            options = self.permission_prompt_data.get('options', [])
+            sys.stderr.write(f"[MultiLineInput.action_permission_up] options_count={len(options)}, current={self.permission_selected_option}\n")
+            sys.stderr.flush()
+
+            if options:
+                current = self.permission_selected_option
+                new_selection = max(0, current - 1)
+                self.permission_selected_option = new_selection
+                sys.stderr.write(f"[MultiLineInput.action_permission_up] changed {current} -> {new_selection}\n")
+                sys.stderr.flush()
+                self.refresh()  # Force refresh
+        else:
+            sys.stderr.write(f"[MultiLineInput.action_permission_up] NO permission_prompt_data!\n")
+            sys.stderr.flush()
+
+    def action_permission_down(self) -> None:
+        """Navigate down in permission options"""
+        import sys
+        sys.stderr.write(f"[MultiLineInput.action_permission_down] ENTERED\n")
+        sys.stderr.flush()
+
+        if self.permission_prompt_data:
+            options = self.permission_prompt_data.get('options', [])
+            sys.stderr.write(f"[MultiLineInput.action_permission_down] options_count={len(options)}, current={self.permission_selected_option}\n")
+            sys.stderr.flush()
+
+            if options:
+                current = self.permission_selected_option
+                new_selection = min(len(options) - 1, current + 1)
+                self.permission_selected_option = new_selection
+                sys.stderr.write(f"[MultiLineInput.action_permission_down] changed {current} -> {new_selection}\n")
+                sys.stderr.flush()
+                self.refresh()  # Force refresh
+        else:
+            sys.stderr.write(f"[MultiLineInput.action_permission_down] NO permission_prompt_data!\n")
+            sys.stderr.flush()
 
     def clear(self) -> None:
         """Clear the input"""
@@ -568,9 +645,31 @@ class MultiLineInput(Widget):
 
     def watch_permission_prompt_data(self, old_value, new_value) -> None:
         """React to permission prompt data changes - trigger layout update"""
+        import sys
+        sys.stderr.write(f"[MultiLineInput.watch_permission_prompt_data] old={old_value is not None}, new={new_value is not None}\n")
+        sys.stderr.flush()
+
         # Only refresh if actually changed (not just set to same value)
         if old_value != new_value:
-            print(f"[MultiLineInput] Permission data changed")
+            sys.stderr.write(f"[MultiLineInput] PERMISSION DATA CHANGED\n")
+            sys.stderr.flush()
+
+            if new_value:
+                self.permission_selected_option = new_value.get('selected', 0)
+                sys.stderr.write(f"[MultiLineInput] PERMISSION ACTIVE - selected_option={self.permission_selected_option}\n")
+                sys.stderr.flush()
+                # Ensure we have focus when permission prompt is active (only if app is available)
+                if not self.has_focus:
+                    try:
+                        sys.stderr.write(f"[MultiLineInput] Calling self.focus()\n")
+                        sys.stderr.flush()
+                        self.focus()
+                    except Exception as e:
+                        sys.stderr.write(f"[MultiLineInput] Focus failed (no app context): {e}\n")
+                        sys.stderr.flush()
+            else:
+                sys.stderr.write(f"[MultiLineInput] PERMISSION CLEARED\n")
+                sys.stderr.flush()
 
             # CRITICAL: Refresh MUST happen synchronously for widget to render!
             # But keep it light - no layout=True to avoid blocking
@@ -585,6 +684,33 @@ class MultiLineInput(Widget):
                     print(f"[MultiLineInput]   ✓ FORCED FOCUS IMMEDIATELY")
                 except Exception as e:
                     print(f"[MultiLineInput]   Focus error: {e}, trying fallback")
-                    self.focus()
+                    try:
+                        self.focus()
+                    except Exception as e2:
+                        print(f"[MultiLineInput]   Fallback focus also failed: {e2}")
             else:
                 print(f"[MultiLineInput] Permission cleared")
+
+    def watch_permission_selected_option(self, old_value: int, new_value: int) -> None:
+        """Watch for selection changes to trigger UI refresh"""
+        import sys
+        sys.stderr.write(f"[MultiLineInput.watch_permission_selected_option] {old_value} -> {new_value}\n")
+        sys.stderr.flush()
+
+        if old_value != new_value and self.permission_prompt_data:
+            # Force refresh when selection changes
+            self.refresh()
+            sys.stderr.write(f"[MultiLineInput] REFRESH triggered by selection change\n")
+            sys.stderr.flush()
+
+
+# Export nested message classes at module level for easier importing
+# This allows: from multiline_input import Submitted, PermissionResponse, etc.
+Submitted = MultiLineInput.Submitted
+PermissionResponse = MultiLineInput.PermissionResponse
+PermissionCancelled = MultiLineInput.PermissionCancelled
+ShowCommandSuggestions = MultiLineInput.ShowCommandSuggestions
+HideCommandSuggestions = MultiLineInput.HideCommandSuggestions
+CommandSuggestionNavigate = MultiLineInput.CommandSuggestionNavigate
+CommandSuggestionSelect = MultiLineInput.CommandSuggestionSelect
+NavigationEvent = MultiLineInput.NavigationEvent

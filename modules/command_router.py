@@ -44,6 +44,11 @@ class CommandRouter:
         # Get global ExecutionSystem (singleton)
         self.executor = get_executor(app, session)
 
+        # CRITICAL: Update executor references (singleton may have stale refs)
+        # This ensures permission prompts have valid app/session even before _initialize_registrations()
+        self.executor.app = self.app
+        self.executor.session = self.session
+
         # Enhanced state tracking for non-blocking architecture
         self._initialized = False
         self.enforcement = None
@@ -187,17 +192,38 @@ class CommandRouter:
         self._initializing = False  # Clear initialization flag
 
         # Wait a moment to let user see the completion stats
+        sys.stderr.write(f"[CommandRouter._initialize_registrations] Starting 1.5s sleep before hiding buffer...\n")
+        sys.stderr.flush()
         await asyncio.sleep(1.5)
+        sys.stderr.write(f"[CommandRouter._initialize_registrations] Sleep complete, now hiding buffer\n")
+        sys.stderr.flush()
 
         # Stop SDK loading in suggestions buffer
         try:
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] Querying #command-suggestions...\n")
+            sys.stderr.flush()
             suggestions_buffer = self.app.query_one("#command-suggestions")
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] Got buffer: {suggestions_buffer}\n")
+            sys.stderr.flush()
+
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] Calling stop_sdk_loading()...\n")
+            sys.stderr.flush()
             suggestions_buffer.stop_sdk_loading()
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] stop_sdk_loading() returned\n")
+            sys.stderr.flush()
+
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] Adding 'hidden' class...\n")
+            sys.stderr.flush()
             suggestions_buffer.add_class("hidden")
-            sys.stderr.write(f"[CommandRouter._initialize_registrations] SDK loading stopped and suggestions hidden\n")
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] 'hidden' class added\n")
+            sys.stderr.flush()
+
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] ✓ SDK loading stopped and suggestions hidden\n")
             sys.stderr.flush()
         except Exception as e:
-            sys.stderr.write(f"[CommandRouter._initialize_registrations] Failed to stop SDK loading: {e}\n")
+            import traceback
+            sys.stderr.write(f"[CommandRouter._initialize_registrations] ✗ Failed to stop SDK loading: {e}\n")
+            sys.stderr.write(traceback.format_exc())
             sys.stderr.flush()
 
         sys.stderr.write(f"[CommandRouter._initialize_registrations] ========== COMPLETE ==========\n\n")
@@ -217,24 +243,47 @@ class CommandRouter:
         command_name = command.strip()
 
         # DEBUG: Show what we're routing
-        print(f"[Router] Looking up: '{command_name}'")
-        print(f"[Router] Registered commands: {list(self.executor.registry.commands.keys())[:3]}...")
+        import sys
+        sys.stderr.write(f"[Router] Looking up: '{command_name}'\n")
+        sys.stderr.write(f"[Router] Registered commands: {list(self.executor.registry.commands.keys())[:5]}...\n")
+        sys.stderr.flush()
+
+        # Check if command exists
+        if command_name not in self.executor.registry.commands:
+            sys.stderr.write(f"[Router] ERROR: Command '{command_name}' not found in registry!\n")
+            sys.stderr.flush()
+            return False
+
+        registration = self.executor.registry.commands[command_name]
+        sys.stderr.write(f"[Router] Found registration: {registration.name}, requires_approval: {registration.requires_approval}\n")
+        sys.stderr.write(f"[Router] Registration type: {type(registration)}\n")
+        sys.stderr.flush()
 
         # Execute through ExecutionSystem (ONE entry point)
         try:
-            print(f"[Router] Calling executor.execute_command('{command_name}')")
-            await self.executor.execute_command(
+            sys.stderr.write(f"[Router] Calling executor.execute_command('{command_name}')\n")
+            sys.stderr.write(f"[Router] Executor type: {type(self.executor)}\n")
+            sys.stderr.write(f"[Router] Executor app: {self.executor.app}\n")
+            sys.stderr.write(f"[Router] Executor session: {self.executor.session}\n")
+            sys.stderr.flush()
+            result = await self.executor.execute_command(
                 name=command_name,
                 app=self.app,
                 session=self.session,
                 args=args
             )
-            print(f"[Router] Success!")
+            sys.stderr.write(f"[Router] execute_command returned: {result}\n")
+            sys.stderr.write(f"[Router] Success!\n")
+            sys.stderr.flush()
             return True
 
-        except ValueError as e:
-            # Command not registered
-            print(f"[Router] ValueError: {e}")
+        except Exception as e:
+            # Command execution failed
+            import sys
+            sys.stderr.write(f"[Router] Exception in execute_command: {e}\n")
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
             return False
 
         except PermissionError as e:
@@ -271,6 +320,7 @@ async def route_command_unified(app, session, command: str, args: Optional[str] 
     FULLY ASYNC - Non-blocking initialization and registration
     """
     import sys
+    print(f"[DEBUG] 🔥 route_command_unified CALLED with '{command}' 🔥")
     sys.stderr.write(f"\n[route_command_unified] ========== START ==========\n")
     sys.stderr.write(f"[route_command_unified] Command: '{command}'\n")
     sys.stderr.write(f"[route_command_unified] Args: {args}\n")
@@ -334,8 +384,15 @@ async def route_command_unified(app, session, command: str, args: Optional[str] 
 
     sys.stderr.write(f"[route_command_unified] Calling route_command()\n")
     sys.stderr.flush()
-    result = await app._command_router.route_command(command, args)
-    sys.stderr.write(f"[route_command_unified] Result: {result}\n")
+    try:
+        result = await app._command_router.route_command(command, args)
+        sys.stderr.write(f"[route_command_unified] Result: {result}\n")
+    except Exception as e:
+        sys.stderr.write(f"[route_command_unified] ❌ EXCEPTION in route_command: {e}\n")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return False
     sys.stderr.write(f"[route_command_unified] ========== END ==========\n\n")
     sys.stderr.flush()
     return result

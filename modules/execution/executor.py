@@ -97,6 +97,7 @@ class ExecutionSystem:
         steps: Optional[List[ExecutionStep]] = None,
         **context
     ) -> Any:
+        print(f"[EXECUTOR] execute() called: type={type}, name={name}")
         """
         Execute command/tool/API with unified flow
 
@@ -123,19 +124,42 @@ class ExecutionSystem:
         if not registration.enabled:
             raise PermissionError(f"{name} is disabled")
 
-        # Check permission
+        # SINGLE CONSOLIDATED PERMISSION CHECK - Use UnifiedPermissionManager for everything
         if registration.requires_approval:
-            approved = await self.permission_manager.check_permission(
-                registration,
-                context,
-                self.app,
-                self.session
-            )
-            if not approved:
-                raise PermissionError(f"Permission denied for {name}")
+            from ..permissions import get_unified_permission_manager
+            unified_manager = get_unified_permission_manager()
+
+            print(f"[DEBUG] Executor permission check: unified_manager={unified_manager is not None}")
+            print(f"[DEBUG] Command: {name}, requires_approval: {registration.requires_approval}")
+
+            if unified_manager:
+                print(f"[DEBUG] Calling unified_manager.check_permission for {name}")
+                approved = await unified_manager.check_permission(
+                    registration,
+                    context,
+                    self.app,
+                    self.session
+                )
+                print(f"[DEBUG] unified_manager.check_permission returned: {approved}")
+                if not approved:
+                    raise PermissionError(f"Permission denied for {name}")
+            else:
+                print(f"[DEBUG] No unified_manager, falling back to permission_manager")
+                # Fallback to old permission manager if unified not available
+                approved = await self.permission_manager.check_permission(
+                    registration,
+                    context,
+                    self.app,
+                    self.session
+                )
+                if not approved:
+                    raise PermissionError(f"Permission denied for {name}")
 
         # Record usage
         self.registry.record_usage(type, name)
+
+        # Add registry to context so handlers can access it
+        context['_registry'] = self.registry
 
         # Execute
         execution_id = f"{type.value}:{name}"
@@ -183,6 +207,8 @@ class ExecutionSystem:
                 except Exception as retry_error:
                     raise retry_error
             raise e
+
+    # REMOVED: _handle_command_options - consolidated into UnifiedPermissionManager.check_permission
 
     # ========================================================================
     # WORKFLOW EXECUTION

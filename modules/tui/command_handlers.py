@@ -8,15 +8,26 @@ from typing import Any
 
 # CRITICAL: Import actual MultiLineInput, not stub!
 from ..command_suggestions import CommandSuggestionBuffer, CommandMatch, check_command_health
-from ..multiline_input import MultiLineInput
+from ..multiline_input import (
+    MultiLineInput,
+    ShowCommandSuggestions as MLIShowCommandSuggestions,
+    HideCommandSuggestions as MLIHideCommandSuggestions,
+    CommandSuggestionNavigate as MLICommandSuggestionNavigate,
+    CommandSuggestionSelect as MLICommandSuggestionSelect,
+    Submitted as MLISubmitted
+)
 from ..execution.registry import ExecutionType
 
 
 class CommandHandlers:
     """Mixin class containing command-related event handlers"""
     
-    def on_multi_line_input_show_command_suggestions(self, event: MultiLineInput.ShowCommandSuggestions) -> None:
+    def on_multi_line_input_show_command_suggestions(self, event: MLIShowCommandSuggestions) -> None:
         """Handle slash command typed - show/update command suggestions"""
+        # ALWAYS LOG - not just debug mode
+        with open('/tmp/opencli_keys.log', 'a') as f:
+            f.write(f"[command_handlers] 🎯 HANDLER CALLED! query='{event.query}'\n")
+
         # DEBUG LOGGING
         if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
             with open('/tmp/opencli-autocomplete-debug.log', 'a') as f:
@@ -196,7 +207,7 @@ class CommandHandlers:
                     f.write(f"[SimpleTUI] ERROR: {e}\n")
                     f.write(traceback.format_exc())
 
-    def on_multi_line_input_hide_command_suggestions(self, event: MultiLineInput.HideCommandSuggestions) -> None:
+    def on_multi_line_input_hide_command_suggestions(self, event: MLIHideCommandSuggestions) -> None:
         """Handle hiding command suggestions"""
         # CRITICAL: ALWAYS reset flag even if widgets not found
         prompt_input = None
@@ -219,7 +230,7 @@ class CommandHandlers:
                 sys.stderr.write(f"[HIDE] Reset suggestions_active\n")
                 sys.stderr.flush()
 
-    def on_multi_line_input_command_suggestion_navigate(self, event: MultiLineInput.CommandSuggestionNavigate) -> None:
+    def on_multi_line_input_command_suggestion_navigate(self, event: MLICommandSuggestionNavigate) -> None:
         """Handle arrow key navigation in command suggestions"""
         try:
             suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
@@ -232,7 +243,7 @@ class CommandHandlers:
         except Exception:
             pass
 
-    async def on_multi_line_input_command_suggestion_select(self, event: MultiLineInput.CommandSuggestionSelect) -> None:
+    async def on_multi_line_input_command_suggestion_select(self, event: MLICommandSuggestionSelect) -> None:
         """Handle Enter key with command suggestions active"""
         try:
             suggestions_buffer = self.query_one("#command-suggestions", CommandSuggestionBuffer)
@@ -299,7 +310,7 @@ class CommandHandlers:
             except Exception:
                 pass
 
-    def on_multi_line_input_submitted(self, event: MultiLineInput.Submitted) -> None:
+    def on_multi_line_input_submitted(self, event: MLISubmitted) -> None:
         """Handle message submission from MultiLineInput"""
         import asyncio
         import sys

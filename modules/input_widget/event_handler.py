@@ -23,7 +23,9 @@ def handle_key_event(widget, event) -> bool:
     key = event.key
 
     # DEBUG logging
-    sys.stderr.write(f"\n[handle_key_event] KEY={key} prompt={bool(widget.permission_prompt_data)} focused={widget.has_focus}\n")
+    sys.stderr.write(f"\n🔥🔥🔥 [handle_key_event] KEY={key} 🔥🔥🔥\n")
+    sys.stderr.write(f"[handle_key_event] prompt={bool(widget.permission_prompt_data)}, focused={widget.has_focus}\n")
+    sys.stderr.write(f"[handle_key_event] value='{widget.value}', cursor={widget.cursor_position}\n")
     sys.stderr.flush()
 
     # ═══════════════════════════════════════════════════════════
@@ -160,12 +162,18 @@ def handle_key_event(widget, event) -> bool:
 
     # Character input
     if event.character and event.character.isprintable():
+        old_value = widget.value
         widget.value = (
             widget.value[:widget.cursor_position] +
             event.character +
             widget.value[widget.cursor_position:]
         )
         widget.cursor_position += 1
+
+        # Debug log
+        with open('/tmp/opencli_keys.log', 'a') as f:
+            f.write(f"[handle_key_event] char='{event.character}' old='{old_value}' new='{widget.value}'\n")
+
         event.prevent_default()
         return True
 

@@ -45,10 +45,49 @@ class TextSelection:
         
     def has_selection(self) -> bool:
         """Check if there is an active selection"""
-        return (self.selection_start is not None and 
+        return (self.selection_start is not None and
                 self.selection_end is not None and
                 self.selection_start != self.selection_end)
-                
+
+    def get_span(self, y: int) -> Optional[Tuple[int, int]]:
+        """Get selection span for a given line (required by Textual)
+
+        Args:
+            y: Line index
+
+        Returns:
+            Tuple of (start_col, end_col) if line is selected, None otherwise
+        """
+        if not self.has_selection():
+            return None
+
+        start_line, start_col = self.selection_start
+        end_line, end_col = self.selection_end
+
+        # Ensure start comes before end
+        if (start_line > end_line or
+            (start_line == end_line and start_col > end_col)):
+            start_line, start_col, end_line, end_col = end_line, end_col, start_line, start_col
+
+        # Check if line y is within selection range
+        if y < start_line or y > end_line:
+            return None
+
+        # Single line selection
+        if start_line == end_line:
+            return (start_col, end_col)
+
+        # Multi-line selection
+        if y == start_line:
+            # First line - from start_col to end of line (use large number)
+            return (start_col, 10000)
+        elif y == end_line:
+            # Last line - from beginning to end_col
+            return (0, end_col)
+        else:
+            # Middle line - entire line selected
+            return (0, 10000)
+
     def get_selected_text(self, content_lines: list) -> str:
         """Extract selected text from content lines"""
         if not self.has_selection():

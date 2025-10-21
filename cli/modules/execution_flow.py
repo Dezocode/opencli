@@ -126,18 +126,70 @@ class ExecutionFlowManager:
             prompt_widget: Optional MultiLineInput widget for spinner control
 
         This method:
-        1. Processes attachments via prompt processor
-        2. Adds user message to session
-        3. Prepares messages with context (constitution, AGENTS.md, etc.)
-        4. Streams AI response through BufferManager
-        5. Executes tool calls
-        6. Updates session with assistant/tool responses
+        1. Checks for commands (/) and routes through command system
+        2. Processes attachments via prompt processor
+        3. Adds user message to session
+        4. Prepares messages with context (constitution, AGENTS.md, etc.)
+        5. Streams AI response through BufferManager
+        6. Executes tool calls
+        7. Updates session with assistant/tool responses
         """
         import sys
         sys.stderr.write(f"\n[EXEC] handle_user_prompt called: '{user_input}'\n")
         sys.stderr.flush()
 
-        # 1. Process attachments
+        # 1. CHECK FOR COMMANDS FIRST - Route through command system
+        if user_input.strip().startswith('/'):
+            sys.stderr.write(f"[EXEC] Detected command: '{user_input}'\n")
+            sys.stderr.flush()
+
+            # Get app reference
+            app = prompt_widget.app if prompt_widget and hasattr(prompt_widget, 'app') else None
+
+            if app:
+                # Import command routing
+                try:
+                    from modules.command_router import route_command_unified
+                except ImportError:
+                    from cli.modules.command_router import route_command_unified
+
+                # Parse command
+                parts = user_input.strip().split(maxsplit=1)
+                command_name = parts[0]  # e.g., "/help"
+                command_args = parts[1] if len(parts) > 1 else None
+
+                sys.stderr.write(f"[EXEC] Routing command: '{command_name}' with args: {command_args}\n")
+                sys.stderr.flush()
+
+                # Route through unified command system (which handles permissions)
+                try:
+                    handled = await route_command_unified(app, self.session, command_name, command_args)
+                    sys.stderr.write(f"[EXEC] Command routing result: {handled}\n")
+                    sys.stderr.flush()
+
+                    if handled:
+                        return  # Command was handled, don't process as regular message
+                    else:
+                        # Command not recognized
+                        if app:
+                            app.write(f"[red]Unknown command: {command_name}[/red]\n")
+                            app.write(f"[dim]Type /help to see available commands[/dim]\n")
+                        return
+
+                except Exception as e:
+                    sys.stderr.write(f"[EXEC] Command routing error: {e}\n")
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+                    sys.stderr.flush()
+
+                    if app:
+                        app.write(f"[red]Command error: {e}[/red]\n")
+                    return
+            else:
+                sys.stderr.write(f"[EXEC] No app reference available for command routing\n")
+                sys.stderr.flush()
+
+        # 2. Process attachments
         prompt_processor = self.initialized_systems.get('prompt_processor')
         if prompt_processor:
             processed_input, metadata = prompt_processor.process_input(user_input)

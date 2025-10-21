@@ -14,9 +14,9 @@ from .permission_prompt import PermissionResponse
 from .permission_buffer_manager import get_permission_buffer_manager
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker - Docker operations menu
-# ============================================================================
+# ============================================================================ 
 
 async def docker_main_prompt(app, session, registration, context):
     """Interactive prompt for /docker command"""
@@ -49,7 +49,6 @@ async def docker_main_prompt(app, session, registration, context):
 async def docker_main(app, session, **context):
     """Parent /docker command - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -62,7 +61,6 @@ async def docker_main(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return False
 
-    # Execute - show Docker operations menu
     app.write("[bold cyan]Docker Operations[/bold cyan]\n\n")
     app.write("Available commands:\n")
     app.write("  [cyan]/docker ollama setup[/cyan]  - Setup Ollama in Docker\n")
@@ -74,9 +72,9 @@ async def docker_main(app, session, **context):
     return True
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker ollama setup - Setup Ollama in Docker
-# ============================================================================
+# ============================================================================ 
 
 async def docker_ollama_setup_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama setup command"""
@@ -114,7 +112,6 @@ async def docker_ollama_setup_prompt(app, session, registration, context):
 async def docker_ollama_setup(app, session, **context):
     """Docker Ollama setup - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -127,36 +124,30 @@ async def docker_ollama_setup(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return False
 
-    # Execute - setup Ollama in Docker
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
     docker_mgr = DockerManager()
     docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
 
-    # Use conservative defaults (4 CPUs, 8GB RAM)
     cpu_limit = '4'
     memory_limit = '8g'
     gpu_enabled = False
 
     try:
-        # Check Docker
         is_running, msg = await docker_async.check_docker_running()
         if not is_running:
             app.write(f"[red]✗ Docker not running: {msg}[/red]\n\n")
             return False
 
-        # Check existing container
         container_id, status, name = await docker_async.get_ollama_container_status()
         if container_id and status == 'running':
             app.write(f"[yellow]! Container already running: {name}[/yellow]\n\n")
             return True
 
         if container_id:
-            # Remove old container
             await docker_async.remove_ollama_container(True)
 
-        # Pull image
         app.write("[cyan]→ Pulling Ollama image...[/cyan]\n")
         success, msg_pull = await docker_async.pull_ollama_image()
         if not success:
@@ -164,7 +155,6 @@ async def docker_ollama_setup(app, session, **context):
             return False
         app.write("[green]✓ Image pulled[/green]\n")
 
-        # Create container
         app.write(f"[cyan]→ Creating container ({cpu_limit} CPUs, {memory_limit} RAM)...[/cyan]\n")
         success, result_msg = await docker_async.create_ollama_container(
             cpu_limit=cpu_limit,
@@ -176,7 +166,6 @@ async def docker_ollama_setup(app, session, **context):
             return False
         app.write("[green]✓ Container created[/green]\n")
 
-        # Verify running
         is_running_verify, container_id_verify = await docker_async.is_ollama_running()
         if not is_running_verify:
             app.write("[red]✗ Container created but not running[/red]\n\n")
@@ -195,9 +184,9 @@ async def docker_ollama_setup(app, session, **context):
         return False
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker ollama start - Start Ollama container
-# ============================================================================
+# ============================================================================ 
 
 async def docker_ollama_start_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama start command"""
@@ -222,7 +211,6 @@ async def docker_ollama_start_prompt(app, session, registration, context):
             }
         ]
     }
-
     buffer_manager = get_permission_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
@@ -230,7 +218,6 @@ async def docker_ollama_start_prompt(app, session, registration, context):
 async def docker_ollama_start(app, session, **context):
     """Docker Ollama start - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -243,7 +230,6 @@ async def docker_ollama_start(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return False
 
-    # Execute - start Ollama
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
@@ -251,13 +237,11 @@ async def docker_ollama_start(app, session, **context):
     docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
 
     try:
-        # Check if already running
         is_running, container_id = await docker_async.is_ollama_running()
         if is_running:
             app.write("[yellow]! Ollama container already running[/yellow]\n\n")
             return True
 
-        # Start container
         app.write("[cyan]→ Starting Ollama container...[/cyan]\n")
         success, msg = await docker_async.start_ollama_container()
 
@@ -274,9 +258,9 @@ async def docker_ollama_start(app, session, **context):
         return False
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker ollama stop - Stop Ollama container
-# ============================================================================
+# ============================================================================ 
 
 async def docker_ollama_stop_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama stop command"""
@@ -307,7 +291,6 @@ async def docker_ollama_stop_prompt(app, session, registration, context):
             }
         ]
     }
-
     buffer_manager = get_permission_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
@@ -315,7 +298,6 @@ async def docker_ollama_stop_prompt(app, session, registration, context):
 async def docker_ollama_stop(app, session, **context):
     """Docker Ollama stop - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -332,7 +314,6 @@ async def docker_ollama_stop(app, session, **context):
         app.write("[yellow]Stop requires confirmation[/yellow]\n")
         return False
 
-    # Execute - stop Ollama
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
@@ -340,13 +321,11 @@ async def docker_ollama_stop(app, session, **context):
     docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
 
     try:
-        # Check if running
         is_running, container_id = await docker_async.is_ollama_running()
         if not is_running:
             app.write("[yellow]! Ollama container not running[/yellow]\n\n")
             return True
 
-        # Stop container
         app.write("[cyan]→ Stopping Ollama container...[/cyan]\n")
         success, msg = await docker_async.stop_ollama_container()
 
@@ -362,9 +341,9 @@ async def docker_ollama_stop(app, session, **context):
         return False
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker status - Show Docker daemon status
-# ============================================================================
+# ============================================================================ 
 
 async def docker_status_prompt(app, session, registration, context):
     """Interactive prompt for /docker status command"""
@@ -394,7 +373,6 @@ async def docker_status_prompt(app, session, registration, context):
             }
         ]
     }
-
     buffer_manager = get_permission_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
@@ -402,7 +380,6 @@ async def docker_status_prompt(app, session, registration, context):
 async def docker_status(app, session, **context):
     """Show Docker daemon status - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -415,7 +392,6 @@ async def docker_status(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return
 
-    # Execute - show Docker status
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
@@ -443,7 +419,6 @@ async def docker_status(app, session, **context):
             app.write(f"  Disk free: {disk} GB\n")
     app.write("\n")
 
-    # Handle export if selected
     if user_selection.get('action') == 'execute_and_export':
         from pathlib import Path
         export_path = Path.cwd() / "docker-status.txt"
@@ -463,9 +438,9 @@ async def docker_status(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker ps - List running containers
-# ============================================================================
+# ============================================================================ 
 
 async def docker_ps_prompt(app, session, registration, context):
     """Interactive prompt for /docker ps command"""
@@ -495,7 +470,6 @@ async def docker_ps_prompt(app, session, registration, context):
             }
         ]
     }
-
     buffer_manager = get_permission_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
@@ -503,7 +477,6 @@ async def docker_ps_prompt(app, session, registration, context):
 async def docker_ps(app, session, **context):
     """List running Docker containers - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -516,7 +489,6 @@ async def docker_ps(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return
 
-    # Execute - list containers
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
@@ -536,7 +508,6 @@ async def docker_ps(app, session, **context):
         app.write(f"  [cyan]{name}[/cyan] · {image} · {status}\n")
     app.write("\n")
 
-    # Handle export if selected
     if user_selection.get('action') == 'execute_and_export':
         from pathlib import Path
         export_path = Path.cwd() / "docker-containers.txt"
@@ -553,9 +524,9 @@ async def docker_ps(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker stats - Show container stats
-# ============================================================================
+# ============================================================================ 
 
 async def docker_stats_prompt(app, session, registration, context):
     """Interactive prompt for /docker stats command"""
@@ -585,7 +556,6 @@ async def docker_stats_prompt(app, session, registration, context):
             }
         ]
     }
-
     buffer_manager = get_permission_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
@@ -593,7 +563,6 @@ async def docker_stats_prompt(app, session, registration, context):
 async def docker_stats(app, session, **context):
     """Show lightweight stats for running containers - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -606,7 +575,6 @@ async def docker_stats(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return
 
-    # Execute - show container stats
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
@@ -636,7 +604,6 @@ async def docker_stats(app, session, **context):
         stats_data.append((name, stats))
     app.write("\n")
 
-    # Handle export if selected
     if user_selection.get('action') == 'execute_and_export':
         from pathlib import Path
         export_path = Path.cwd() / "docker-stats.txt"
@@ -651,11 +618,11 @@ async def docker_stats(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# ============================================================================ 
 # /docker ollama status - Show Ollama container status
-# ============================================================================
+# ============================================================================ 
 
-async def docker_ollama_status_prompt(app, session, registration, context):
+def docker_ollama_status_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama status command"""
 
     prompt_data = {
@@ -683,15 +650,13 @@ async def docker_ollama_status_prompt(app, session, registration, context):
             }
         ]
     }
-
     buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_status(app, session, **context):
     """Show status for the OpenCLI Ollama container - SDK COMPLIANT"""
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -704,7 +669,6 @@ async def docker_ollama_status(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return
 
-    # Execute - show Ollama container status
     from .docker_manager import DockerManager
     from .docker_async_handler import DockerAsyncHandler
 
@@ -724,11 +688,11 @@ async def docker_ollama_status(app, session, **context):
     if stats:
         app.write(
             f"  CPU: {stats.get('cpu_percent', '0')}% · "
-            f"Mem: {stats.get('memory_usage', 'N/A')} ({stats.get('memory_percent', '0')}%)\n"
-        )
-    app.write("\n")
+            f"Mem: {stats.get('memory_usage', 'N/A')} ({stats.get('memory_percent', '0')}%)· "
+            f"Net: {stats.get('network_io', 'N/A')}"
+        )        
+        app.write("\n")
 
-    # Handle export if selected
     if user_selection.get('action') == 'execute_and_export':
         from pathlib import Path
         export_path = Path.cwd() / "ollama-container-status.txt"

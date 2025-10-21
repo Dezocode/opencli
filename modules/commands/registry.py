@@ -133,6 +133,7 @@ async def _safe_register(
     risk_level: RiskLevel,
     requires_approval: bool,
     description: str,
+    custom_prompt_func=None,
     **kwargs
 ):
     """
@@ -140,6 +141,18 @@ async def _safe_register(
 
     Validates handler, auto-converts if needed, then registers.
     Raises ValueError if handler cannot be made compliant.
+
+    Args:
+        executor: UnifiedExecutionSystem instance
+        exec_type: COMMAND, TOOL, or API
+        name: Command/tool identifier (e.g., '/help')
+        handler: Main execution function
+        category: Organization category
+        risk_level: Risk assessment level
+        requires_approval: Whether to show permission prompt
+        description: Human-readable description
+        custom_prompt_func: Optional interactive prompt function (for SDK-compliant commands)
+        **kwargs: Additional registration options (metadata, resources, etc.)
     """
     # Enforce SDK compliance
     cat_name = category.value if hasattr(category, 'value') else str(category)
@@ -152,6 +165,20 @@ async def _safe_register(
 
     # Use final handler (may be converted/wrapped)
     final_handler = result.final_handler
+
+    # Add custom_prompt_func to metadata if provided
+    if custom_prompt_func is not None:
+        if 'metadata' not in kwargs:
+            kwargs['metadata'] = {}
+        kwargs['metadata']['custom_prompt_func'] = custom_prompt_func
+        print(f"[SDK]   Custom prompt: {custom_prompt_func.__name__ if hasattr(custom_prompt_func, '__name__') else 'provided'}")
+
+        import sys
+        if name == '/help':
+            sys.stderr.write(f"\n[_safe_register] Added custom_prompt_func for {name}\n")
+            sys.stderr.write(f"[_safe_register] kwargs['metadata'] = {kwargs['metadata']}\n")
+            sys.stderr.write(f"[_safe_register] custom_prompt_func = {custom_prompt_func}\n")
+            sys.stderr.flush()
 
     # Register with executor (ACTUAL registration, not recursive!)
     executor.registry.register(

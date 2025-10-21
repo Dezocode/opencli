@@ -13,7 +13,7 @@ from ..permission_buffer_manager import get_permission_buffer_manager
 # /restart - Restart OpenCLI with current session
 # ============================================================================
 
-async def restart_session_prompt(app, session, registration, context):
+def restart_session_prompt(app, session, registration, context):
     """Interactive prompt for /restart command"""
 
     prompt_data = {
@@ -43,9 +43,7 @@ async def restart_session_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def restart_session(app, session, **context):
@@ -110,7 +108,7 @@ async def restart_session(app, session, **context):
 # /upgrade - Reload OpenCLI modules
 # ============================================================================
 
-async def upgrade_opencli_prompt(app, session, registration, context):
+def upgrade_opencli_prompt(app, session, registration, context):
     """Interactive prompt for /upgrade command"""
     import sys
 
@@ -140,9 +138,7 @@ async def upgrade_opencli_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def upgrade_opencli(app, session, **context):
@@ -225,7 +221,7 @@ async def upgrade_opencli(app, session, **context):
 # /api - API server control
 # ============================================================================
 
-async def api_server_control_prompt(app, session, registration, context):
+def api_server_control_prompt(app, session, registration, context):
     """Interactive prompt for /api command"""
     import subprocess
 
@@ -279,9 +275,7 @@ async def api_server_control_prompt(app, session, registration, context):
         }
     else:
         return None
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def api_server_control(app, session, **context):
@@ -381,7 +375,7 @@ async def api_server_control(app, session, **context):
 # /rollback - List available backups
 # ============================================================================
 
-async def rollback_opencli_prompt(app, session, registration, context):
+def rollback_opencli_prompt(app, session, registration, context):
     """Interactive prompt for /rollback command"""
     from ..rollback_manager import RollbackManager
 
@@ -403,9 +397,7 @@ async def rollback_opencli_prompt(app, session, registration, context):
             {'text': 'Cancel', 'response': PermissionResponse.CANCEL}
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def rollback_opencli(app, session, **context):
@@ -463,7 +455,7 @@ async def rollback_opencli(app, session, **context):
 # Placeholder commands - will implement when needed
 # ============================================================================
 
-async def refactor_interactive_prompt(app, session, registration, context):
+def refactor_interactive_prompt(app, session, registration, context):
     """Interactive prompt for /refactor command"""
     prompt_data = {
         'title': 'System: /refactor',
@@ -478,8 +470,7 @@ async def refactor_interactive_prompt(app, session, registration, context):
             {'text': 'Cancel', 'response': PermissionResponse.CANCEL}
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def refactor_interactive(app, session, **context):
@@ -496,7 +487,7 @@ async def refactor_interactive(app, session, **context):
     app.write("[dim]Use /help for available commands[/dim]\n\n")
 
 
-async def autorefactor_prompt(app, session, registration, context):
+def autorefactor_prompt(app, session, registration, context):
     """Interactive prompt for /autorefactor command"""
     prompt_data = {
         'title': 'System: /autorefactor',
@@ -517,8 +508,7 @@ async def autorefactor_prompt(app, session, registration, context):
             {'text': 'Cancel', 'response': PermissionResponse.CANCEL}
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def autorefactor(app, session, **context):
@@ -535,7 +525,7 @@ async def autorefactor(app, session, **context):
     app.write("[dim]Use /help for available commands[/dim]\n\n")
 
 
-async def code_inject_prompt(app, session, registration, context):
+def code_inject_prompt(app, session, registration, context):
     """Interactive prompt for /inject command"""
     prompt_data = {
         'title': 'System: /inject',
@@ -557,8 +547,7 @@ async def code_inject_prompt(app, session, registration, context):
             {'text': 'Cancel', 'response': PermissionResponse.CANCEL}
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def code_inject(app, session, **context):

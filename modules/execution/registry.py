@@ -153,6 +153,15 @@ class ExecutionRegistry:
         Returns:
             ExecutionRegistration object
         """
+        import sys
+        if name == '/help':
+            sys.stderr.write(f"\n[ExecutionRegistry.register] Registering {name}\n")
+            sys.stderr.write(f"[ExecutionRegistry.register] kwargs = {kwargs}\n")
+            sys.stderr.write(f"[ExecutionRegistry.register] 'metadata' in kwargs = {'metadata' in kwargs}\n")
+            if 'metadata' in kwargs:
+                sys.stderr.write(f"[ExecutionRegistry.register] kwargs['metadata'] = {kwargs['metadata']}\n")
+            sys.stderr.flush()
+
         registration = ExecutionRegistration(
             type=type,
             name=name,
@@ -163,6 +172,10 @@ class ExecutionRegistry:
             description=description,
             **kwargs
         )
+
+        if name == '/help':
+            sys.stderr.write(f"[ExecutionRegistry.register] registration.metadata = {registration.metadata}\n")
+            sys.stderr.flush()
 
         # Store in appropriate registry
         if type == ExecutionType.COMMAND:

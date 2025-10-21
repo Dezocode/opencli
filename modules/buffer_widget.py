@@ -61,8 +61,8 @@ class BufferStatusWidget(Static):
         self._current_tip = random.choice(self.TIPS)
 
     def on_mount(self) -> None:
-        """Start animation when widget mounts"""
-        self.set_interval(0.1, self._update_animation)
+        """Start animation when widget mounts (200ms = 5 FPS, reduced from 10 FPS for CPU efficiency)"""
+        self.set_interval(0.2, self._update_animation)
 
     def _update_animation(self) -> None:
         """Update spinner animation frame"""

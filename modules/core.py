@@ -321,7 +321,7 @@ Session: {self.session.session_id[:8]} | Ready
                 text, end = await self._write_queue.get()
                 self._write_direct(text, end)
                 # Small yield to keep UI responsive
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)  # 10ms - prevents busy-waiting while keeping UI responsive
         except asyncio.CancelledError:
             pass
 

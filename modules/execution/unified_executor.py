@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .registry import ExecutionRegistry, ExecutionType, ExecutionCategory, ExecutionRegistration
-from .permission_manager import UnifiedPermissionManager
+from .permission_manager import PermissionManager
 from .async_runner import AsyncExecutionRunner
 from .circuit_breaker import CircuitBreaker
 from .retry_manager import RetryManager
@@ -78,7 +78,7 @@ class UnifiedExecutionSystem:
 
         # Components
         self.registry = ExecutionRegistry()
-        self.permission_manager = UnifiedPermissionManager()
+        self.permission_manager = PermissionManager()
         self.async_runner = AsyncExecutionRunner()
         self.circuit_breaker = CircuitBreaker()
         self.retry_manager = RetryManager()

@@ -326,9 +326,9 @@ class CommandSuggestionBuffer(Static):
         self.sdk_current_step = "Initializing SDK..."
         self.sdk_spinner_frame = 0
 
-        # Start spinner animation timer
+        # Start spinner animation timer (200ms = 5 FPS, reduced from 10 FPS for CPU efficiency)
         if self._spinner_timer is None:
-            self._spinner_timer = self.set_interval(0.1, self._update_spinner)
+            self._spinner_timer = self.set_interval(0.2, self._update_spinner)
 
     def stop_sdk_loading(self) -> None:
         """Stop SDK loading mode and clear spinner."""

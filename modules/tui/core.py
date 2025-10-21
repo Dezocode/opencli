@@ -5,6 +5,7 @@ Main TUI class with imports from modular components
 
 import os
 import asyncio
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -80,6 +81,7 @@ STATUS_COLORS = {
 class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, MessageHandlerMixin, ResponseGeneratorMixin, ActionMixin):
     """Simple TUI with scrollable content and fixed prompt"""
 
+
     # Force ANSI colors mode and disable dark mode
     ENABLE_COMMAND_PALETTE = False
 
@@ -116,8 +118,8 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
 
     #stream-display {
         background: transparent;
-        height: auto;
-        min-height: 100%;
+        height: 100%;
+        width: 100%;
     }
 
     #prompt-container {
@@ -178,6 +180,7 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
         self.session = session
         self.config = config
         self.client = client
+        self.instance_id = uuid.uuid4()
         self.message_handler = None  # Will be set by the async shell
 
         # Safely get TUI config
@@ -260,13 +263,30 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
 
     def compose(self):
         """Compose the TUI layout"""
+        import sys
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write("[TUI.compose] ========== COMPOSE CALLED ==========\n")
+        sys.stderr.write("[TUI.compose] 🔥🔥🔥 COMPOSE CALLED - BUILDING TUI LAYOUT 🔥🔥🔥\n")
+        sys.stderr.flush()
+
         with Vertical():
             # Scrollable content area
             if HAS_STREAMING and StreamingDisplay:
+                with open('/tmp/tui-trace.log', 'a') as f:
+                    f.write(f"[TUI.compose] HAS_STREAMING={HAS_STREAMING}, StreamingDisplay={StreamingDisplay}\n")
+                sys.stderr.write(f"[TUI.compose] HAS_STREAMING={HAS_STREAMING}, StreamingDisplay={StreamingDisplay}\n")
+                sys.stderr.flush()
                 from textual.containers import VerticalScroll
                 with VerticalScroll(id="content"):
-                    yield StreamingDisplay(id="stream-display")
+                    widget = StreamingDisplay(id="stream-display")
+                    with open('/tmp/tui-trace.log', 'a') as f:
+                        f.write(f"[TUI.compose] Created StreamingDisplay: {widget}\n")
+                    yield widget
             else:
+                with open('/tmp/tui-trace.log', 'a') as f:
+                    f.write(f"[TUI.compose] NO STREAMING - creating Static (HAS_STREAMING={HAS_STREAMING}, StreamingDisplay={StreamingDisplay})\n")
+                sys.stderr.write(f"[TUI.compose] NO STREAMING - creating Static\n")
+                sys.stderr.flush()
                 yield Static("", id="content")
 
             # Command suggestions (hidden by default)
@@ -288,15 +308,29 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
     def on_mount(self) -> None:
         """Initialize the TUI when mounted"""
         import sys
-        sys.stderr.write("\n" + "="*80 + "\n")
-        sys.stderr.write("[TUI.on_mount] STARTED\n")
-        sys.stderr.write("="*80 + "\n")
-        sys.stderr.flush()
+        try:
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write("[TUI.on_mount] ========== ON_MOUNT CALLED ==========\n")
+            sys.stderr.write("\n" + "="*80 + "\n")
+            sys.stderr.write("[TUI.on_mount] 🔥🔥🔥 ON_MOUNT CALLED - THIS IS THE CORRECT modules/tui/core.py 🔥🔥🔥\n")
+            sys.stderr.write("[TUI.on_mount] Module: " + __name__ + "\n")
+            sys.stderr.write("="*80 + "\n")
+            sys.stderr.flush()
 
-        # Store status line references
-        self.status_line = self.query_one("#status-line", StatusLine)
-        self.performance_status = self.query_one("#performance-status", PerformanceStatusLine)
-        self.refactoring_status = self.query_one("#refactoring-status", RefactoringStatusLine)
+            # Store status line references
+            sys.stderr.write("[TUI.on_mount] Querying status lines...\n")
+            sys.stderr.flush()
+            self.status_line = self.query_one("#status-line", StatusLine)
+            self.performance_status = self.query_one("#performance-status", PerformanceStatusLine)
+            self.refactoring_status = self.query_one("#refactoring-status", RefactoringStatusLine)
+            sys.stderr.write("[TUI.on_mount] Status lines found\n")
+            sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"[TUI.on_mount] ❌ EXCEPTION DURING MOUNT: {e}\n")
+            import traceback
+            traceback.print_exc()
+            sys.stderr.flush()
+            # Don't re-raise - let TUI continue
 
         # Start write queue processor
         self._write_task = asyncio.create_task(self._process_write_queue())
@@ -326,6 +360,8 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
                 pass
 
         # Display welcome banner
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write(f"[TUI.on_mount] stream_display = {stream_display}\n")
         if stream_display is not None:
             version = "1.4.0"
             try:
@@ -346,14 +382,37 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
 
 v{version} | Session: {self.session.session_id[:8]} | Ready
 """
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] Writing banner to stream_display\n")
             stream_display.write_line(welcome)
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] Banner written successfully\n")
+        else:
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] stream_display is None - cannot show banner!\n")
 
         # Focus the input
         try:
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] Attempting to focus #prompt-input\n")
+
             prompt_input = self.query_one("#prompt-input")
+
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] Found widget: {prompt_input}\n")
+                f.write(f"[TUI.on_mount] can_focus: {prompt_input.can_focus}\n")
+                f.write(f"[TUI.on_mount] has_focus: {prompt_input.has_focus}\n")
+
             prompt_input.focus()
-        except:
-            pass
+
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] After focus() - has_focus: {prompt_input.has_focus}\n")
+
+        except Exception as e:
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[TUI.on_mount] ❌ FOCUS FAILED: {e}\n")
+                import traceback
+                f.write(traceback.format_exc())
 
     def write(self, text: str, end: str = "\n") -> None:
         """Queue a write operation to prevent blocking"""
@@ -380,7 +439,7 @@ v{version} | Session: {self.session.session_id[:8]} | Ready
             while True:
                 text, end = await self._write_queue.get()
                 self._write_direct(text, end)
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)  # 10ms - prevents busy-waiting while keeping UI responsive
         except asyncio.CancelledError:
             pass
 

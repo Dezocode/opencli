@@ -53,6 +53,20 @@ class PermissionPrompt(Widget):
         self.details = details or {}
         self.can_focus = True
 
+    def on_focus(self) -> None:
+        """Track when widget gains focus"""
+        import sys
+        sys.stderr.write(f"\n[PermissionPrompt.on_focus] 🔥 GAINED FOCUS 🔥 is_active={self.is_active}\n")
+        sys.stderr.flush()
+        self.refresh()
+
+    def on_blur(self) -> None:
+        """Track when widget loses focus"""
+        import sys
+        sys.stderr.write(f"\n[PermissionPrompt.on_blur] ⚠️  LOST FOCUS ⚠️  is_active={self.is_active}\n")
+        sys.stderr.flush()
+        self.refresh()
+
     def render(self) -> Text:
         """Render the permission prompt as a formatted box with Frontier colors"""
         if not self.is_active:
@@ -171,7 +185,13 @@ class PermissionPrompt(Widget):
 
     def on_key(self, event) -> None:
         """Handle key presses for option selection"""
+        import sys
+        sys.stderr.write(f"\n[PermissionPrompt.on_key] 🔥 KEY='{event.key}' is_active={self.is_active} focused={self.has_focus} 🔥\n")
+        sys.stderr.flush()
+
         if not self.is_active:
+            sys.stderr.write(f"[PermissionPrompt.on_key] BLOCKED - widget not active!\n")
+            sys.stderr.flush()
             return
 
         key = event.key
@@ -231,9 +251,14 @@ class PermissionPrompt(Widget):
 
     def show(self) -> None:
         """Activate the prompt"""
+        import sys
+        sys.stderr.write(f"\n[PermissionPrompt.show] 🔥 ACTIVATING WIDGET 🔥\n")
+        sys.stderr.flush()
         self.is_active = True
         self.selected_option = 0
         self.refresh()
+        sys.stderr.write(f"[PermissionPrompt.show] ✅ Widget activated: is_active={self.is_active}\n")
+        sys.stderr.flush()
 
     def hide(self) -> None:
         """Deactivate the prompt"""

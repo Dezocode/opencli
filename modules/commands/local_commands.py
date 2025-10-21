@@ -13,7 +13,7 @@ from ..permission_buffer_manager import get_permission_buffer_manager
 # /local - Local model setup
 # ============================================================================
 
-async def local_setup_prompt(app, session, registration, context):
+def local_setup_prompt(app, session, registration, context):
     """Interactive prompt for /local command"""
 
     prompt_data = {
@@ -43,9 +43,7 @@ async def local_setup_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def local_setup(app, session, **context):

@@ -14,7 +14,6 @@ from ..agent_manager import AgentManager
 
 # SDK-compliant imports only
 from ..permission_prompt import PermissionResponse
-from ..permission_buffer_manager import get_permission_buffer_manager
 
 
 def _load_agent_manager(session) -> Optional[AgentManager]:
@@ -30,11 +29,11 @@ def _load_agent_manager(session) -> Optional[AgentManager]:
         return None
 
 
-# ============================================================================
+# ============================================================================ 
 # /agents - List available agents
-# ============================================================================
+# ============================================================================ 
 
-async def list_agents_prompt(app, session, registration, context):
+def list_agents_prompt(app, session, registration, context):
     """Interactive prompt for /agents command"""
 
     agent_manager = _load_agent_manager(session)
@@ -71,9 +70,7 @@ async def list_agents_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def list_agents(app, session, **context):
@@ -84,7 +81,6 @@ async def list_agents(app, session, **context):
         app.write("[red]Agent system is not configured on this installation.[/red]\n\n")
         return
 
-    # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
     if not prompt_data:
         app.write("[yellow]No selection made[/yellow]\n")
@@ -99,7 +95,6 @@ async def list_agents(app, session, **context):
 
     current = getattr(session, "current_agent", agent_manager.default_agent)
 
-    # Execute based on selection
     if action == 'view':
         app.write("[bold cyan]Available Agents[/bold cyan]\n")
         for name, agent in sorted(agent_manager.agents.items()):
@@ -126,35 +121,31 @@ async def list_agents(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# ============================================================================ 
 # /agent - Switch to specific agent
-# ============================================================================
+# ============================================================================ 
 
-async def set_agent_prompt(app, session, registration, context):
+def set_agent_prompt(app, session, registration, context):
     """Interactive prompt for /agent command"""
 
     agent_manager = _load_agent_manager(session)
     if not agent_manager:
-        return None  # Will be handled in main handler
+        return None
 
-    # Get agent name from context (could be from args or specific command like /agent-assistant)
     agent_name = context.get('args', '').strip().lower()
     if not agent_name:
-        # Try to get from registration name (for specific agent commands)
         reg_name = registration.name if hasattr(registration, 'name') else ''
         if reg_name.startswith('/agent-'):
             agent_name = reg_name.replace('/agent-', '')
 
     if not agent_name or agent_name not in agent_manager.agents:
-        return None  # Will show error in main handler
+        return None
 
     current = getattr(session, "current_agent", agent_manager.default_agent)
 
-    # If already on this agent, skip permission
     if current == agent_name:
-        return None  # Will show "already using" message in main handler
+        return None
 
-    # Get agent descriptions
     current_agent = agent_manager.agents.get(current)
     new_agent = agent_manager.agents.get(agent_name)
     current_desc = current_agent.system_prompt.splitlines()[0] if current_agent and current_agent.system_prompt else "Default assistant"
@@ -183,9 +174,7 @@ async def set_agent_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def set_agent(app, session, agent_name: str):
@@ -204,29 +193,25 @@ async def set_agent(app, session, agent_name: str):
 
     current = getattr(session, "current_agent", agent_manager.default_agent)
 
-    # If already on this agent, show message
     if current == agent_name:
         app.write(f"[yellow]Already using agent[/yellow] [cyan]{agent_name}[/cyan]\n\n")
         return
 
-    # Execute - switch agent (permission already checked via custom_prompt_func)
     session.current_agent = agent_name
     app.write(f"[green]✓ Active agent set to[/green] [cyan]{agent_name}[/cyan]\n\n")
 
 
-# ============================================================================
+# ============================================================================ 
 # /agent - Main agent command (with optional args)
-# ============================================================================
+# ============================================================================ 
 
-async def agent_main_prompt(app, session, registration, context):
+def agent_main_prompt(app, session, registration, context):
     """Interactive prompt for /agent command - delegates to list or set"""
     args = context.get('args', '').strip()
     if not args:
-        # No args = list agents
-        return await list_agents_prompt(app, session, registration, context)
+        return list_agents_prompt(app, session, registration, context)
     else:
-        # Has args = set agent
-        return await set_agent_prompt(app, session, registration, context)
+        return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_main(app, session, **context):
@@ -238,75 +223,68 @@ async def agent_main(app, session, **context):
     await set_agent(app, session, args)
 
 
-# ============================================================================
+# ============================================================================ 
 # Specific agent commands - each with their own prompt function
-# ============================================================================
+# ============================================================================ 
 
-async def agent_assistant_prompt(app, session, registration, context):
+def agent_assistant_prompt(app, session, registration, context):
     """Prompt for /agent assistant command"""
-    # Inject agent name into context for set_agent_prompt
     context = {**context, 'args': 'assistant'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_assistant(app, session, **context):
     await set_agent(app, session, "assistant")
 
-
-async def agent_debugger_prompt(app, session, registration, context):
+def agent_debugger_prompt(app, session, registration, context):
     """Prompt for /agent debugger command"""
     context = {**context, 'args': 'debugger'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_debugger(app, session, **context):
     await set_agent(app, session, "debugger")
 
-
-async def agent_reviewer_prompt(app, session, registration, context):
+def agent_reviewer_prompt(app, session, registration, context):
     """Prompt for /agent reviewer command"""
     context = {**context, 'args': 'reviewer'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_reviewer(app, session, **context):
     await set_agent(app, session, "reviewer")
 
-
-async def agent_refactor_prompt(app, session, registration, context):
+def agent_refactor_prompt(app, session, registration, context):
     """Prompt for /agent refactor command"""
     context = {**context, 'args': 'refactor'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_refactor(app, session, **context):
     await set_agent(app, session, "refactor")
 
-
-async def agent_tester_prompt(app, session, registration, context):
+def agent_tester_prompt(app, session, registration, context):
     """Prompt for /agent tester command"""
     context = {**context, 'args': 'tester'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_tester(app, session, **context):
     await set_agent(app, session, "tester")
 
-
-async def agent_documenter_prompt(app, session, registration, context):
+def agent_documenter_prompt(app, session, registration, context):
     """Prompt for /agent documenter command"""
     context = {**context, 'args': 'documenter'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_documenter(app, session, **context):
     await set_agent(app, session, "documenter")
 
-
-async def agent_architect_prompt(app, session, registration, context):
+def agent_architect_prompt(app, session, registration, context):
     """Prompt for /agent architect command"""
     context = {**context, 'args': 'architect'}
-    return await set_agent_prompt(app, session, registration, context)
+    return set_agent_prompt(app, session, registration, context)
 
 
 async def agent_architect(app, session, **context):

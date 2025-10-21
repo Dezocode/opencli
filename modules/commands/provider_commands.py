@@ -25,7 +25,7 @@ def _get_model_manager():
 # /providers - Manage API providers
 # ============================================================================
 
-async def provider_manage_prompt(app, session, registration, context):
+def provider_manage_prompt(app, session, registration, context):
     """Interactive prompt for /providers command"""
 
     manager = _get_model_manager()
@@ -57,9 +57,7 @@ async def provider_manage_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def provider_manage(app, session, **context):
@@ -131,10 +129,10 @@ async def provider_manage(app, session, **context):
 # /providers list - Alias for /providers
 # ============================================================================
 
-async def provider_list_prompt(app, session, registration, context):
+def provider_list_prompt(app, session, registration, context):
     """Interactive prompt for /providers list command"""
     # Use same prompt as provider_manage
-    return await provider_manage_prompt(app, session, registration, context)
+    return provider_manage_prompt(app, session, registration, context)
 
 
 async def provider_list(app, session, **context):
@@ -146,7 +144,7 @@ async def provider_list(app, session, **context):
 # /providers add - Add or update provider API key
 # ============================================================================
 
-async def provider_add_prompt(app, session, registration, context):
+def provider_add_prompt(app, session, registration, context):
     """Interactive prompt for /providers add command"""
 
     args = (context.get("args") or "").strip()
@@ -187,9 +185,7 @@ async def provider_add_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def provider_add(app, session, **context):
@@ -233,7 +229,7 @@ async def provider_add(app, session, **context):
 # /providers add ollama - Configure Ollama provider
 # ============================================================================
 
-async def provider_add_ollama_prompt(app, session, registration, context):
+def provider_add_ollama_prompt(app, session, registration, context):
     """Interactive prompt for /providers add ollama command"""
 
     prompt_data = {
@@ -257,9 +253,7 @@ async def provider_add_ollama_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def provider_add_ollama(app, session, **context):
@@ -289,7 +283,7 @@ async def provider_add_ollama(app, session, **context):
 # /providers remove - Remove provider API key
 # ============================================================================
 
-async def provider_remove_prompt(app, session, registration, context):
+def provider_remove_prompt(app, session, registration, context):
     """Interactive prompt for /providers remove command"""
 
     provider_id = (context.get("args") or "").strip()
@@ -329,9 +323,7 @@ async def provider_remove_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def provider_remove(app, session, **context):

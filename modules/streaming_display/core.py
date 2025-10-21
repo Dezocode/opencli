@@ -76,18 +76,22 @@ class StreamingDisplay(Static):
     @property
     def text_selection(self) -> TextSelection:
         return self._text_selection
-        
-    @property 
+
+    @property
     def markdown_processor(self) -> MarkdownProcessor:
         return self._markdown_processor
-        
+
     @property
     def buffer_manager(self) -> BufferManager:
         return self._buffer_manager
-        
+
     @property
     def mouse_handler(self) -> MouseHandler:
         return self._mouse_handler
+
+    def render(self) -> RenderableType:
+        """Render the display content"""
+        return self.content
 
     def write_stream(self, text: str) -> None:
         """Accumulate streaming text silently - display handled by buffer status"""
@@ -147,7 +151,11 @@ class StreamingDisplay(Static):
 
     def write_line(self, text: str, style: str = None) -> None:
         """Write a complete line to the display"""
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write(f"[StreamingDisplay.write_line] Writing: {text[:50]}...\n")
         self.write(text + "\n", style)
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write(f"[StreamingDisplay.write_line] content_lines now has {len(self.content_lines)} lines\n")
 
     def clear(self) -> None:
         """Clear all content from the display"""
@@ -240,17 +248,26 @@ class StreamingDisplay(Static):
     # Internal methods
     def _rebuild_display(self) -> None:
         """Rebuild the display content with all overlays"""
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write(f"[StreamingDisplay._rebuild_display] content_lines={len(self.content_lines)} lines\n")
+
         if not self.content_lines:
             display_content = Text("")
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[StreamingDisplay._rebuild_display] NO CONTENT LINES - setting empty Text\n")
         else:
             # Apply text selection highlighting
             highlighted_lines = self._text_selection.apply_selection_highlight(self.content_lines)
-            
+
             # Combine all lines
             display_content = Text()
             for line in highlighted_lines:
                 display_content.append(line)
                 display_content.append("\n")
+
+            with open('/tmp/tui-trace.log', 'a') as f:
+                f.write(f"[StreamingDisplay._rebuild_display] Built display_content with {len(highlighted_lines)} lines\n")
+                f.write(f"[StreamingDisplay._rebuild_display] First 100 chars: {str(display_content)[:100]}\n")
 
         # Add overlays in order
         overlay_order = self._buffer_manager.get_overlay_render_order()
@@ -268,7 +285,12 @@ class StreamingDisplay(Static):
                     display_content.append(prompt_content)
                     display_content.append("\n")
 
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write(f"[StreamingDisplay._rebuild_display] Final content length: {len(str(display_content))}\n")
         self.content = display_content
+        self.refresh()  # Force Textual to re-render
+        with open('/tmp/tui-trace.log', 'a') as f:
+            f.write(f"[StreamingDisplay._rebuild_display] Called refresh()\n")
 
     def _scroll_to_bottom(self) -> None:
         """Scroll to bottom of content"""

@@ -52,7 +52,7 @@ class WriteQueue:
             if write_type == "direct":
                 # Direct write
                 self.app.write(content, **kwargs)
-                await asyncio.sleep(0)  # Yield
+                await asyncio.sleep(0.01)  # 10ms yield - prevents busy-waiting
 
             elif write_type == "markdown":
                 # Render as markdown
@@ -79,7 +79,7 @@ class WriteQueue:
                 except:
                     self.app.write(content)
 
-                await asyncio.sleep(0)  # Yield
+                await asyncio.sleep(0.01)  # 10ms yield - prevents busy-waiting
 
             self._queue.task_done()
 

@@ -77,8 +77,25 @@ class PermissionManager:
             True if approved, False if denied
         """
 
+        # DEBUG LOGGING
+        import sys
+        sys.stderr.write(f"\n{'='*80}\n")
+        sys.stderr.write(f"[PermissionManager.check_permission] ENTERED\n")
+        sys.stderr.write(f"{'='*80}\n")
+        sys.stderr.write(f"  registration.name: {registration.name}\n")
+        sys.stderr.write(f"  registration.type: {registration.type}\n")
+        sys.stderr.write(f"  registration.requires_approval: {registration.requires_approval}\n")
+        sys.stderr.write(f"  registration.risk_level: {registration.risk_level}\n")
+        sys.stderr.write(f"  app: {type(app) if app else None}\n")
+        sys.stderr.write(f"  session: {type(session) if session else None}\n")
+        sys.stderr.write(f"  context keys: {list(context.keys())}\n")
+        sys.stderr.flush()
+
         # Skip if doesn't require approval
         if not registration.requires_approval:
+            sys.stderr.write(f"[PermissionManager] ❌ SKIPPING - requires_approval=False\n")
+            sys.stderr.write(f"[PermissionManager] → Returning True (auto-approved)\n")
+            sys.stderr.flush()
             return True
 
         # Check if permanently allowed
@@ -280,15 +297,15 @@ class PermissionManager:
         """
         from ..permission_prompt import PermissionResponse
 
-        # Check if command provides custom prompt function
-        custom_prompt_func = registration.metadata.get('custom_prompt_func')
-        if custom_prompt_func:
-            # Let handler provide custom prompt with configuration options
-            prompt_data = await custom_prompt_func(app, session, registration, context)
-            # Custom prompts handle their own approval logic
-            # Store data in context for handler to use
-            context['_custom_prompt_data'] = prompt_data
-            return True  # Approved, handler will manage the interaction
+        import sys
+        sys.stderr.write(f"\n[PermissionManager._show_permission_prompt] ENTERED\n")
+        sys.stderr.write(f"[PermissionManager] registration.name = {registration.name}\n")
+        sys.stderr.write(f"[PermissionManager] registration.metadata = {registration.metadata}\n")
+        sys.stderr.write(f"[PermissionManager] registration.metadata type = {type(registration.metadata)}\n")
+        sys.stderr.flush()
+
+        # NOTE: custom_prompt_func is now handled by _handle_command_options in executor.py
+        # Permission manager only handles traditional permission approval, not command options
 
         # Build default prompt data with PROPER MARKDOWN FORMATTING
         prompt_data = {
@@ -317,6 +334,19 @@ class PermissionManager:
             ]
         }
 
+        # Check if this is CLI mode (no TUI app available)
+        is_cli_mode = not hasattr(app, "query_one") or app.query_one("#prompt-input") is None
+
+        if is_cli_mode:
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] CLI mode detected, using CLI prompt\n")
+            sys.stderr.flush()
+            # In CLI mode, show interactive terminal prompt
+            return await self._show_cli_permission_prompt(prompt_data, context)
+
+        # TUI mode: Use unified permission manager
+        sys.stderr.write(f"[PermissionManager._show_permission_prompt] TUI mode detected, using unified manager\n")
+        sys.stderr.flush()
+
         # Show in permission buffer - ROBUST ERROR HANDLING
         try:
             import sys
@@ -324,23 +354,31 @@ class PermissionManager:
             sys.stderr.flush()
 
             print(f"[PermissionManager] Showing permission prompt for {registration.name}")
-            from ..permission_buffer_manager import get_permission_buffer_manager
+            from ..permissions import get_unified_permission_manager
 
             sys.stderr.write(f"[PermissionManager._show_permission_prompt] Getting buffer manager\n")
             sys.stderr.flush()
 
-            buffer_manager = get_permission_buffer_manager()
+            unified_manager = get_unified_permission_manager()
 
-            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Got buffer_manager: {type(buffer_manager)}\n")
-            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Has request_permission: {hasattr(buffer_manager, 'request_permission')}\n")
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Got unified_manager: {type(unified_manager)}\n")
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Has request_permission: {hasattr(unified_manager, 'request_permission')}\n")
             sys.stderr.flush()
 
-            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Calling buffer_manager.request_permission()\n")
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] Calling unified_manager.request_permission()\n")
             sys.stderr.flush()
 
-            option = await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+            response_data = await unified_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
-            sys.stderr.write(f"[PermissionManager._show_permission_prompt] request_permission() returned: {option}\n")
+            # Convert unified manager response to option format
+            response = response_data.get("response")
+            if response in ["allow_once", "allow_session", "allow_always"]:
+                option = {"response": response, "data": response_data.get("data", {})}
+            else:
+                option = {"response": "cancel", "data": {}}
+
+
+            sys.stderr.write(f"[PermissionManager._show_permission_prompt] request_permission() returned: {response_data}\n")
             sys.stderr.flush()
 
             if not option:
@@ -433,6 +471,84 @@ class PermissionManager:
         lines.append("Proceed?")
 
         return "\n".join(lines)
+
+    async def _show_cli_permission_prompt(self, prompt_data: Dict[str, Any], context: Dict[str, Any]) -> bool:
+        """
+        Show interactive permission prompt in CLI terminal mode.
+
+        Displays the prompt data and waits for user input via stdin.
+        """
+        import sys
+        from ..permissions import PermissionResponse
+
+        print(f"\n{'='*60}")
+        print(f"🔐 {prompt_data.get('title', 'Permission Required')}")
+        print(f"{'='*60}")
+
+        # Display message
+        message = prompt_data.get('message', 'Permission required')
+        print(f"\n{message}\n")
+
+        # Display options
+        options = prompt_data.get('options', [])
+        if not options:
+            print("❌ No options available")
+            return False
+
+        print("Options:")
+        for i, option in enumerate(options, 1):
+            print(f"  {i}. {option.get('text', 'Unknown option')}")
+
+        print(f"\n{'='*60}")
+
+        # Get user input
+        while True:
+            try:
+                choice = input("Enter your choice (number): ").strip()
+
+                if not choice:
+                    print("❌ Please enter a number")
+                    continue
+
+                try:
+                    choice_num = int(choice)
+                except ValueError:
+                    print("❌ Please enter a valid number")
+                    continue
+
+                if choice_num < 1 or choice_num > len(options):
+                    print(f"❌ Please enter a number between 1 and {len(options)}")
+                    continue
+
+                # Get selected option
+                selected_option = options[choice_num - 1]
+
+                print(f"✅ Selected: {selected_option.get('text')}")
+
+                # Store user selection in context
+                context['_custom_prompt_data'] = selected_option
+
+                # Check response type (compare with string values)
+                response = selected_option.get('response')
+                if response == 'allow_once':
+                    return True
+                elif response == 'allow_always':
+                    # For CLI mode, we can't permanently allow, so treat as once
+                    print("ℹ️  Note: CLI mode allows once per session")
+                    return True
+                elif response == 'allow_session':
+                    # Session allow is the same as once in CLI
+                    return True
+                else:
+                    # CANCEL or other rejection
+                    return False
+
+            except KeyboardInterrupt:
+                print("\n❌ Operation cancelled by user")
+                return False
+            except EOFError:
+                print("\n❌ Input stream closed")
+                return False
 
     # ========================================================================
     # PERSISTENCE

@@ -47,7 +47,7 @@ async def _run_command(cmd: list[str], cwd: Path) -> str:
 # /diff - Git status overview
 # ============================================================================
 
-async def diff_overview_prompt(app, session, registration, context):
+def diff_overview_prompt(app, session, registration, context):
     """Interactive prompt for /diff command"""
 
     cwd = _session_cwd(session)
@@ -78,9 +78,7 @@ async def diff_overview_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def diff_overview(app, session, **context):
@@ -123,7 +121,7 @@ async def diff_overview(app, session, **context):
 # /diff git - Unified diff vs HEAD
 # ============================================================================
 
-async def diff_git_prompt(app, session, registration, context):
+def diff_git_prompt(app, session, registration, context):
     """Interactive prompt for /diff git command"""
 
     cwd = _session_cwd(session)
@@ -154,9 +152,7 @@ async def diff_git_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def diff_git(app, session, **context):
@@ -199,7 +195,7 @@ async def diff_git(app, session, **context):
 # /diff worktree - Worktree comparison (placeholder)
 # ============================================================================
 
-async def diff_worktree_prompt(app, session, registration, context):
+def diff_worktree_prompt(app, session, registration, context):
     """Interactive prompt for /diff worktree command"""
 
     cwd = _session_cwd(session)
@@ -225,9 +221,7 @@ async def diff_worktree_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def diff_worktree(app, session, **context):

@@ -56,7 +56,7 @@ class ResponseGeneratorMixin:
                     elif chunk.get("type") == "error":
                         stream_display.finish_stream()
                         self.write(f"[red]Error: {chunk['error']}[/red]\n")
-                        return
+                        raise Exception(chunk['error'])
                     elif chunk.get("type") == "done":
                         break
 

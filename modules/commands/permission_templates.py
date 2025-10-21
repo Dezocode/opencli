@@ -1,4 +1,40 @@
 """
+DEPRECATED - Use SDK-Compliant Command Pattern Instead
+
+This file has been replaced by the SDK-compliant command pattern where each
+command file implements its own `*_prompt()` and `*()` handler functions.
+
+NEW PATTERN:
+Each command now has two functions:
+1. {command}_prompt(app, session, registration, context) -> prompt_data
+   - Creates interactive permission buffer prompt
+   - Returns prompt_data dict with options
+   - Called by PermissionManager before execution
+
+2. {command}(app, session, **context) -> None
+   - Executes command after user approval
+   - Reads user selection from context['_custom_prompt_data']
+   - No redundant permission checks
+
+EXAMPLE:
+See modules/commands/basic_commands.py for reference implementation:
+- show_help_prompt() - creates interactive buffer prompt
+- show_help() - executes based on user selection
+
+MIGRATION:
+Instead of using CommandPermissionTemplate.create_*_prompt(), commands now:
+1. Define their own {command}_prompt() function
+2. Register with custom_prompt_func parameter in command_registry.py
+3. PermissionManager calls the prompt function automatically
+4. Handler reads from context['_custom_prompt_data']
+
+Date Deprecated: 2025-10-18
+Replaced By: SDK-compliant {command}_prompt() pattern in command files
+
+====================================================================
+LEGACY CODE BELOW - DO NOT USE
+====================================================================
+
 Permission Buffer Templates for Commands
 
 All commands must create permission requests using these templates.

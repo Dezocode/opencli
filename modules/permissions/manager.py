@@ -433,8 +433,7 @@ class PermissionBufferManager:
         # Create task for this permission request
         task = _PromptTask(
             prompt_data=prompt_data,
-            priority=PromptPriority.NORMAL,
-            auto_dismiss_after=timeout
+            priority=PromptPriority.NORMAL
         )
         task.future = asyncio.Future()
 

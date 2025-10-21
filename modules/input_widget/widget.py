@@ -159,16 +159,24 @@ class MultiLineInput(Widget):
 
     def watch_value(self, old_value: str, new_value: str) -> None:
         """Update when value changes - detect slash commands"""
+        # Debug log
+        with open('/tmp/opencli_keys.log', 'a') as f:
+            f.write(f"[watch_value] CALLED! old='{old_value}' new='{new_value}'\n")
+
         # Ensure cursor is within bounds
         if self.cursor_position > len(new_value):
             self.cursor_position = len(new_value)
 
         # Detect slash command input
         if new_value.startswith('/'):
+            with open('/tmp/opencli_keys.log', 'a') as f:
+                f.write(f"[watch_value] SLASH DETECTED! Posting ShowCommandSuggestions\n")
             self.suggestions_active = True
             self.post_message(ShowCommandSuggestions(new_value))
         else:
             if self.suggestions_active:
+                with open('/tmp/opencli_keys.log', 'a') as f:
+                    f.write(f"[watch_value] Hiding suggestions\n")
                 self.suggestions_active = False
                 self.post_message(HideCommandSuggestions())
 

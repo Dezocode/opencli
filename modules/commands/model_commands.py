@@ -13,7 +13,7 @@ from ..permission_buffer_manager import get_permission_buffer_manager
 # /model list - List available models
 # ============================================================================
 
-async def model_list_prompt(app, session, registration, context):
+def model_list_prompt(app, session, registration, context):
     """Interactive prompt for /model list command"""
 
     # Import model manager
@@ -53,9 +53,7 @@ async def model_list_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def model_list(app, session, **context):
@@ -126,7 +124,7 @@ async def model_list(app, session, **context):
 # /model switch - Switch to specific model
 # ============================================================================
 
-async def model_switch_prompt(app, session, registration, context):
+def model_switch_prompt(app, session, registration, context):
     """Interactive prompt for /model switch command"""
 
     # Get model ID from args
@@ -157,9 +155,7 @@ async def model_switch_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def model_switch(app, session, model_name=None, **context):
@@ -208,7 +204,7 @@ async def model_switch(app, session, model_name=None, **context):
 # /model providers - List registered providers
 # ============================================================================
 
-async def model_list_providers_prompt(app, session, registration, context):
+def model_list_providers_prompt(app, session, registration, context):
     """Interactive prompt for /model providers command"""
 
     try:
@@ -247,9 +243,7 @@ async def model_list_providers_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def model_list_providers(app, session, **context):
@@ -306,7 +300,7 @@ async def model_list_providers(app, session, **context):
 # /model r1, /model r2 - Switch to recent models
 # ============================================================================
 
-async def model_switch_recent_prompt(app, session, registration, context):
+def model_switch_recent_prompt(app, session, registration, context):
     """Interactive prompt for /model r1 or /model r2 commands"""
 
     # Determine index from registration name or context
@@ -358,9 +352,7 @@ async def model_switch_recent_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def model_switch_recent(app, session, index: int):

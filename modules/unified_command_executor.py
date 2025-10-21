@@ -1,4 +1,32 @@
 """
+DEPRECATED - Use Registry-Driven Architecture Instead
+
+This file has been replaced by the registry-driven command system:
+
+NEW SYSTEM:
+- modules/commands/registry.py - Central registration with SDK enforcement
+- modules/execution/unified_executor.py - UnifiedExecutionSystem
+- modules/execution/registry.py - ExecutionRegistry with metadata support
+- modules/execution/permission_manager.py - Permission handling
+
+MIGRATION:
+All commands now register via modules/commands/command_registry.py with:
+- custom_prompt_func: SDK-compliant interactive prompt function
+- handler: Execution function that reads from context['_custom_prompt_data']
+
+The new system eliminates hardcoded permission templates and provides:
+1. Registry-driven command metadata
+2. SDK-validated handlers
+3. Unified permission buffer integration
+4. No duplicate permission checks
+
+Date Deprecated: 2025-10-18
+Replaced By: modules/execution/unified_executor.py + command_registry.py
+
+====================================================================
+LEGACY CODE BELOW - DO NOT USE
+====================================================================
+
 Unified Command Executor - Permission-First Flow
 
 ALL commands flow through this system:

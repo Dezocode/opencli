@@ -51,12 +51,12 @@ class ValidationManager:
         for i, option in enumerate(options):
             if not isinstance(option, dict):
                 return False, f"Option {i+1} must be a dictionary"
-            
-            # Option label validation
-            label = option.get('label')
+
+            # Option label validation - accept both 'label' and 'text' for backwards compatibility
+            label = option.get('label') or option.get('text')
             if not label or not isinstance(label, str) or not label.strip():
-                return False, f"Option {i+1} must have a non-empty label"
-            
+                return False, f"Option {i+1} must have a non-empty label or text"
+
             if len(label) > 100:
                 return False, f"Option {i+1} label must be 100 characters or less"
             

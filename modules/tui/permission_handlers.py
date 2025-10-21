@@ -370,12 +370,38 @@ class PermissionHandlers:
     def _show_permission_prompt(self, prompt_data: dict) -> None:
         """Show permission prompt inside MultiLineInput"""
         try:
-            prompt_input = self.query_one("#prompt-input")
+            import sys
+            sys.stderr.write(f"[TUI._show_permission_prompt] 🔥 SETTING PERMISSION PROMPT DATA 🔥\n")
+            sys.stderr.flush()
+
+            prompt_input = self.query_one("#prompt-input", MultiLineInput)
             prompt_data['selected'] = 0
             prompt_input.permission_prompt_data = prompt_data
+
+            # CRITICAL: Force focus to the input widget for permission navigation
+            sys.stderr.write(f"[TUI._show_permission_prompt] Forcing focus to prompt_input\n")
+            sys.stderr.flush()
+            prompt_input.focus()
+
+            # Force refresh to show the permission buffer immediately
             prompt_input.refresh()
-        except Exception:
-            pass  # Silently fail if permission prompt can't be shown
+            self.refresh()
+
+            sys.stderr.write(f"[TUI._show_permission_prompt] ✅ Permission prompt displayed and focused\n")
+            sys.stderr.flush()
+
+            # Debug: Show what the permission buffer looks like
+            rendered = prompt_input.render()
+            preview = str(rendered).replace('\n', '\\n')[:200]
+            sys.stderr.write(f"[TUI._show_permission_prompt] Rendered buffer preview: {preview}...\n")
+            sys.stderr.flush()
+
+        except Exception as e:
+            import sys
+            import traceback
+            sys.stderr.write(f"[TUI._show_permission_prompt] ❌ Exception: {e}\n")
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
 
     def _clear_permission_prompt(self) -> None:
         """Clear permission prompt from MultiLineInput"""

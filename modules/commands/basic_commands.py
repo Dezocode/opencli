@@ -41,30 +41,19 @@ def _feature_flags(session) -> Dict[str, bool]:
     }
 
 
-# ============================================================================
+# =============================================================================
 # /help - Display available commands
 # ============================================================================
 
-async def show_help_prompt(app, session, registration, context):
+def show_help_prompt(app, session, registration, context):
     """Interactive prompt for /help command - shows options in buffer"""
-
-    # Gather command data from ExecutionRegistry
-    from ..execution.registry import get_execution_registry
-    registry = get_execution_registry()
-
-    # Count commands by category
-    command_count = len(registry.commands)
-    categories = set()
-    for cmd_registration in registry.commands.values():
-        categories.add(cmd_registration.category.value if hasattr(cmd_registration.category, 'value') else str(cmd_registration.category))
 
     # Build interactive prompt
     prompt_data = {
         'title': 'System: /help',
-        'message': f"""# Command Help
+        'message': """# Command Help
 
-**Total Commands:** {command_count}
-**Categories:** {', '.join(sorted(categories))}
+View all available OpenCLI commands and their descriptions.
 
 **Select viewing option:**""",
         'options': [
@@ -90,29 +79,31 @@ async def show_help_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def show_help(app, session, **context):
     """Display categorized command overview - SDK COMPLIANT"""
 
-    # Get user selection from buffer interaction
-    prompt_data = context.get('_custom_prompt_data', {})
-    if not prompt_data:
-        app.write("[yellow]No selection made[/yellow]\n")
+    # Get user selection from permission buffer interaction (ALL commands use this now)
+    command_selection = context.get('_command_selection', {})
+    if not command_selection:
+        if app:
+            app.write("[yellow]No selection made[/yellow]\n")
         return
 
-    user_selection = prompt_data.get('data', {})
+    user_selection = command_selection.get('data', {})
     action = user_selection.get('action')
 
     if not action:
         app.write("[yellow]Command cancelled[/yellow]\n")
         return
 
-    # Get command data from ExecutionRegistry
-    from ..execution.registry import get_execution_registry
-    registry = get_execution_registry()
+    # Get command data from ExecutionRegistry (passed via context)
+    registry = context.get('_registry')
+    if not registry:
+        app.write("[red]Error: Registry not available[/red]\n")
+        return
 
     # Build categories
     categories: Dict[str, list] = {}
@@ -143,11 +134,11 @@ async def show_help(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# =============================================================================
 # /status - Show session information
 # ============================================================================
 
-async def show_status_prompt(app, session, registration, context):
+def show_status_prompt(app, session, registration, context):
     """Interactive prompt for /status command"""
 
     # Gather status data
@@ -184,8 +175,7 @@ async def show_status_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def show_status(app, session, **context):
@@ -241,11 +231,11 @@ async def show_status(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# =============================================================================
 # /clear - Clear chat history (DESTRUCTIVE)
 # ============================================================================
 
-async def clear_history_prompt(app, session, registration, context):
+def clear_history_prompt(app, session, registration, context):
     """Interactive prompt for /clear command - DESTRUCTIVE"""
 
     # Count messages
@@ -278,8 +268,7 @@ This will permanently delete:
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def clear_history(app, session, **context):
@@ -309,11 +298,11 @@ async def clear_history(app, session, **context):
     app.write("[yellow]Chat history cleared for the current session.[/yellow]\n\n")
 
 
-# ============================================================================
+# =============================================================================
 # /bashes - List background tasks
 # ============================================================================
 
-async def list_background_tasks_prompt(app, session, registration, context):
+def list_background_tasks_prompt(app, session, registration, context):
     """Interactive prompt for /bashes command"""
 
     tasks: Iterable = getattr(session, "background_tasks", [])
@@ -341,8 +330,7 @@ async def list_background_tasks_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def list_background_tasks(app, session, **context):
@@ -375,24 +363,18 @@ async def list_background_tasks(app, session, **context):
     app.write("\n")
 
 
-# ============================================================================
+# =============================================================================
 # /commands - Show registered commands
 # ============================================================================
 
-async def show_command_overview_prompt(app, session, registration, context):
+def show_command_overview_prompt(app, session, registration, context):
     """Interactive prompt for /commands"""
-
-    # Get command count from ExecutionRegistry
-    from ..execution.registry import get_execution_registry
-    registry = get_execution_registry()
-
-    command_count = len(registry.commands)
 
     prompt_data = {
         'title': 'System: /commands',
-        'message': f"""# Command Registry
+        'message': """# Command Registry
 
-**Total Commands:** {command_count}
+View all registered commands in the execution system.
 
 **Select action:**""",
         'options': [
@@ -413,8 +395,7 @@ async def show_command_overview_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def show_command_overview(app, session, **context):
@@ -433,9 +414,11 @@ async def show_command_overview(app, session, **context):
         app.write("[yellow]Command cancelled[/yellow]\n")
         return
 
-    # Get commands from ExecutionRegistry
-    from ..execution.registry import get_execution_registry
-    registry = get_execution_registry()
+    # Get commands from ExecutionRegistry (passed via context)
+    registry = context.get('_registry')
+    if not registry:
+        app.write("[red]Error: Registry not available[/red]\n")
+        return
 
     commands = list(registry.commands.keys())
 
@@ -458,11 +441,11 @@ async def show_command_overview(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# =============================================================================
 # /permissions - Show stored permissions
 # ============================================================================
 
-async def show_permissions_prompt(app, session, registration, context):
+def show_permissions_prompt(app, session, registration, context):
     """Interactive prompt for /permissions"""
 
     # Get permission data from SDK PermissionManager
@@ -496,8 +479,7 @@ async def show_permissions_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def show_permissions(app, session, **context):
@@ -548,11 +530,11 @@ async def show_permissions(app, session, **context):
         app.write(f"[green]✓ Exported to {export_path}[/green]\n")
 
 
-# ============================================================================
+# =============================================================================
 # /exit and /quit - Exit application (DESTRUCTIVE)
 # ============================================================================
 
-async def exit_session_prompt(app, session, registration, context):
+def exit_session_prompt(app, session, registration, context):
     """Interactive prompt for /exit command - DESTRUCTIVE"""
 
     # Count session activity
@@ -585,8 +567,7 @@ This will terminate:
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return prompt_data
 
 
 async def exit_session(app, session, **context):
