@@ -379,3 +379,28 @@ Root cause identified through pure code reading and logical analysis.
 No testing required to understand the bug.
 Fix is clear and straightforward.
 
+---
+
+## FIX APPLIED
+
+**Date**: 2025-10-21  
+**Applied By**: GitHub Copilot Agent  
+**Branch**: copilot/fix-zombie-buffer-issues  
+**Commit**: a6fa873
+
+**Files Modified**:
+- modules/input_widget/widget.py:78-79 (commented out)
+- modules/multiline_input.py:132-133 (commented out)
+
+**Solution Used**: Solution 3 (recommended)
+- Removed auto-clear on focus loss
+- User must explicitly dismiss with ESC or selection
+- Messages posting also commented out
+- Explanatory comments added to code
+
+**CodeQL Security Scan**: ✅ PASSED (0 vulnerabilities)
+
+**Status**: RESOLVED ✅
+
+**Documentation**: See ZOMBIE_BUFFER_FIX_APPLIED.md for complete details
+
