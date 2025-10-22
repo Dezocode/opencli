@@ -100,6 +100,64 @@ class MultiLineInput(Widget):
         self._spin_task = None
         self.suggestions_active = False
 
+    def _watch_has_focus(self, has_focus: bool) -> None:
+        """
+        Override Textual's focus watcher to PREVENT focus loss during permission prompts
+        This is called BEFORE on_blur/on_focus, so we can BLOCK the focus change here
+        """
+        import sys
+        from ..focus_logger import log_focus_event
+
+        sys.stderr.write(f"\n[MultiLineInput._watch_has_focus] Focus changing: {self.has_focus} -> {has_focus}, permission={bool(self.permission_prompt_data)}\n")
+        sys.stderr.flush()
+
+        # ═══════════════════════════════════════════════════════════
+        # CRITICAL: PREVENT focus loss when permission is active
+        # ═══════════════════════════════════════════════════════════
+        if not has_focus and self.permission_prompt_data:
+            sys.stderr.write(f"[MultiLineInput._watch_has_focus] 🔒 BLOCKING FOCUS LOSS - Permission active!\n")
+            sys.stderr.flush()
+
+            log_focus_event(
+                source_file="input_widget/widget.py",
+                source_function="_watch_has_focus",
+                event_type="FOCUS_LOCK",
+                widget_type="MultiLineInput",
+                extra_info="BLOCKED focus loss - permission active"
+            )
+
+            # FORCE focus back to this widget
+            if hasattr(self, 'app') and self.app:
+                self.app.set_focus(self)
+                sys.stderr.write(f"[MultiLineInput._watch_has_focus] ✓ Force re-focused via app.set_focus()\n")
+                sys.stderr.flush()
+            return  # DON'T call super() - we're blocking this focus change!
+
+        # Normal focus changes - allow them
+        super()._watch_has_focus(has_focus)
+
+    def focus(self, scroll_visible: bool = True) -> None:
+        """Override focus() to maintain focus lock during permission prompts"""
+        import sys
+        from ..focus_logger import log_focus_event
+
+        # If THIS widget has permission active, ALLOW focus
+        if self.permission_prompt_data:
+            sys.stderr.write(f"[MultiLineInput.focus] PERMISSION ACTIVE - Allowing focus\n")
+            sys.stderr.flush()
+            log_focus_event(
+                source_file="input_widget/widget.py",
+                source_function="focus",
+                event_type="PERMISSION_ACTIVE",
+                widget_type="MultiLineInput",
+                extra_info="Allowing focus - permission active"
+            )
+            super().focus(scroll_visible=scroll_visible)
+            return
+
+        # Normal focus behavior
+        super().focus(scroll_visible=scroll_visible)
+
     def on_focus(self) -> None:
         """Track when widget receives focus"""
         import sys
