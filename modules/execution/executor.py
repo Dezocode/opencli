@@ -249,7 +249,10 @@ class ExecutionSystem:
             'total_steps': len(steps)
         }
 
-        manager = get_permission_buffer_manager()
+# Use unified permission manager instead of deprecated permission_buffer_manager
+        from ..permissions import get_unified_permission_manager
+
+        manager = get_unified_permission_manager()
 
         base_prompt = {
             'title': f'{registration.category.value.title()}: {registration.name}',
@@ -364,10 +367,10 @@ class ExecutionSystem:
     ) -> bool:
         """Show permission prompt for individual step"""
 
-        # Use permission buffer manager (non-blocking)
-        from permission_buffer_manager import get_permission_buffer_manager
+        # Use unified permission manager (replaces deprecated permission_buffer_manager)
+        from ..permissions import get_unified_permission_manager
 
-        manager = get_permission_buffer_manager()
+        manager = get_unified_permission_manager()
 
         step_prompt = {
             'title': f'Continue with {step.title}?',

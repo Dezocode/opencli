@@ -519,8 +519,13 @@ class PermissionBufferManager:
             return {'response': 'timeout', 'reason': 'timeout_expired'}
 
 
-def get_permission_buffer_manager() -> PermissionBufferManager:
-    """Get singleton permission buffer manager instance"""
-    if not hasattr(get_permission_buffer_manager, '_instance'):
-        get_permission_buffer_manager._instance = PermissionBufferManager()
-    return get_permission_buffer_manager._instance
+def get_permission_buffer_manager():
+    """
+    Legacy compatibility wrapper - routes to unified permission manager
+
+    DO NOT use this for new code - use get_unified_permission_manager() instead.
+    This function exists only for backward compatibility with old code.
+    """
+    from . import get_unified_permission_manager
+    unified_manager = get_unified_permission_manager()
+    return unified_manager.get_buffer_manager()

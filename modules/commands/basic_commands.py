@@ -14,7 +14,7 @@ from typing import Dict, Iterable
 
 # SDK-compliant imports only
 from ..permission_prompt import PermissionResponse
-from ..permission_buffer_manager import get_permission_buffer_manager
+# Legacy import removed - using unified_permission_manager via SDK executor
 
 
 def _feature_flags(session) -> Dict[str, bool]:

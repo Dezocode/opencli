@@ -32,10 +32,12 @@ class MultiLineInput(Widget):
     is_spinning = reactive(False)
     spinner_frame = reactive(0)
 
-    permission_prompt_data = reactive(None)  # When set, takes FULL control
-    permission_selected_option = reactive(0)
+    # CRITICAL: layout=True is REQUIRED for validators/watchers to work!
+    # Without it, Textual doesn't call validate_* or watch_* methods
+    permission_prompt_data = reactive(None, layout=True)  # When set, takes FULL control
+    permission_selected_option = reactive(0, layout=True)
 
-    def validate_permission_prompt_data(self, value):
+    def validate_permission_prompt_data(self, value) -> dict | None:
         """Validate method - called when reactive property is set"""
         import sys
         widget_id = id(self)
@@ -568,7 +570,7 @@ class MultiLineInput(Widget):
         """React to frame changes"""
         pass  # Refresh handled by _spin()
 
-    def watch_permission_prompt_data(self, old_value, new_value) -> None:
+    def watch_permission_prompt_data(self, old_value: dict | None, new_value: dict | None) -> None:
         """React to permission prompt data changes - trigger layout update"""
         import sys
         sys.stderr.write(f"[MultiLineInput.watch_permission_prompt_data] old={old_value is not None}, new={new_value is not None}\n")
