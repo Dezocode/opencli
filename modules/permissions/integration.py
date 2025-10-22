@@ -19,6 +19,11 @@ class UnifiedPermissionManager:
     """
     
     def __init__(self):
+        # Instance tracking for verification (Phase 10)
+        import sys
+        sys.stderr.write(f"[INSTANCE] UnifiedPermissionManager created: {id(self)}\n")
+        sys.stderr.flush()
+        
         self._buffer_manager = PermissionBufferManager()
         self._risk_manager = RiskAssessmentManager()
         self._current_widget: Optional[PermissionPrompt] = None
@@ -92,6 +97,14 @@ class UnifiedPermissionManager:
         """Request permission with async waiting for response"""
         import asyncio
         import sys
+        import inspect
+
+        # Execution path tracing (Phase 11)
+        caller_frame = inspect.stack()[1]
+        caller_function = caller_frame.function
+        caller_file = caller_frame.filename.split('/')[-1] if '/' in caller_frame.filename else caller_frame.filename
+        sys.stderr.write(f"[PATH] request_permission called from: {caller_function} in {caller_file}\n")
+        sys.stderr.flush()
 
         sys.stderr.write(f"[UnifiedPermissionManager.request_permission] ENTERED\n")
         sys.stderr.flush()
