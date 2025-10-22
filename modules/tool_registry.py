@@ -279,9 +279,9 @@ class ToolRegistry:
         # Show in permission buffer
         prompt_input = self.app.query_one("#prompt-input")
         # Use permission buffer manager (non-blocking)
-        from permission_buffer_manager import get_permission_buffer_manager
+        from .permissions import get_unified_permission_manager
 
-        manager = get_permission_buffer_manager()
+        manager = get_unified_permission_manager().get_buffer_manager()
         self.session._current_tool_execution = permission.tool_name
 
         try:

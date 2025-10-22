@@ -4,7 +4,7 @@ Modular permission management with caching, analytics, and i18n support
 """
 
 # Export main components
-from .manager import PermissionBufferManager, get_permission_buffer_manager
+from .manager import PermissionBufferManager
 from .enums import PromptPriority, PromptState, SDKState, PermissionResponse
 from .task import _PromptTask, TaskQueue
 from .i18n import I18nManager
@@ -28,7 +28,6 @@ from .manager import PermissionBufferManager as PermissionBufferManager
 
 __all__ = [
     'PermissionBufferManager',
-    'get_permission_buffer_manager',
     'PromptPriority',
     'PromptState', 
     'SDKState',

@@ -11,7 +11,7 @@ from .execution.registry import RiskLevel
 
 # SDK-compliant imports only
 from .permission_prompt import PermissionResponse
-from .permission_buffer_manager import get_permission_buffer_manager
+from .permissions import get_unified_permission_manager
 
 
 # ============================================================================ 
@@ -42,7 +42,7 @@ async def docker_main_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -105,7 +105,7 @@ async def docker_ollama_setup_prompt(app, session, registration, context):
         ]
     }
 
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -211,7 +211,7 @@ async def docker_ollama_start_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -291,7 +291,7 @@ async def docker_ollama_stop_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -373,7 +373,7 @@ async def docker_status_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -470,7 +470,7 @@ async def docker_ps_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -556,7 +556,7 @@ async def docker_stats_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
@@ -650,7 +650,7 @@ def docker_ollama_status_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
+    buffer_manager = get_unified_permission_manager().get_buffer_manager()
     return buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
