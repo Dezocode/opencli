@@ -368,7 +368,7 @@ class PermissionManager:
             sys.stderr.write(f"[PermissionManager._show_permission_prompt] Calling unified_manager.request_permission()\n")
             sys.stderr.flush()
 
-            response_data = await unified_manager.request_permission(app, session, prompt_data, timeout=30.0)
+            response_data = await unified_manager.request_permission(app, session, prompt_data, timeout=None)
 
             # Convert unified manager response to option format
             response = response_data.get("response")

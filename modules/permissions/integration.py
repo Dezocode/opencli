@@ -78,7 +78,7 @@ class UnifiedPermissionManager:
             sys.stderr.flush()
             return False
 
-    async def request_permission(self, app, session, prompt_data: Dict[str, Any], timeout: float = 30.0) -> Dict[str, Any]:
+    async def request_permission(self, app, session, prompt_data: Dict[str, Any], timeout: float = None) -> Dict[str, Any]:
         """Request permission with async waiting for response"""
         import asyncio
         import sys
@@ -115,12 +115,19 @@ class UnifiedPermissionManager:
                 sys.stderr.flush()
                 return {'response': 'error', 'reason': 'failed_to_show'}
 
-            # Wait for the response with timeout
-            sys.stderr.write(f"[UnifiedPermissionManager.request_permission] Waiting for response (timeout={timeout}s)\n")
-            sys.stderr.flush()
-
+            # Wait for the response (with optional timeout)
             try:
-                result = await asyncio.wait_for(future, timeout=timeout)
+                if timeout is None:
+                    # NO TIMEOUT - Wait indefinitely for user response
+                    sys.stderr.write(f"[UnifiedPermissionManager.request_permission] Waiting for response (NO TIMEOUT - will wait indefinitely)\n")
+                    sys.stderr.flush()
+                    result = await future
+                else:
+                    # WITH TIMEOUT - Auto-dismiss after timeout
+                    sys.stderr.write(f"[UnifiedPermissionManager.request_permission] Waiting for response (timeout={timeout}s)\n")
+                    sys.stderr.flush()
+                    result = await asyncio.wait_for(future, timeout=timeout)
+
                 sys.stderr.write(f"[UnifiedPermissionManager.request_permission] Got response: {result}\n")
                 sys.stderr.flush()
                 return result
@@ -338,7 +345,7 @@ class UnifiedPermissionManager:
         sys.stderr.flush()
 
         try:
-            response_data = await self.request_permission(app, session, prompt_data, timeout=30.0)
+            response_data = await self.request_permission(app, session, prompt_data, timeout=None)
 
             sys.stderr.write(f"[UnifiedPermissionManager.check_permission] request_permission returned: {response_data}\n")
             sys.stderr.flush()
