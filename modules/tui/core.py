@@ -34,12 +34,14 @@ from .response_generator_mixin import ResponseGeneratorMixin
 from .action_mixin import ActionMixin
 
 # Per-widget availability
+# MODULAR VERSION: Use input_widget (refactored modular implementation)
 try:
-    from ..multiline_input import MultiLineInput
+    from ..input_widget import MultiLineInput
     HAS_MULTILINE = True
 except Exception:
     try:
-        from ..input_widget import MultiLineInput
+        # Fallback to legacy monolithic version if modular fails
+        from ..multiline_input import MultiLineInput
         HAS_MULTILINE = True
     except Exception:
         MultiLineInput = None
@@ -393,26 +395,10 @@ v{version} | Session: {self.session.session_id[:8]} | Ready
 
         # Focus the input
         try:
-            with open('/tmp/tui-trace.log', 'a') as f:
-                f.write(f"[TUI.on_mount] Attempting to focus #prompt-input\n")
-
             prompt_input = self.query_one("#prompt-input")
-
-            with open('/tmp/tui-trace.log', 'a') as f:
-                f.write(f"[TUI.on_mount] Found widget: {prompt_input}\n")
-                f.write(f"[TUI.on_mount] can_focus: {prompt_input.can_focus}\n")
-                f.write(f"[TUI.on_mount] has_focus: {prompt_input.has_focus}\n")
-
             prompt_input.focus()
-
-            with open('/tmp/tui-trace.log', 'a') as f:
-                f.write(f"[TUI.on_mount] After focus() - has_focus: {prompt_input.has_focus}\n")
-
-        except Exception as e:
-            with open('/tmp/tui-trace.log', 'a') as f:
-                f.write(f"[TUI.on_mount] ❌ FOCUS FAILED: {e}\n")
-                import traceback
-                f.write(traceback.format_exc())
+        except:
+            pass
 
     def write(self, text: str, end: str = "\n") -> None:
         """Queue a write operation to prevent blocking"""

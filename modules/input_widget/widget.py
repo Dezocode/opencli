@@ -233,3 +233,14 @@ class MultiLineInput(Widget):
                     self.focus()
             else:
                 print(f"[MultiLineInput] Permission cleared")
+
+    def watch_permission_selected_option(self, old_value: int, new_value: int) -> None:
+        """Watch for selection changes to trigger UI refresh"""
+        import sys
+        sys.stderr.write(f"[widget.watch_permission_selected_option] {old_value} -> {new_value}\n")
+        sys.stderr.flush()
+
+        if old_value != new_value and self.permission_prompt_data:
+            self.refresh()
+            sys.stderr.write(f"[widget] REFRESH triggered by selection change\n")
+            sys.stderr.flush()
