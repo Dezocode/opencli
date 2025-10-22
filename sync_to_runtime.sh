@@ -1,14 +1,15 @@
 #!/bin/bash
 
 echo "=========================================="
-echo "SYNCING TO RUNTIME .opencli DIRECTORY"
+echo "SYNCING TO RUNTIME (modules + cli/modules)"
 echo "=========================================="
 echo ""
 
 DEV_DIR="/Users/dezmondhollins/opencli"
 RUNTIME_DIR="$HOME/.opencli"
+CLI_DIR="$HOME/.opencli/cli"
 
-# All TUI-related files that need to be in runtime
+# All TUI-related files that need to be in runtime (synced to BOTH locations)
 TUI_FILES=(
     "modules/async_interactive/core.py"
     "modules/async_interactive/__init__.py"
@@ -68,12 +69,13 @@ SYNC_COUNT=0
 SKIP_COUNT=0
 ERROR_COUNT=0
 
-echo "Syncing ${#TUI_FILES[@]} files from dev to runtime..."
+echo "Syncing ${#TUI_FILES[@]} files to BOTH ~/.opencli/modules/ AND ~/.opencli/cli/modules/..."
 echo ""
 
 for file in "${TUI_FILES[@]}"; do
     DEV_FILE="$DEV_DIR/$file"
     RUNTIME_FILE="$RUNTIME_DIR/$file"
+    CLI_FILE="$CLI_DIR/$file"
 
     if [ ! -f "$DEV_FILE" ]; then
         echo "⚠️  SKIP: Dev file not found: $file"
@@ -81,46 +83,92 @@ for file in "${TUI_FILES[@]}"; do
         continue
     fi
 
-    # Create directory if needed
+    # Create directories if needed
     RUNTIME_DIR_PATH=$(dirname "$RUNTIME_FILE")
+    CLI_DIR_PATH=$(dirname "$CLI_FILE")
+
     if [ ! -d "$RUNTIME_DIR_PATH" ]; then
         mkdir -p "$RUNTIME_DIR_PATH"
         echo "📁 Created directory: $(dirname "$file")"
     fi
 
-    # Check if sync needed
-    if [ -f "$RUNTIME_FILE" ]; then
-        DEV_MD5=$(md5 -q "$DEV_FILE")
-        RUNTIME_MD5=$(md5 -q "$RUNTIME_FILE")
-
-        if [ "$DEV_MD5" == "$RUNTIME_MD5" ]; then
-            echo "✓ Already synced: $file"
-            ((SYNC_COUNT++))
-            continue
-        fi
-
-        echo "📝 Updating: $file"
-        echo "   Runtime MD5: $RUNTIME_MD5"
-        echo "   Dev MD5:     $DEV_MD5"
-    else
-        echo "➕ Creating: $file"
+    if [ ! -d "$CLI_DIR_PATH" ]; then
+        mkdir -p "$CLI_DIR_PATH"
+        echo "📁 Created cli directory: $(dirname "$file")"
     fi
 
-    # Copy file
-    if cp "$DEV_FILE" "$RUNTIME_FILE"; then
-        # Verify
-        NEW_MD5=$(md5 -q "$RUNTIME_FILE")
-        DEV_MD5=$(md5 -q "$DEV_FILE")
+    # Check if sync needed for BOTH locations
+    DEV_MD5=$(md5 -q "$DEV_FILE")
+    RUNTIME_NEEDS_SYNC=true
+    CLI_NEEDS_SYNC=true
 
-        if [ "$NEW_MD5" == "$DEV_MD5" ]; then
-            echo "   ✅ Synced successfully"
-            ((SYNC_COUNT++))
-        else
-            echo "   ❌ Verification failed"
-            ((ERROR_COUNT++))
+    if [ -f "$RUNTIME_FILE" ]; then
+        RUNTIME_MD5=$(md5 -q "$RUNTIME_FILE")
+        if [ "$DEV_MD5" == "$RUNTIME_MD5" ]; then
+            RUNTIME_NEEDS_SYNC=false
         fi
+    fi
+
+    if [ -f "$CLI_FILE" ]; then
+        CLI_MD5=$(md5 -q "$CLI_FILE")
+        if [ "$DEV_MD5" == "$CLI_MD5" ]; then
+            CLI_NEEDS_SYNC=false
+        fi
+    fi
+
+    # Skip only if BOTH are already synced
+    if [ "$RUNTIME_NEEDS_SYNC" = false ] && [ "$CLI_NEEDS_SYNC" = false ]; then
+        echo "✓ Already synced: $file (both locations)"
+        ((SYNC_COUNT++))
+        continue
+    fi
+
+    if [ "$RUNTIME_NEEDS_SYNC" = true ]; then
+        echo "📝 Updating runtime: $file"
+    fi
+
+    if [ "$CLI_NEEDS_SYNC" = true ]; then
+        echo "📝 Updating cli: $file"
+    fi
+
+    # Copy file to locations that need syncing
+    SYNC_SUCCESS=true
+
+    # Copy to runtime dir if needed
+    if [ "$RUNTIME_NEEDS_SYNC" = true ]; then
+        if cp "$DEV_FILE" "$RUNTIME_FILE"; then
+            NEW_MD5=$(md5 -q "$RUNTIME_FILE")
+            if [ "$NEW_MD5" == "$DEV_MD5" ]; then
+                echo "   ✅ Synced to runtime"
+            else
+                echo "   ❌ Runtime verification failed"
+                SYNC_SUCCESS=false
+            fi
+        else
+            echo "   ❌ Runtime copy failed"
+            SYNC_SUCCESS=false
+        fi
+    fi
+
+    # Copy to cli dir if needed
+    if [ "$CLI_NEEDS_SYNC" = true ]; then
+        if cp "$DEV_FILE" "$CLI_FILE"; then
+            NEW_CLI_MD5=$(md5 -q "$CLI_FILE")
+            if [ "$NEW_CLI_MD5" == "$DEV_MD5" ]; then
+                echo "   ✅ Synced to cli"
+            else
+                echo "   ❌ CLI verification failed"
+                SYNC_SUCCESS=false
+            fi
+        else
+            echo "   ❌ CLI copy failed"
+            SYNC_SUCCESS=false
+        fi
+    fi
+
+    if [ "$SYNC_SUCCESS" = true ]; then
+        ((SYNC_COUNT++))
     else
-        echo "   ❌ Copy failed"
         ((ERROR_COUNT++))
     fi
 
@@ -137,14 +185,14 @@ echo "❌ Errors:          $ERROR_COUNT"
 echo ""
 
 if [ $ERROR_COUNT -eq 0 ]; then
-    echo "🎉 Runtime directory successfully updated!"
+    echo "🎉 BOTH runtime directories successfully updated!"
     echo ""
-    echo "Clearing Python cache..."
+    echo "Clearing Python cache in ~/.opencli and ~/.opencli/cli..."
     find ~/.opencli -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
     find ~/.opencli -type f -name "*.pyc" -delete 2>/dev/null
-    echo "✅ Cache cleared"
+    echo "✅ All cache cleared"
     echo ""
-    echo "Runtime is now ready to use updated code!"
+    echo "Runtime is now ready - opencli will use the updated code!"
     exit 0
 else
     echo "⚠️  Some files failed to sync"
