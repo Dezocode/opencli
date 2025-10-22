@@ -345,20 +345,18 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
         # Parent shell stays alive but detached, so we check stdin instead
 
         async def monitor_terminal_connection():
-            """Background task: exit if stderr becomes invalid (terminal closed)"""
-            import fcntl
+            """Background task: exit if we lose controlling terminal"""
             while True:
                 try:
-                    # Try to get file descriptor flags for stderr (fd 2)
-                    # If terminal closed, fd is revoked and this raises OSError
-                    fcntl.fcntl(2, fcntl.F_GETFL)
+                    # Try to get the foreground process group of stdin
+                    # This will raise OSError when stdin is no longer a controlling terminal
+                    os.tcgetpgrp(0)
                     await asyncio.sleep(1)  # Check every second
-                except OSError as e:
-                    # stderr fd is revoked - terminal closed - exit immediately
-                    # Can't write to stderr since it's revoked, just exit
+                except OSError:
+                    # Lost controlling terminal - exit immediately
                     self.exit()
                     break
-                except Exception as e:
+                except Exception:
                     # Any other error also means we should exit
                     self.exit()
                     break
