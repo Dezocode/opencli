@@ -323,6 +323,20 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
             sys.stderr.write(f"[TUI.on_mount] ⚠️ Failed to clear focus log: {e}\n")
             sys.stderr.flush()
 
+        # ═══════════════════════════════════════════════════════════
+        # AUTO-RELOAD: Start watching for file changes
+        # ═══════════════════════════════════════════════════════════
+        try:
+            from ..auto_reload import enable_auto_reload
+            enable_auto_reload(app=self)
+            sys.stderr.write("[TUI.on_mount] 🔄 Auto-reload enabled\n")
+            sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"[TUI.on_mount] ⚠️ Auto-reload failed to start: {e}\n")
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
+
         try:
             with open('/tmp/tui-trace.log', 'a') as f:
                 f.write("[TUI.on_mount] ========== ON_MOUNT CALLED ==========\n")
@@ -520,6 +534,16 @@ v{version} | Session: {self.session.session_id[:8]} | Ready
         import sys
         sys.stderr.write("\n[TUI] on_unmount called - starting cleanup\n")
         sys.stderr.flush()
+
+        # Stop auto-reload watcher
+        try:
+            from ..auto_reload import disable_auto_reload
+            disable_auto_reload()
+            sys.stderr.write("[TUI.on_unmount] 🛑 Auto-reload stopped\n")
+            sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"[TUI.on_unmount] ⚠️ Auto-reload stop failed: {e}\n")
+            sys.stderr.flush()
 
         # Cancel write queue task
         if self._write_task and not self._write_task.done():
