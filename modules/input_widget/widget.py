@@ -5,7 +5,8 @@ Permission-first input with command suggestions and spinner
 
 from textual.widget import Widget
 from textual.reactive import reactive
-from textual.events import Paste
+from textual.events import Paste, Key
+from textual import on
 from rich.text import Text
 import asyncio
 
@@ -384,8 +385,25 @@ class MultiLineInput(Widget):
         """Handle paste events"""
         handle_paste_event(self, event)
 
-    def on_key(self, event) -> None:
-        """Handle key presses with PERMISSION PRIORITY"""
+    @on(Key)
+    def handle_key_message(self, event: Key) -> None:
+        """
+        DIRECT Key message handler - catches ALL keys INCLUDING ARROWS
+        Uses @on(Key) decorator to intercept Key messages before parent widgets can consume them
+        """
+        import sys
+
+        # STOP event bubbling IMMEDIATELY - prevents parent widgets from stealing arrow keys!
+        event.stop()
+
+        # LOG EVERY KEY INCLUDING ARROWS
+        sys.stderr.write(f"\n[widget.on_key] KEY={event.key}, permission={bool(self.permission_prompt_data)}\n")
+        sys.stderr.flush()
+
+        with open('/tmp/opencli_keys.log', 'a') as f:
+            f.write(f"[widget.on_key] KEY={event.key}, permission={bool(self.permission_prompt_data)}\n")
+
+        # Handle the key event
         handle_key_event(self, event)
 
     def action_submit(self) -> None:
@@ -552,130 +570,24 @@ class MultiLineInput(Widget):
                 sys.stderr.write(f"[MultiLineInput] PERMISSION ACTIVE - selected_option={self.permission_selected_option}\n")
                 sys.stderr.flush()
 
-                # Log permission activation
-                from ..focus_logger import log_focus_event, log_focus_attempt, log_focus_state
-                log_focus_event(
-                    source_file="input_widget/widget.py",
-                    source_function="watch_permission_prompt_data",
-                    event_type="PERMISSION_ACTIVE",
-                    widget_type="MultiLineInput",
-                    extra_info=f"title='{new_value.get('title', 'N/A')}', options={len(new_value.get('options', []))}"
-                )
-
                 # ═══════════════════════════════════════════════════════════
-                # CRITICAL: AGGRESSIVELY GRAB FOCUS - DO NOT CHECK has_focus!
+                # FIX FROM PR #3: Set focus AFTER refresh completes
                 # ═══════════════════════════════════════════════════════════
 
-                # FIRST: Ensure widget CAN receive focus
-                self.can_focus = True
-                sys.stderr.write(f"[MultiLineInput] Set can_focus=True\n")
-                sys.stderr.flush()
+                def set_focus_after_render():
+                    """Set focus after the widget has been refreshed and is ready"""
+                    try:
+                        if hasattr(self, 'app') and self.app:
+                            self.app.set_focus(self)
+                            sys.stderr.write(f"[MultiLineInput] ✓ Focus set after render\n")
+                            sys.stderr.flush()
+                    except Exception as e:
+                        sys.stderr.write(f"[MultiLineInput] ⚠️ Focus failed: {e}\n")
+                        sys.stderr.flush()
 
-                # Log state before focus attempt
-                log_focus_state(
-                    source_file="input_widget/widget.py",
-                    widget_type="MultiLineInput",
-                    has_focus=self.has_focus,
-                    can_focus=True,
-                    extra_info="BEFORE aggressive focus grab"
-                )
-
-                # SECOND: Force focus IMMEDIATELY (no conditional checks)
-                sys.stderr.write(f"[MultiLineInput] 🎯 FORCING FOCUS IMMEDIATELY (current focus={self.has_focus})\n")
-                sys.stderr.flush()
-
-                try:
-                    # Try app.set_focus FIRST (most direct, synchronous)
-                    if hasattr(self, 'app') and self.app:
-                        log_focus_attempt(
-                            source_file="input_widget/widget.py",
-                            source_function="watch_permission_prompt_data",
-                            method="app.set_focus()",
-                            widget_type="MultiLineInput",
-                            success=None,
-                            extra_info="AGGRESSIVE GRAB - Initial attempt"
-                        )
-
-                        self.app.set_focus(self)
-                        sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via app.set_focus()\n")
-
-                        log_focus_attempt(
-                            source_file="input_widget/widget.py",
-                            source_function="watch_permission_prompt_data",
-                            method="app.set_focus()",
-                            widget_type="MultiLineInput",
-                            success=True,
-                            extra_info=f"AGGRESSIVE GRAB successful, has_focus={self.has_focus}"
-                        )
-
-                        # ALSO schedule focus after next refresh to ensure it sticks
-                        log_focus_attempt(
-                            source_file="input_widget/widget.py",
-                            source_function="watch_permission_prompt_data",
-                            method="app.call_after_refresh(set_focus)",
-                            widget_type="MultiLineInput",
-                            success=None,
-                            extra_info="STICKY FOCUS - Scheduling post-refresh grab"
-                        )
-
-                        self.app.call_after_refresh(lambda: self.app.set_focus(self))
-                        sys.stderr.write(f"[MultiLineInput] ✓ Scheduled post-refresh focus\n")
-
-                        log_focus_attempt(
-                            source_file="input_widget/widget.py",
-                            source_function="watch_permission_prompt_data",
-                            method="app.call_after_refresh(set_focus)",
-                            widget_type="MultiLineInput",
-                            success=True,
-                            extra_info="STICKY FOCUS scheduled successfully"
-                        )
-                    else:
-                        log_focus_attempt(
-                            source_file="input_widget/widget.py",
-                            source_function="watch_permission_prompt_data",
-                            method="widget.focus()",
-                            widget_type="MultiLineInput",
-                            success=None,
-                            extra_info="AGGRESSIVE GRAB - Fallback (no app)"
-                        )
-
-                        self.focus()
-                        sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via self.focus()\n")
-
-                        log_focus_attempt(
-                            source_file="input_widget/widget.py",
-                            source_function="watch_permission_prompt_data",
-                            method="widget.focus()",
-                            widget_type="MultiLineInput",
-                            success=True,
-                            extra_info="AGGRESSIVE GRAB successful (fallback)"
-                        )
-                    sys.stderr.flush()
-
-                    # Double-check after forcing
-                    sys.stderr.write(f"[MultiLineInput] Focus check AFTER force: has_focus={self.has_focus}\n")
-                    sys.stderr.flush()
-
-                    log_focus_state(
-                        source_file="input_widget/widget.py",
-                        widget_type="MultiLineInput",
-                        has_focus=self.has_focus,
-                        can_focus=self.can_focus,
-                        extra_info="AFTER aggressive focus grab"
-                    )
-                except Exception as e:
-                    sys.stderr.write(f"[MultiLineInput] ⚠️ FOCUS FORCING FAILED: {e}\n")
-                    sys.stderr.flush()
-
-                    log_focus_attempt(
-                        source_file="input_widget/widget.py",
-                        source_function="watch_permission_prompt_data",
-                        method="app.set_focus() or widget.focus()",
-                        widget_type="MultiLineInput",
-                        success=False,
-                        error=str(e),
-                        extra_info="AGGRESSIVE GRAB FAILED!"
-                    )
+                # Refresh first, THEN set focus after render completes
+                self.refresh()
+                self.call_after_refresh(set_focus_after_render)
             else:
                 sys.stderr.write(f"[MultiLineInput] PERMISSION CLEARED\n")
                 sys.stderr.flush()
