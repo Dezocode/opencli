@@ -20,6 +20,7 @@ OpenCLI is a fast, feature-rich terminal interface for OpenRouter API with Claud
 1. **Main Entry Point**: `opencli.py` - Single-file Python script that orchestrates the CLI
 2. **Modules**: Located in `modules/` directory (key modules listed)
    - `agent_manager.py` - Agent orchestration and context management
+   - `async_interactive.py` - Asynchronous interactive mode (largest module)
    - `context_builder.py` - Context caching and optimization
    - `github_tool.py` - GitHub CLI integration
    - `simple_tui.py` - Advanced TUI interface with Frontier design
@@ -35,7 +36,12 @@ OpenCLI is a fast, feature-rich terminal interface for OpenRouter API with Claud
    - `model_manager.py` - Model selection and configuration
    - `opencli_ipc.py` - IPC communication system
    - `performance_monitor.py` - System performance tracking
-   - And many more specialized modules...
+   - `goal_tracker.py` - Goal and task tracking
+   - `api_client.py` - API client wrapper
+   - `api_server.py` - API server for external integrations
+   - `color_manager.py` - Color scheme management
+   - `verbose_manager.py` - Verbose output control
+   - And more specialized modules...
 
 3. **Agent System**: Located in `agents/` directory
    - `configs/agents.yaml` - Built-in agent definitions
