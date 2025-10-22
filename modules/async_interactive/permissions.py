@@ -15,12 +15,12 @@ async def setup_permissions(session):
     TOOL_PERMISSIONS = False
     
     try:
-        from tool_permissions import ToolPermissionManager
+        from modules.permissions.risk_assessment import RiskAssessmentManager as ToolPermissionManager
         from async_permissions import AsyncPermissionHandler, set_global_handler
         TOOL_PERMISSIONS = True
     except (ImportError, ValueError):
         try:
-            from tool_permissions import ToolPermissionManager
+            from modules.permissions.risk_assessment import RiskAssessmentManager as ToolPermissionManager
             from async_permissions import AsyncPermissionHandler, set_global_handler
             TOOL_PERMISSIONS = True
         except ImportError:

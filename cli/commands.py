@@ -38,7 +38,7 @@ except ImportError:
     COMMAND_REGISTRY = False
 
 try:
-    from tool_permissions import ToolPermissionManager
+    from modules.permissions.risk_assessment import RiskAssessmentManager as ToolPermissionManager
     TOOL_PERMISSIONS = True
 except ImportError:
     TOOL_PERMISSIONS = False
