@@ -18,14 +18,24 @@ OpenCLI is a fast, feature-rich terminal interface for OpenRouter API with Claud
 ### Core Components
 
 1. **Main Entry Point**: `opencli.py` - Single-file Python script that orchestrates the CLI
-2. **Modules**: Located in `modules/` directory
+2. **Modules**: Located in `modules/` directory (key modules listed)
    - `agent_manager.py` - Agent orchestration and context management
    - `context_builder.py` - Context caching and optimization
    - `github_tool.py` - GitHub CLI integration
-   - `simple_tui.py` - Advanced TUI interface
-   - `upgrade_manager.py` - Version control system
+   - `simple_tui.py` - Advanced TUI interface with Frontier design
+   - `upgrade_manager.py` - Version control and upgrade system
    - `rollback_manager.py` - Rollback functionality
    - `command_registry.py` - Command permission system
+   - `prompt_processor.py` - Input processing and validation
+   - `streaming_display.py` - Markdown streaming widget
+   - `multiline_input.py` - Multi-line input with spinner
+   - `markdown_renderer.py` - Markdown processor
+   - `permission_prompt.py` - Permission system UI
+   - `tool_permissions.py` - Tool permission management
+   - `model_manager.py` - Model selection and configuration
+   - `opencli_ipc.py` - IPC communication system
+   - `performance_monitor.py` - System performance tracking
+   - And many more specialized modules...
 
 3. **Agent System**: Located in `agents/` directory
    - `configs/agents.yaml` - Built-in agent definitions
@@ -209,3 +219,14 @@ Optional dependencies:
 - Update documentation when adding features
 - Consider token efficiency in agent system changes
 - Maintain the modular architecture
+
+## Keeping These Instructions Updated
+
+When making significant changes to the project, please update this file to ensure Copilot has accurate guidance:
+- Add new modules to the modules list when creating them
+- Update architecture descriptions for major structural changes
+- Add new patterns or conventions when they're established
+- Update dependencies when adding new requirements
+- Revise workflow descriptions if the development process changes
+
+This helps maintain the quality and consistency of future contributions.
