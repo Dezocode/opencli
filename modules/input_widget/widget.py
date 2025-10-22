@@ -400,15 +400,40 @@ class MultiLineInput(Widget):
                 self.permission_selected_option = new_value.get('selected', 0)
                 sys.stderr.write(f"[MultiLineInput] PERMISSION ACTIVE - selected_option={self.permission_selected_option}\n")
                 sys.stderr.flush()
-                # Ensure we have focus when permission prompt is active (only if app is available)
-                if not self.has_focus:
-                    try:
-                        sys.stderr.write(f"[MultiLineInput] Calling self.focus()\n")
-                        sys.stderr.flush()
+
+                # ═══════════════════════════════════════════════════════════
+                # CRITICAL: AGGRESSIVELY GRAB FOCUS - DO NOT CHECK has_focus!
+                # ═══════════════════════════════════════════════════════════
+
+                # FIRST: Ensure widget CAN receive focus
+                self.can_focus = True
+                sys.stderr.write(f"[MultiLineInput] Set can_focus=True\n")
+                sys.stderr.flush()
+
+                # SECOND: Force focus IMMEDIATELY (no conditional checks)
+                sys.stderr.write(f"[MultiLineInput] 🎯 FORCING FOCUS IMMEDIATELY (current focus={self.has_focus})\n")
+                sys.stderr.flush()
+
+                try:
+                    # Try app.set_focus FIRST (most direct, synchronous)
+                    if hasattr(self, 'app') and self.app:
+                        self.app.set_focus(self)
+                        sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via app.set_focus()\n")
+
+                        # ALSO schedule focus after next refresh to ensure it sticks
+                        self.app.call_after_refresh(lambda: self.app.set_focus(self))
+                        sys.stderr.write(f"[MultiLineInput] ✓ Scheduled post-refresh focus\n")
+                    else:
                         self.focus()
-                    except Exception as e:
-                        sys.stderr.write(f"[MultiLineInput] Focus failed (no app context): {e}\n")
-                        sys.stderr.flush()
+                        sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via self.focus()\n")
+                    sys.stderr.flush()
+
+                    # Double-check after forcing
+                    sys.stderr.write(f"[MultiLineInput] Focus check AFTER force: has_focus={self.has_focus}\n")
+                    sys.stderr.flush()
+                except Exception as e:
+                    sys.stderr.write(f"[MultiLineInput] ⚠️ FOCUS FORCING FAILED: {e}\n")
+                    sys.stderr.flush()
             else:
                 sys.stderr.write(f"[MultiLineInput] PERMISSION CLEARED\n")
                 sys.stderr.flush()
@@ -416,22 +441,6 @@ class MultiLineInput(Widget):
             # CRITICAL: Refresh MUST happen synchronously for widget to render!
             # But keep it light - no layout=True to avoid blocking
             self.refresh()
-
-            if new_value is not None:
-                print(f"[MultiLineInput] PERMISSION ACTIVE: {new_value.get('title', 'N/A')}")
-
-                # Focus IMMEDIATELY (synchronously) so keys work right away
-                try:
-                    self.app.set_focus(self)
-                    print(f"[MultiLineInput]   ✓ FORCED FOCUS IMMEDIATELY")
-                except Exception as e:
-                    print(f"[MultiLineInput]   Focus error: {e}, trying fallback")
-                    try:
-                        self.focus()
-                    except Exception as e2:
-                        print(f"[MultiLineInput]   Fallback focus also failed: {e2}")
-            else:
-                print(f"[MultiLineInput] Permission cleared")
 
     def watch_permission_selected_option(self, old_value: int, new_value: int) -> None:
         """Watch for selection changes to trigger UI refresh"""
