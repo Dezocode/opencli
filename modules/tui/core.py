@@ -6,6 +6,7 @@ Main TUI class with imports from modular components
 import os
 import asyncio
 import uuid
+import signal
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -335,6 +336,24 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
             sys.stderr.write(f"[TUI.on_mount] ⚠️ Auto-reload failed to start: {e}\n")
             import traceback
             traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
+
+        # ═══════════════════════════════════════════════════════════
+        # SIGNAL HANDLERS: Exit gracefully when terminal closes
+        # ═══════════════════════════════════════════════════════════
+        def signal_handler(sig, frame):
+            """Handle SIGHUP, SIGTERM - exit gracefully"""
+            sys.stderr.write(f"\n[TUI] Received signal {sig} - exiting gracefully\n")
+            sys.stderr.flush()
+            self.exit()
+
+        try:
+            signal.signal(signal.SIGHUP, signal_handler)  # Terminal hangup
+            signal.signal(signal.SIGTERM, signal_handler)  # Terminate signal
+            sys.stderr.write("[TUI.on_mount] ✅ Signal handlers installed (SIGHUP, SIGTERM)\n")
+            sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"[TUI.on_mount] ⚠️ Signal handler setup failed: {e}\n")
             sys.stderr.flush()
 
         try:
