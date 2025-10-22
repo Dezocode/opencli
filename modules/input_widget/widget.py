@@ -100,41 +100,38 @@ class MultiLineInput(Widget):
         self._spin_task = None
         self.suggestions_active = False
 
-    def _watch_has_focus(self, has_focus: bool) -> None:
+    def watch_has_focus(self, has_focus: bool) -> None:
         """
-        Override Textual's focus watcher to PREVENT focus loss during permission prompts
-        This is called BEFORE on_blur/on_focus, so we can BLOCK the focus change here
+        Reactive watcher for has_focus property to PREVENT focus loss during permission prompts
+        This is called when has_focus changes, so we can immediately re-grab it
         """
         import sys
         from ..focus_logger import log_focus_event
 
-        sys.stderr.write(f"\n[MultiLineInput._watch_has_focus] Focus changing: {self.has_focus} -> {has_focus}, permission={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"\n[MultiLineInput.watch_has_focus] Focus changed to: {has_focus}, permission={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
 
         # ═══════════════════════════════════════════════════════════
-        # CRITICAL: PREVENT focus loss when permission is active
+        # CRITICAL: IMMEDIATELY re-grab focus if lost during permission prompt
         # ═══════════════════════════════════════════════════════════
         if not has_focus and self.permission_prompt_data:
-            sys.stderr.write(f"[MultiLineInput._watch_has_focus] 🔒 BLOCKING FOCUS LOSS - Permission active!\n")
+            sys.stderr.write(f"[MultiLineInput.watch_has_focus] 🔒 FOCUS LOST DURING PERMISSION - RE-GRABBING!\n")
             sys.stderr.flush()
 
             log_focus_event(
                 source_file="input_widget/widget.py",
-                source_function="_watch_has_focus",
+                source_function="watch_has_focus",
                 event_type="FOCUS_LOCK",
                 widget_type="MultiLineInput",
-                extra_info="BLOCKED focus loss - permission active"
+                extra_info="Permission active - immediately re-grabbing focus"
             )
 
-            # FORCE focus back to this widget
+            # IMMEDIATELY re-grab focus
             if hasattr(self, 'app') and self.app:
-                self.app.set_focus(self)
-                sys.stderr.write(f"[MultiLineInput._watch_has_focus] ✓ Force re-focused via app.set_focus()\n")
+                # Schedule focus re-grab after this reactive update completes
+                self.app.call_after_refresh(lambda: self.app.set_focus(self))
+                sys.stderr.write(f"[MultiLineInput.watch_has_focus] ✓ Scheduled immediate focus re-grab\n")
                 sys.stderr.flush()
-            return  # DON'T call super() - we're blocking this focus change!
-
-        # Normal focus changes - allow them
-        super()._watch_has_focus(has_focus)
 
     def focus(self, scroll_visible: bool = True) -> None:
         """Override focus() to maintain focus lock during permission prompts"""
