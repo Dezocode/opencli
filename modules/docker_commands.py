@@ -11,17 +11,16 @@ from .execution.registry import RiskLevel
 
 # SDK-compliant imports only
 from .permission_prompt import PermissionResponse
-from .permission_buffer_manager import get_permission_buffer_manager
 
 
 # ============================================================================ 
 # /docker - Docker operations menu
 # ============================================================================ 
 
-async def docker_main_prompt(app, session, registration, context):
+def docker_main_prompt(app, session, registration, context):
     """Interactive prompt for /docker command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker',
         'message': """# Docker Operations
 
@@ -41,9 +40,6 @@ async def docker_main_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_main(app, session, **context):
@@ -76,10 +72,10 @@ async def docker_main(app, session, **context):
 # /docker ollama setup - Setup Ollama in Docker
 # ============================================================================ 
 
-async def docker_ollama_setup_prompt(app, session, registration, context):
+def docker_ollama_setup_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama setup command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama setup',
         'message': """# Docker Ollama Setup
 
@@ -104,9 +100,6 @@ async def docker_ollama_setup_prompt(app, session, registration, context):
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_setup(app, session, **context):
@@ -188,10 +181,10 @@ async def docker_ollama_setup(app, session, **context):
 # /docker ollama start - Start Ollama container
 # ============================================================================ 
 
-async def docker_ollama_start_prompt(app, session, registration, context):
+def docker_ollama_start_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama start command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama start',
         'message': """# Start Ollama Container
 
@@ -211,8 +204,6 @@ async def docker_ollama_start_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_start(app, session, **context):
@@ -262,10 +253,10 @@ async def docker_ollama_start(app, session, **context):
 # /docker ollama stop - Stop Ollama container
 # ============================================================================ 
 
-async def docker_ollama_stop_prompt(app, session, registration, context):
+def docker_ollama_stop_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama stop command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama stop',
         'message': """# Stop Ollama Container
 
@@ -291,8 +282,6 @@ async def docker_ollama_stop_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_stop(app, session, **context):
@@ -345,10 +334,10 @@ async def docker_ollama_stop(app, session, **context):
 # /docker status - Show Docker daemon status
 # ============================================================================ 
 
-async def docker_status_prompt(app, session, registration, context):
+def docker_status_prompt(app, session, registration, context):
     """Interactive prompt for /docker status command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker status',
         'message': """# Docker Status
 
@@ -373,8 +362,6 @@ async def docker_status_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_status(app, session, **context):
@@ -442,10 +429,10 @@ async def docker_status(app, session, **context):
 # /docker ps - List running containers
 # ============================================================================ 
 
-async def docker_ps_prompt(app, session, registration, context):
+def docker_ps_prompt(app, session, registration, context):
     """Interactive prompt for /docker ps command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ps',
         'message': """# List Running Containers
 
@@ -470,8 +457,6 @@ async def docker_ps_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ps(app, session, **context):
@@ -528,10 +513,10 @@ async def docker_ps(app, session, **context):
 # /docker stats - Show container stats
 # ============================================================================ 
 
-async def docker_stats_prompt(app, session, registration, context):
+def docker_stats_prompt(app, session, registration, context):
     """Interactive prompt for /docker stats command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker stats',
         'message': """# Container Stats
 
@@ -556,8 +541,6 @@ async def docker_stats_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_stats(app, session, **context):
@@ -625,7 +608,7 @@ async def docker_stats(app, session, **context):
 def docker_ollama_status_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama status command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama status',
         'message': """# Ollama Container Status
 
@@ -650,8 +633,6 @@ def docker_ollama_status_prompt(app, session, registration, context):
             }
         ]
     }
-    buffer_manager = get_permission_buffer_manager()
-    return buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_status(app, session, **context):

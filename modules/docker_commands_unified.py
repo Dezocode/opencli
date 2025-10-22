@@ -9,36 +9,19 @@ import asyncio
 
 # SDK-compliant imports only
 from .permission_prompt import PermissionResponse
-from .permission_buffer_manager import get_permission_buffer_manager
 
 
 # ============================================================================
 # /docker ollama setup (unified) - Setup Ollama in Docker with resource selection
 # ============================================================================
 
-async def docker_ollama_setup_unified_prompt(app, session, registration, context):
+def docker_ollama_setup_unified_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama setup unified command"""
 
-    # Get system resources for display
-    try:
-        from docker_manager import DockerManager
-        from docker_async_handler import DockerAsyncHandler
-    except ImportError:
-        from modules.docker_manager import DockerManager
-        from modules.docker_async_handler import DockerAsyncHandler
-
-    docker_mgr = DockerManager()
-    docker_async = DockerAsyncHandler(docker_mgr, debug_callback=None)
-
-    resources = await docker_async.get_system_resources()
-    cpu_count = resources.get('cpu_count', 4)
-    memory_gb = resources.get('memory_gb', 8)
-
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama setup',
-        'message': f"""# Docker Ollama Setup
+        'message': """# Docker Ollama Setup
 
-**Your System:** {cpu_count} CPUs, {memory_gb:.1f}GB RAM
 **Estimated Duration:** 2-3 minutes
 
 **Workflow Steps:**
@@ -50,12 +33,12 @@ async def docker_ollama_setup_unified_prompt(app, session, registration, context
 **Select resource allocation:**""",
         'options': [
             {
-                'text': f'Conservative (4 CPUs, 8GB RAM) - Recommended',
+                'text': 'Conservative (4 CPUs, 8GB RAM) - Recommended',
                 'response': PermissionResponse.ALLOW_ONCE,
                 'data': {'action': 'setup', 'cpu_limit': '4', 'memory_limit': '8g', 'gpu_enabled': False}
             },
             {
-                'text': f'Balanced (6 CPUs, 12GB RAM)',
+                'text': 'Balanced (6 CPUs, 12GB RAM)',
                 'response': PermissionResponse.ALLOW_ONCE,
                 'data': {'action': 'setup', 'cpu_limit': '6', 'memory_limit': '12g', 'gpu_enabled': False}
             },
@@ -70,9 +53,6 @@ async def docker_ollama_setup_unified_prompt(app, session, registration, context
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=60.0)
 
 
 async def docker_ollama_setup_unified(app, session, **context):
@@ -167,10 +147,10 @@ async def docker_ollama_setup_unified(app, session, **context):
 # /docker ollama start (unified) - Start Ollama container
 # ============================================================================
 
-async def docker_ollama_start_unified_prompt(app, session, registration, context):
+def docker_ollama_start_unified_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama start unified command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama start',
         'message': """# Start Ollama Container
 
@@ -189,9 +169,6 @@ async def docker_ollama_start_unified_prompt(app, session, registration, context
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_start_unified(app, session, **context):
@@ -256,10 +233,10 @@ async def docker_ollama_start_unified(app, session, **context):
 # /docker ollama stop (unified) - Stop Ollama container
 # ============================================================================
 
-async def docker_ollama_stop_unified_prompt(app, session, registration, context):
+def docker_ollama_stop_unified_prompt(app, session, registration, context):
     """Interactive prompt for /docker ollama stop unified command"""
 
-    prompt_data = {
+    return {
         'title': 'System: /docker ollama stop',
         'message': """# Stop Ollama Container
 
@@ -285,9 +262,6 @@ async def docker_ollama_stop_unified_prompt(app, session, registration, context)
             }
         ]
     }
-
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
 
 
 async def docker_ollama_stop_unified(app, session, **context):
