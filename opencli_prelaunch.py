@@ -7,11 +7,16 @@ file tree with timestamps, cache verification, and OpenCLI ASCII art
 
 import sys
 import os
+
+# CRITICAL: Prevent this script from creating cache files!
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+
 from pathlib import Path
 from datetime import datetime
 import hashlib
 
-# Import Frontier colors
+# Import Frontier colors (won't create cache now)
 sys.path.insert(0, str(Path.home() / ".opencli"))
 try:
     from modules.frontier_colors import FRONTIER_COLORS
