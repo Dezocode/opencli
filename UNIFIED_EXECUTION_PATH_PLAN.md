@@ -1,756 +1,471 @@
-# Unified Execution Path & Permission Buffer Plan
+# Unified Execution Path - 10 Phase Plan
 
 **Date:** 2025-10-22
-**Goal:** Ensure ALL commands use SINGLE execution path through SDK executor with unified permission buffer
-**Status:** Analysis Phase
+**Goal:** Single path for ALL commands: `Commands → SDK → Permission Buffer → Execution`
+**Strategy:** Migrate features FIRST, delete legacy LAST
 
 ---
 
-## The Actual Goal (What You Want)
+## The Single Path (What We Want)
 
 ```
-SINGLE PATH FOR EVERYTHING:
+User Input → SDK Executor → Unified Permission Manager → Permission Buffer → User Response → Command Handler
 
-User Input → SDK Executor → Unified Permission Manager → Permission Buffer → User
-     ↓
-Command Handler gets result via context
-
-NOT THIS MESS:
-- Some commands → SDK Executor → Unified Manager ✅
-- Some commands → Direct buffer manager call ❌
-- Some commands → Old permission system ❌
+NO BYPASSING. NO MULTIPLE PATHS. ONE ROUTE.
 ```
 
 ---
 
-## Phase 1: UNDERSTAND Current State (Don't Touch Anything)
+## Phase 1: Inventory Legacy Features
 
-### 1.1 Map ALL Command Execution Paths
+**Goal:** List what features exist in legacy permission code that modular version needs
 
-**Goal:** Document exactly how EACH type of command currently executes
+### 1.1 Check Legacy Files
 
-#### Commands to Trace:
+```bash
+# Files to inventory:
+- modules/permission_buffer/         # Old permission system
+- modules/permission_buffer_manager.py  # Compatibility stub
+- modules/async_permissions.py       # Async permission handling
+- modules/tool_permissions.py        # Tool-specific permissions
+- modules/permission_workflow.py     # Workflow features
+- modules/dual_buffer_system.py      # Dual buffer features
+```
 
-**Group A: SDK-Registered Commands (dev_commands.py pattern)**
+### 1.2 Document Features
+
+**For each file, list:**
+- What does it do?
+- Does modular version have this? ✅/❌
+- Is it still used? ✅/❌
+- Migration needed? ✅/❌
+
+**Output:** `LEGACY_FEATURES_INVENTORY.md`
+
+---
+
+## Phase 2: Inventory Modular Features
+
+**Goal:** List what the modular version already has
+
+### 2.1 Check Modular Files
+
+```bash
+# Modular permission system:
+- modules/permissions/integration.py    # UnifiedPermissionManager
+- modules/permissions/manager.py        # PermissionBufferManager
+- modules/permissions/widget.py         # Permission widget
+- modules/permissions/templates.py      # Prompt templates
+- modules/permissions/analytics.py      # Analytics
+- modules/permissions/audit.py          # Audit logging
+- modules/permissions/cache.py          # Caching
+- modules/permissions/i18n.py           # Internationalization
+- modules/permissions/validation.py     # Validation
+```
+
+### 2.2 Document Capabilities
+
+**For each module, list:**
+- What features it provides
+- What legacy features it replaces
+- What's missing compared to legacy
+
+**Output:** `MODULAR_FEATURES_INVENTORY.md`
+
+---
+
+## Phase 3: Gap Analysis
+
+**Goal:** Identify what modular version is missing
+
+### 3.1 Create Gap Report
+
+**Compare inventories:**
+
+```markdown
+# Feature Gap Analysis
+
+## Features in Modular ✅
+1. UnifiedPermissionManager
+2. PermissionBufferManager
+3. Permission widget display
+4. Prompt templates
+5. Analytics
+6. Audit logging
+7. Caching
+8. i18n support
+9. Validation
+
+## Features in Legacy Only ❌
+1. [Feature from legacy not in modular]
+2. [Feature from legacy not in modular]
+3. ...
+
+## Migration Required
+- [ ] Feature X: Migrate from permission_buffer/ to permissions/
+- [ ] Feature Y: Migrate from async_permissions.py to permissions/
+- [ ] Feature Z: ...
+
+## Can Delete Immediately (Unused)
+- [ ] File X (no imports found)
+- [ ] File Y (no imports found)
+```
+
+**Output:** `FEATURE_GAP_ANALYSIS.md`
+
+---
+
+## Phase 4: Migrate Missing Features (Part 1)
+
+**Goal:** Move essential features from legacy to modular
+
+### 4.1 Priority 1: Core Permission Features
+
+**For each missing feature:**
+
+1. **Understand** - Read legacy code, document what it does
+2. **Design** - Plan where it goes in modular structure
+3. **Implement** - Add to modular version
+4. **Test** - Verify it works same as legacy
+5. **Document** - Update modular docs
+
+**Example:**
 ```python
-# File: modules/commands/dev_commands.py
-def debug_toggle_prompt(app, session, registration, context):
-    """Returns prompt_data dict"""
-    return prompt_data  # ← SDK executor handles rest
+# IF legacy has async permission handling in async_permissions.py
+# AND modular doesn't have it
+# THEN add to modules/permissions/integration.py
 
-async def debug_toggle(app, session, **context):
-    """Handler gets response from context"""
-    prompt_data = context.get('_custom_prompt_data')
-    # Execute action
+# modules/permissions/integration.py
+class UnifiedPermissionManager:
+    async def async_request_permission(self, ...):
+        # Migrated from async_permissions.py
+        ...
 ```
-
-**Execution Path:**
-1. User types `/debug`
-2. SDK Executor calls `debug_toggle_prompt()`
-3. SDK Executor gets prompt_data dict
-4. SDK Executor calls unified permission manager
-5. Unified manager shows permission buffer
-6. User responds
-7. SDK Executor calls `debug_toggle()` handler with response in context
-8. Handler executes
-
-**Question:** Does this use permission buffer? ✅/❌
-**Question:** Does this go through unified manager? ✅/❌
 
 ---
 
-**Group B: Interactive Buffer Commands (docker_commands.py pattern)**
+## Phase 5: Migrate Missing Features (Part 2)
+
+**Goal:** Move remaining features from legacy to modular
+
+### 5.1 Priority 2: Tool/Workflow Features
+
+**Continue migration:**
+- Tool-specific permissions → modules/permissions/
+- Workflow features → modules/permissions/
+- Any other gaps identified in Phase 3
+
+### 5.2 Update Imports
+
+**For each migrated feature:**
+- Update all files that imported from legacy
+- Point to new modular location
+- Test still works
+
+---
+
+## Phase 6: Verify Single Path for Commands
+
+**Goal:** Ensure ALL commands use: `Command → SDK → Permission Buffer`
+
+### 6.1 Trace Command Groups
+
+**Group A: Already Correct**
 ```python
-# File: modules/docker_commands.py
-async def docker_main_prompt(app, session, registration, context):
-    """Calls buffer manager directly"""
-    prompt_data = {...}
+# Pattern: dev_commands.py, model_commands.py, etc.
+def command_prompt(...):
+    return prompt_data  # SDK handles permission
+
+async def command_handler(..., **context):
+    response = context.get('_custom_prompt_data')
+    # Execute
+```
+
+**Route:** Command → SDK Executor → Unified Manager → Buffer ✅
+
+---
+
+**Group B: Need to Verify**
+```python
+# Pattern: docker_commands.py, etc.
+async def command_prompt(...):
     buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(app, session, prompt_data, timeout=30.0)
+    return await buffer_manager.request_permission(...)
 
-async def docker_main(app, session, **context):
-    """Handler gets response from context"""
-    prompt_data = context.get('_custom_prompt_data')
-    # Execute action
+async def command_handler(..., **context):
+    response = context.get('_custom_prompt_data')
+    # Execute
 ```
 
-**Execution Path:**
-1. User types `/docker`
-2. SDK Executor calls `docker_main_prompt()`
-3. `docker_main_prompt()` calls `get_permission_buffer_manager()`
-4. ??? What manager does this return now ???
-5. Calls `buffer_manager.request_permission()`
-6. ??? Does this show permission buffer ???
-7. User responds
-8. ??? Who handles response - SDK or buffer manager ???
-9. SDK Executor calls `docker_main()` handler
-10. Handler executes
-
-**Questions:**
-- Does `get_permission_buffer_manager()` return unified manager's buffer? ✅/❌
-- Does calling `buffer_manager.request_permission()` bypass SDK executor? ✅/❌
-- Do we get TWO permission prompts (SDK + buffer manager)? ✅/❌
-- Is this the SAME buffer as Group A commands? ✅/❌
+**Check:**
+- Does `get_permission_buffer_manager()` return unified buffer? ✅/❌
+- Does this go through SDK or bypass it? Trace it.
+- Is this the SAME buffer as Group A? Test it.
 
 ---
 
-**Group C: Legacy/Old Commands**
+**Group C: Legacy/Unknown**
 ```python
-# Example: modules/command_executor.py, modules/tool_registry.py
-# Do these even go through SDK executor?
+# Check: command_executor.py, tool_registry.py
+# Do these go through SDK? Trace them.
 ```
 
-**Questions:**
-- Are these registered with SDK executor? ✅/❌
-- What path do they take? Document it.
+### 6.2 Fix Any Bypasses
+
+**IF:** Command bypasses SDK executor
+**THEN:** Refactor to use SDK pattern
+
+**IF:** Command uses different permission manager
+**THEN:** Update to use unified manager
+
+**IF:** Command has no permission handling
+**THEN:** Add SDK-compliant permission prompt
 
 ---
 
-### 1.2 Trace Permission Manager Routing
+## Phase 7: Verify Multi-Page Buffers Work
 
-**Current State After Phase 1 Fix:**
+**Goal:** Ensure interactive multi-page permission buffers still work
 
-```python
-# File: modules/permissions/manager.py:522-531
-def get_permission_buffer_manager():
-    """Legacy compatibility wrapper"""
-    from . import get_unified_permission_manager
-    unified_manager = get_unified_permission_manager()
-    return unified_manager.get_buffer_manager()
-```
+### 7.1 Test Interactive Commands
 
-**Questions:**
-1. When `docker_commands.py` calls `get_permission_buffer_manager()`, does it get the SAME instance as SDK executor uses? ✅/❌
-2. When that buffer shows a prompt, does it go through SDK executor's flow or bypass it? ✅/❌
-3. Are there TWO different buffers being created? ✅/❌
-
----
-
-### 1.3 Document What Permission Buffer Actually Is
-
-**Questions:**
-1. What file contains the permission buffer widget code?
-2. Is it `modules/permissions/widget.py`?
-3. Or is it inside `MultiLineInput` widget (`modules/input_widget/widget.py`)?
-4. How many permission buffer implementations exist?
-5. Do they all show the same UI to the user?
-
----
-
-### 1.4 Test Current Behavior (Manual Testing Required)
-
-**Test Case 1: SDK Pattern Command**
 ```bash
+# Test /docker command (multi-page)
 opencli tui
-/debug    # Press ENTER
-# Expected: Permission buffer appears with Yes/No
-# Record: What actually happens?
-# Record: Can you navigate with arrow keys?
-# Record: Does ENTER select the option?
+/docker
+# Press ENTER
+
+# Verify:
+✅ Permission buffer appears
+✅ Shows multiple pages of content
+✅ Arrow keys navigate pages
+✅ ENTER selects option
+✅ Command executes correctly
 ```
 
-**Test Case 2: Interactive Buffer Command**
-```bash
-opencli tui
-/docker   # Press ENTER
-# Expected: Permission buffer appears with multi-page content
-# Record: What actually happens?
-# Record: Can you navigate pages?
-# Record: Does it look the same as /debug buffer?
-```
+### 7.2 Test All Buffer Features
 
-**Test Case 3: Compare Buffer Instances**
-```bash
-# Add debug logging to modules/permissions/manager.py
-def get_permission_buffer_manager():
-    unified_manager = get_unified_permission_manager()
-    buffer = unified_manager.get_buffer_manager()
-    import sys
-    sys.stderr.write(f"[TRACE] Buffer instance ID: {id(buffer)}\n")
-    sys.stderr.flush()
-    return buffer
+**Test each permission buffer feature:**
+- [ ] Simple Yes/No prompts
+- [ ] Multi-page navigation
+- [ ] Option selection
+- [ ] Arrow key navigation (UP/DOWN)
+- [ ] ENTER key selection
+- [ ] ESC to cancel
+- [ ] Markdown rendering
+- [ ] Prompt titles
+- [ ] Option descriptions
 
-# Run both commands and compare IDs
-# Are they the same instance? ✅/❌
-```
+**All must work SAME as before migration**
 
 ---
 
-## Phase 2: DEFINE Desired Architecture
+## Phase 8: Verify Single Instance
 
-### 2.1 Single Execution Path Definition
+**Goal:** Confirm only ONE permission manager exists
 
-**ALL commands must follow this EXACT flow:**
+### 8.1 Add Instance Tracking
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. User Input                                               │
-│    /command [args]                                          │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 2. SDK Executor (modules/execution/executor.py)            │
-│    - Looks up command in registry                          │
-│    - Checks if requires_approval                           │
-│    - Gets custom_prompt_func                               │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 3. Call Prompt Function                                     │
-│    prompt_data = custom_prompt_func(app, session, ...)     │
-│    Returns: dict with title, message, options              │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 4. SDK Executor → Unified Permission Manager               │
-│    unified_manager.check_permission(registration, context) │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 5. Unified Manager → Buffer Manager                        │
-│    buffer_manager = unified_manager.get_buffer_manager()   │
-│    buffer_manager.prompt(app, session, prompt_data)        │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 6. Buffer Manager → Permission Buffer Widget               │
-│    Shows in TUI via MultiLineInput.permission_prompt_data  │
-│    User sees: Title, Message, Options                      │
-│    User navigates: UP/DOWN arrows                          │
-│    User selects: ENTER key                                 │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 7. User Response → Buffer Manager → Unified Manager        │
-│    Response bubbles back up                                │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 8. SDK Executor calls Handler Function                     │
-│    await handler_func(app, session, **context)            │
-│    context['_custom_prompt_data'] = response              │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼────────────────────────────────────────────┐
-│ 9. Handler Executes                                         │
-│    Reads response from context                             │
-│    Performs command action                                 │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**CRITICAL RULES:**
-
-1. **NO command calls permission manager directly** (bypasses SDK)
-2. **NO command calls buffer manager directly** (bypasses SDK)
-3. **Prompt functions ONLY return prompt_data dict** (SDK handles rest)
-4. **Handlers ONLY read from context** (SDK provides response)
-5. **ONE buffer instance** (unified manager's buffer)
-6. **ONE UI callback** (TUI._show_permission_prompt)
-
----
-
-### 2.2 Exception: Multi-Page Interactive Buffers
-
-**Question:** Do some commands need multi-page buffers with navigation?
-
-**If YES:**
 ```python
-# Prompt function builds multi-page prompt_data
-def docker_main_prompt(app, session, registration, context):
-    prompt_data = {
-        'title': 'Docker Operations',
-        'pages': [  # ← Multi-page structure
-            {'title': 'Setup', 'content': '...'},
-            {'title': 'Start', 'content': '...'},
-            # ...
-        ],
-        'options': [...]  # Options apply to current page
-    }
-    return prompt_data  # ← Still just return dict!
-
-# SDK executor handles pagination
-# Buffer manager renders pages
-# User navigates with arrow keys
-# SDK tracks current page
-```
-
-**If commands need `buffer_manager.request_permission()` for pagination:**
-```python
-# This is ONLY acceptable if:
-# 1. SDK executor doesn't support pagination yet
-# 2. We document this as temporary
-# 3. We plan to move pagination into SDK executor
-
-async def docker_main_prompt(app, session, registration, context):
-    prompt_data = {...}  # Multi-page data
-
-    # TEMPORARY: Direct buffer call until SDK supports pagination
-    buffer_manager = get_permission_buffer_manager()  # Routes to unified
-    return await buffer_manager.request_permission(...)  # Handles pages
-
-    # TODO: Move pagination into SDK executor
-    # Then this becomes: return prompt_data
-```
-
-**Determine:** Do we keep direct buffer calls or migrate to SDK pagination?
-
----
-
-## Phase 3: VERIFY Single Instance (Testing Phase)
-
-### 3.1 Add Tracing to All Entry Points
-
-**File: modules/permissions/integration.py**
-```python
+# modules/permissions/integration.py
 class UnifiedPermissionManager:
     def __init__(self):
         import sys
-        instance_id = id(self)
-        sys.stderr.write(f"[TRACE] UnifiedPermissionManager created: {instance_id}\n")
+        sys.stderr.write(f"[INSTANCE] UnifiedPermissionManager created: {id(self)}\n")
         sys.stderr.flush()
-        # ... rest of init
-
-    def get_buffer_manager(self):
-        buffer = self._buffer_manager
-        import sys
-        sys.stderr.write(f"[TRACE] get_buffer_manager() returning: {id(buffer)}\n")
-        sys.stderr.flush()
-        return buffer
 ```
 
-**File: modules/execution/executor.py**
-```python
-async def execute(...):
-    if registration.requires_approval:
-        unified_manager = get_unified_permission_manager()
-        import sys
-        sys.stderr.write(f"[TRACE] Executor using unified manager: {id(unified_manager)}\n")
-        sys.stderr.flush()
-        # ... rest
-```
-
-**File: modules/permissions/manager.py**
-```python
-def get_permission_buffer_manager():
-    unified_manager = get_unified_permission_manager()
-    buffer = unified_manager.get_buffer_manager()
-    import sys
-    sys.stderr.write(f"[TRACE] Legacy wrapper returning buffer: {id(buffer)}\n")
-    sys.stderr.flush()
-    return buffer
-```
-
-### 3.2 Run Test Commands and Collect Traces
+### 8.2 Test Multiple Commands
 
 ```bash
-# Clear log
-> /tmp/opencli_trace.log
+opencli tui 2>/tmp/trace.log
 
-# Run test
-opencli tui 2>/tmp/opencli_trace.log
-
-# In TUI:
+# Run different commands
 /debug
-# Press ENTER
-# Select option
+/docker
+/model
 
 # Check trace
-grep "TRACE" /tmp/opencli_trace.log
+grep "INSTANCE" /tmp/trace.log
 
-# Expected output:
-# [TRACE] UnifiedPermissionManager created: 12345678
-# [TRACE] Executor using unified manager: 12345678
-# [TRACE] get_buffer_manager() returning: 87654321
-# ↑↑↑ Same IDs = single instance ✅
-
-# Test second command
-/docker
-# Press ENTER
-
-# Check trace again
-grep "TRACE" /tmp/opencli_trace.log
-
-# Expected: SAME instance IDs
-# If different IDs = multiple instances ❌
+# Expected: SAME ID for all commands
+# [INSTANCE] UnifiedPermissionManager created: 12345678
+# [INSTANCE] UnifiedPermissionManager created: 12345678  ← Same!
+# [INSTANCE] UnifiedPermissionManager created: 12345678  ← Same!
 ```
 
-### 3.3 Verify Buffer UI Callback
+**IF different IDs:** Multiple instances exist - FIX IT
+**IF same ID:** Single instance confirmed ✅
 
-**File: modules/tui/core.py**
-```python
-def _setup_permission_system(self):
-    from ..permissions import get_unified_permission_manager
+---
 
-    self.permission_manager = get_unified_permission_manager()
+## Phase 9: Remove Legacy Code
 
-    # Add trace
-    import sys
-    sys.stderr.write(f"[TRACE] TUI setting UI callback: {self._show_permission_prompt}\n")
-    sys.stderr.flush()
+**Goal:** Delete old permission system files ONLY after verification
 
-    self.permission_manager.set_ui_callback(self._show_permission_prompt)
-```
+### 9.1 Pre-Delete Checklist
 
-**File: modules/tui/permission_handlers.py**
-```python
-def _show_permission_prompt(self, prompt_data: dict):
-    import sys
-    sys.stderr.write(f"[TRACE] _show_permission_prompt CALLED with: {prompt_data.get('title')}\n")
-    sys.stderr.flush()
-    # ... show buffer
-```
+**ONLY proceed if ALL are ✅:**
 
-**Test:**
+- [ ] Phase 3: All features migrated to modular
+- [ ] Phase 4-5: Migration complete and tested
+- [ ] Phase 6: All commands use single path
+- [ ] Phase 7: Multi-page buffers work
+- [ ] Phase 8: Single instance verified
+- [ ] All imports updated to modular
+- [ ] No broken functionality
+- [ ] Tests pass
+
+**IF ANY ❌:** DO NOT DELETE - Fix issue first
+
+### 9.2 Delete Legacy Files
+
+**Safe to delete:**
 ```bash
-# Run with trace
-opencli tui 2>/tmp/opencli_trace.log
+# Delete old permission system
+rm -rf modules/permission_buffer/
+
+# Delete unused files
+rm modules/permission_workflow.py
+rm modules/dual_buffer_system.py
+rm modules/async_permissions.py        # IF migrated
+rm modules/tool_permissions.py         # IF migrated
+
+# Delete backups
+rm modules/permission_buffer_manager.py.backup
+rm modules/permission_prompt.py.backup
+
+# Delete stub IF all imports updated
+rm modules/permission_buffer_manager.py  # Only if no imports remain
+```
+
+**KEEP (needed):**
+```bash
+# Keep modular system
+modules/permissions/                    # Main system
+modules/permission_prompt.py            # Re-export stub for compatibility
+```
+
+### 9.3 Verify After Deletion
+
+```bash
+# Test all commands still work
+opencli tui
 
 /debug
-# Expected in trace:
-# [TRACE] TUI setting UI callback: <function _show_permission_prompt...>
-# [TRACE] _show_permission_prompt CALLED with: System: /debug
-```
-
----
-
-## Phase 4: DOCUMENT Current Routing (Analysis Report)
-
-### 4.1 Create Routing Report
-
-**File: ROUTING_ANALYSIS_REPORT.md**
-
-```markdown
-# Command Execution Routing Analysis
-
-## Group A: SDK Pattern (Correct ✅)
-Commands: /debug, /model, /agent, /provider, etc.
-
-Route:
-User → SDK Executor → Unified Manager → Buffer → User → Handler
-
-Files:
-- modules/commands/dev_commands.py
-- modules/commands/model_commands.py
-- modules/commands/agent_commands.py
-
-Status: ✅ Single path, uses permission buffer
-
-## Group B: Interactive Buffer Pattern
-Commands: /docker, /docker-setup, etc.
-
-Route:
-User → SDK Executor → Prompt Function → get_permission_buffer_manager() → ???
-
-Files:
-- modules/docker_commands.py
-- modules/docker_commands_unified.py
-
-Status: ⚠️ INVESTIGATE - May bypass SDK or may be routed correctly
-
-Questions:
-1. Does get_permission_buffer_manager() return unified instance?
-2. Does buffer_manager.request_permission() go through unified manager?
-3. Is this the same buffer as Group A?
-
-## Group C: Legacy/Unknown
-Commands: ???
-
-Files:
-- modules/command_executor.py
-- modules/tool_registry.py
-
-Status: ❌ UNKNOWN - Need to trace execution path
-
-## Summary
-- ✅ Working: X commands
-- ⚠️ Needs Verification: Y commands
-- ❌ Wrong Path: Z commands
-- Total: X+Y+Z commands
-```
-
-### 4.2 Create Instance Tracking Report
-
-**File: INSTANCE_TRACKING_REPORT.md**
-
-```markdown
-# Permission Manager Instance Tracking
-
-## Test: /debug Command
-UnifiedPermissionManager ID: 12345678
-Buffer Manager ID: 87654321
-UI Callback: TUI._show_permission_prompt
-Result: ✅/❌
-
-## Test: /docker Command
-UnifiedPermissionManager ID: 12345678 (same ✅ / different ❌)
-Buffer Manager ID: 87654321 (same ✅ / different ❌)
-UI Callback: TUI._show_permission_prompt (same ✅ / different ❌)
-Result: ✅/❌
-
-## Conclusion
-Single instance: ✅/❌
-Single buffer: ✅/❌
-Single UI: ✅/❌
-```
-
----
-
-## Phase 5: FIX Routing Issues (If Any Found)
-
-### 5.1 IF: Multiple Instances Detected
-
-**Problem:** Different commands create different manager instances
-
-**Fix:**
-```python
-# Ensure singleton pattern in modules/permissions/integration.py
-_unified_instance = None
-
-def get_unified_permission_manager():
-    global _unified_instance
-    if _unified_instance is None:
-        _unified_instance = UnifiedPermissionManager()
-    return _unified_instance
-```
-
-### 5.2 IF: Commands Bypass SDK Executor
-
-**Problem:** Some commands call permission manager directly without going through SDK
-
-**Fix:** Document which commands need updating, create migration plan
-
-### 5.3 IF: Multiple Buffer Instances
-
-**Problem:** Different buffers created for different commands
-
-**Fix:** Ensure all paths use `unified_manager.get_buffer_manager()`
-
----
-
-## Phase 6: VERIFY Multi-Page Buffers Work
-
-### 6.1 Test Interactive Buffer Commands
-
-**Test: /docker multi-page navigation**
-```bash
-opencli tui
 /docker
-# Press ENTER
-
-# Expected:
-# 1. Permission buffer appears ✅/❌
-# 2. Shows multiple pages ✅/❌
-# 3. Can navigate with arrow keys ✅/❌
-# 4. Selecting option works ✅/❌
-# 5. Command executes correctly ✅/❌
+/model
+/agent
+# All should work identically
 ```
 
-### 6.2 Compare Buffer Appearance
-
-**Question:** Do ALL permission buffers look the same?
-
-- /debug buffer appearance: [describe]
-- /docker buffer appearance: [describe]
-- Same UI? ✅/❌
-
 ---
 
-## Phase 7: REVIEW PR #4 Changes
+## Phase 10: Final Verification & Documentation
 
-### 7.1 Check What PR Changed
+**Goal:** Confirm single path works, document architecture
 
-**Files modified in PR:**
-1. modules/docker_commands.py
-2. modules/command_executor.py
-3. modules/tool_registry.py
-4. modules/__init__.py
-5. modules/permissions/__init__.py
+### 10.1 Full System Test
 
-**For EACH file:**
-- What was old import?
-- What is new import?
-- Does it still work? ✅/❌
-- Does it use single path? ✅/❌
+**Test every command type:**
+- [ ] Simple prompts (/debug, /model, etc.)
+- [ ] Multi-page prompts (/docker, etc.)
+- [ ] Tool permissions (if applicable)
+- [ ] Async permissions (if applicable)
 
-### 7.2 Check What PR Deleted
+**Verify:**
+- [ ] Single execution path: Command → SDK → Buffer
+- [ ] Single permission manager instance
+- [ ] Single buffer instance
+- [ ] All buffers look the same
+- [ ] All features work same as before
 
-**Files deleted in PR:**
-- modules/permission_buffer/ directory
-- modules/permission_buffer_manager.py
+### 10.2 Document Final Architecture
 
-**Questions:**
-1. Did deleting these break anything? ✅/❌
-2. Were they actually unused? ✅/❌
-3. Did they contain unique functionality? ✅/❌
-
-### 7.3 Decision: Keep or Reject PR
-
-**IF all tests pass:**
-- ✅ Single instance verified
-- ✅ Single path verified
-- ✅ Permission buffer works
-- ✅ Multi-page buffers work
-- ✅ No functionality lost
-
-**THEN:** Approve PR, merge it
-
-**IF any test fails:**
-- ❌ Multiple instances
-- ❌ Multiple paths
-- ❌ Broken functionality
-- ❌ Lost features
-
-**THEN:** Reject PR, document what needs fixing
-
----
-
-## Phase 8: DOCUMENT Final Architecture
-
-### 8.1 Create Architecture Doc
-
-**File: PERMISSION_ARCHITECTURE.md**
+**Create:** `PERMISSION_SYSTEM_ARCHITECTURE.md`
 
 ```markdown
 # OpenCLI Permission System Architecture
 
 ## Overview
-Single unified execution path for all commands with permission buffer UI.
-
-## Components
-
-### 1. UnifiedPermissionManager
-Location: modules/permissions/integration.py
-Singleton: Yes
-Manages: Permission requests, buffer manager, UI callbacks
-
-### 2. PermissionBufferManager
-Location: modules/permissions/manager.py
-Singleton: Yes (via UnifiedPermissionManager)
-Manages: Prompt queue, display, responses
-
-### 3. Permission Buffer Widget
-Location: modules/input_widget/widget.py (MultiLineInput.permission_prompt_data)
-Renders: Permission prompts in TUI
-
-### 4. SDK Executor
-Location: modules/execution/executor.py
-Role: Routes all commands through unified manager
+Single unified execution path for all commands.
 
 ## Execution Flow
-[Diagram from Phase 2]
+```
+User Input
+    ↓
+SDK Executor (modules/execution/executor.py)
+    ↓
+Unified Permission Manager (modules/permissions/integration.py)
+    ↓
+Buffer Manager (modules/permissions/manager.py)
+    ↓
+Permission Buffer Widget (modules/input_widget/widget.py)
+    ↓
+User Response
+    ↓
+Command Handler
+```
+
+## Components
+- UnifiedPermissionManager: Single instance, manages all permissions
+- PermissionBufferManager: Single instance, manages buffer display
+- Permission Widget: Displays prompts in TUI
+- SDK Executor: Routes all commands
 
 ## Command Patterns
-
-### Pattern A: Simple Prompt
-[Example code]
-
-### Pattern B: Multi-Page Prompt
-[Example code]
+[Example code for simple and multi-page prompts]
 
 ## Testing
 [How to verify single path]
 
 ## Migration Guide
-[How to update old commands]
+[How commands were migrated from legacy]
 ```
 
----
+### 10.3 Success Criteria
 
-## Phase 9: CREATE Migration Guide (If Needed)
-
-### 9.1 IF: Some commands still use old pattern
-
-**Document:**
-
-```markdown
-# Migrating Commands to Unified Path
-
-## Old Pattern (Don't Do This)
-```python
-async def command_prompt(...):
-    buffer_manager = get_permission_buffer_manager()
-    return await buffer_manager.request_permission(...)
-```
-
-## New Pattern (Do This)
-```python
-def command_prompt(...):
-    return prompt_data  # SDK handles the rest
-```
-
-## Migration Steps
-1. Remove async from prompt function
-2. Remove buffer_manager calls
-3. Return prompt_data dict only
-4. Test command still works
-```
-
----
-
-## Phase 10: CLEANUP Legacy Code (If Safe)
-
-### 10.1 Only Delete If:
-
-**Criteria:**
-1. ✅ All commands use unified path
-2. ✅ All tests pass
-3. ✅ No broken imports
-4. ✅ No lost functionality
-5. ✅ Documentation complete
-
-### 10.2 What Can Be Deleted
-
-**Safe to delete:**
-- [ ] modules/permission_buffer/ (IF all imports updated)
-- [ ] modules/permission_buffer_manager.py (IF all imports updated)
-- [ ] Backup files (.backup)
-- [ ] Unused workflow files
-
-**KEEP (needed for compatibility):**
-- [ ] modules/permission_prompt.py (re-export stub)
-- [ ] modules/permissions/manager.py (core buffer manager)
-- [ ] modules/permissions/integration.py (unified manager)
-
----
-
-## EXECUTION ORDER
-
-```
-Phase 1: UNDERSTAND  → Trace all paths, test manually
-Phase 2: DEFINE      → Document desired architecture
-Phase 3: VERIFY      → Add tracing, check instances
-Phase 4: DOCUMENT    → Create routing analysis report
-Phase 5: FIX         → Fix any issues found in Phase 3/4
-Phase 6: VERIFY      → Test multi-page buffers work
-Phase 7: REVIEW      → Check PR #4 against findings
-Phase 8: DOCUMENT    → Final architecture documentation
-Phase 9: MIGRATE     → Create migration guide if needed
-Phase 10: CLEANUP    → Delete legacy code if safe
-```
-
-**CRITICAL:** Do NOT skip phases. Do NOT delete code until Phase 10.
-
----
-
-## SUCCESS CRITERIA
-
-At the end of Phase 10, verify:
+**ALL must be ✅:**
 
 - [ ] Single UnifiedPermissionManager instance
 - [ ] Single PermissionBufferManager instance
 - [ ] All commands route through SDK executor
 - [ ] All commands use same permission buffer UI
 - [ ] Multi-page buffers work correctly
+- [ ] No legacy code remains (except compatibility stubs)
 - [ ] No broken imports
 - [ ] No lost functionality
+- [ ] All tests pass
 - [ ] Documentation complete
-- [ ] Tests pass
-- [ ] Legacy code removed (if safe)
 
-If ANY checkbox is unchecked, plan FAILED - do not delete code.
+**IF ANY ❌:** Plan INCOMPLETE - do not merge
+
+---
+
+## Execution Order
+
+```
+Phase 1:  Inventory legacy features        → LEGACY_FEATURES_INVENTORY.md
+Phase 2:  Inventory modular features       → MODULAR_FEATURES_INVENTORY.md
+Phase 3:  Gap analysis                     → FEATURE_GAP_ANALYSIS.md
+Phase 4:  Migrate core features            → Update modular code
+Phase 5:  Migrate remaining features       → Update modular code
+Phase 6:  Verify single path               → Test all command groups
+Phase 7:  Verify multi-page buffers        → Test interactive commands
+Phase 8:  Verify single instance           → Add tracing, test
+Phase 9:  Remove legacy code               → Delete old files
+Phase 10: Final verification & docs        → ARCHITECTURE.md
+```
+
+---
+
+## Current Status
+
+**Phase 1:** READY TO START
+**Next Action:** Create `LEGACY_FEATURES_INVENTORY.md`
 
 ---
 
 **Last Updated:** 2025-10-22
-**Status:** Phase 1 - Ready to Execute
-**Next Action:** Trace execution paths for all command groups
+**Branch:** refactor2
+**Maintainer:** Claude Code
