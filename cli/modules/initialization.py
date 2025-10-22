@@ -209,7 +209,7 @@ class ComponentInitializer:
             True if tool permissions are available
         """
         try:
-            from tool_permissions import ToolPermissionManager
+            from modules.permissions.risk_assessment import RiskAssessmentManager as ToolPermissionManager
             self.features['TOOL_PERMISSIONS'] = True
             self.initialized_components['tool_permissions'] = ToolPermissionManager
             return True

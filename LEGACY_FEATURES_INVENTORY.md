@@ -1,350 +1,224 @@
-# Legacy Permission Features Inventory
+# Legacy Features Inventory
 
-**Date:** 2025-10-22
-**Status:** Phase 1 Complete
-**Purpose:** Document all features in legacy permission code before migration/deletion
+**Date:** 2025-10-22  
+**Purpose:** Document all features in legacy permission system files for migration analysis
 
 ---
 
-## 1. modules/permission_buffer/ (Old Permission System)
+## 1. modules/permission_buffer/ (Legacy Directory)
 
 ### Files:
 - `__init__.py` (23 lines)
-- `enums.py` (15 lines)
-- `manager.py` (200 lines)
-- `task.py` (50 lines)
+- `manager.py` (203 lines)
+- `task.py` (49 lines)
+- `enums.py` (20 lines)
 
 ### Features:
 
-#### PermissionBufferManager (permission_buffer/manager.py)
-**Lines:** 1-200
-**Status:** ✅ Used by docker_commands.py and others
+#### PermissionBufferManager (manager.py)
+- ✅ Priority-based prompt queuing with heapq
+- ✅ Async permission request handling
+- ✅ Auto-dismiss after timeout
+- ✅ UI integration via `set_app_context(app, prompt_input)`
+- ✅ Queue processing with `_process_queue()`
+- ✅ Task state management (QUEUED, DISPLAYING, AWAITING_INPUT, RESOLVED)
+- ✅ Statistics tracking (total_prompts, auto_dismissed, user_resolved, cancelled)
+- ✅ User response handling
+- ✅ Queue clearing
+- ✅ Global singleton instance via `get_permission_buffer_manager()`
 
-**Capabilities:**
-- Priority-based queue (heapq implementation)
-- Auto-dismiss functionality
-- App context integration (`set_app_context()`)
-- Performance statistics tracking
-- Async permission requests (`request_permission()`)
-- Queue processing
-- UI integration
+**Modular equivalent:** ✅ `modules/permissions/manager.py` (530 lines) - enhanced version
+**Still used?** ❌ Appears to be superseded by modular version
+**Migration needed?** ❌ Already migrated to modular system
 
-**Key Methods:**
-- `set_app_context(app, prompt_input)` - Set TUI app reference
-- `request_permission(prompt_data, priority, auto_dismiss_after, callback)` - Async request
-- `_process_queue()` - Process priority queue
-- `_process_task()` - Handle individual task
-- `_show_in_ui()` - Display in TUI
-- `handle_user_response()` - Process user input
-- `cancel_current_prompt()` - Cancel active prompt
-- `get_stats()` - Get performance metrics
-- `clear_queue()` - Clear all pending prompts
+#### _PromptTask (task.py)
+- ✅ Task dataclass with UUID, priority, timestamp
+- ✅ Auto-dismiss logic
+- ✅ Future/callback support
+- ✅ Priority queue ordering via `__lt__`
+- ✅ Task serialization via `to_dict()`
 
-**Used By:**
-- Legacy docker commands (via compatibility wrapper)
-- Command executor
-- Tool registry
+**Modular equivalent:** ✅ `modules/permissions/task.py` (295 lines) - enhanced version
+**Still used?** ❌ Superseded by modular version
+**Migration needed?** ❌ Already migrated
 
-**Modular Equivalent:** ✅ modules/permissions/manager.py (enhanced version)
+#### Enums (enums.py)
+- ✅ PromptPriority (LOW, NORMAL, HIGH, URGENT)
+- ✅ PromptState (QUEUED, DISPLAYING, AWAITING_INPUT, RESOLVED, CANCELLED, AUTO_DISMISSED)
 
----
-
-#### Enums (permission_buffer/enums.py)
-
-**PromptPriority:**
-- URGENT = 0
-- HIGH = 1
-- NORMAL = 2
-- LOW = 3
-
-**PromptState:**
-- QUEUED
-- DISPLAYING
-- RESOLVED
-- CANCELLED
-- TIMEOUT
-
-**Modular Equivalent:** ✅ modules/permissions/enums.py (same + more)
+**Modular equivalent:** ✅ `modules/permissions/enums.py` (72 lines) - enhanced with SDKState, PermissionResponse
+**Still used?** ❌ Superseded
+**Migration needed?** ❌ Already migrated
 
 ---
 
-#### _PromptTask (permission_buffer/task.py)
-
-**Features:**
-- Task data structure
-- Priority comparison (`__lt__`)
-- Auto-dismiss checking
-- Serialization (`to_dict()`)
-
-**Modular Equivalent:** ✅ modules/permissions/task.py (enhanced)
-
----
-
-## 2. modules/async_permissions.py (Async Permission Handling)
-
-**Lines:** 180 total
-**Status:** ✅ Used by async_interactive/permissions.py
+## 2. modules/async_permissions.py (219 lines)
 
 ### Features:
 
 #### AsyncPermissionHandler
-**Capabilities:**
-- Async permission prompts
-- Tool permission manager integration
-- UI prompt coordination
-- Timeout handling (5 min default)
-- Response event system
-- Permission templates
+- ✅ Async permission prompts in TUI
+- ✅ Coordinates ToolPermissionManager with UI prompts
+- ✅ `check_and_prompt(tool_name, args, current_dir)` - main entry point
+- ✅ Risk level integration from ToolPermissionManager
+- ✅ Prompt generation for different tools:
+  - Edit operations
+  - Write operations
+  - Bash commands
+  - WebFetch
+  - ConfigureHeaders
+  - Refactoring
+- ✅ Response handling with timeout (300s default)
+- ✅ Permission response processing:
+  - ALLOW_ONCE
+  - ALLOW_ALWAYS (adds to allowed tools)
+  - ALLOW_DOMAIN
+  - DENY
+  - CANCEL
+- ✅ UI integration via `app.stream_display`
+- ✅ Global handler instance management
 
-**Key Methods:**
-- `check_and_prompt(tool_name, args, current_dir)` - Check if permission needed
-- `_show_permission_prompt()` - Display async prompt
-- `_generate_prompt_data()` - Create prompt from tool data
-- `set_response()` - Handle user response
-- `allow_tool_always()` - Remember permission
-
-**Used By:**
-- `modules/async_interactive/permissions.py`
-- TUI async tool execution
-
-**Modular Equivalent:** ⚠️ PARTIAL - modules/permissions/integration.py has async request_permission()
-**Missing:** Tool-specific prompt generation, 5-min timeout defaults
+**Modular equivalent:** ❓ Partially in `modules/permissions/integration.py`
+**Still used?** ❓ Need to check imports
+**Migration needed?** ✅ YES - Tool-specific prompt generation and async handling logic
 
 ---
 
-## 3. modules/tool_permissions.py (Tool-Specific Permissions)
-
-**Lines:** 400 total
-**Status:** ✅ Used by async_permissions.py, async_interactive/permissions.py
+## 3. modules/tool_permissions.py (321 lines)
 
 ### Features:
-
-#### RiskLevel Enum
-- SAFE - Read, Glob, Grep (auto-execute)
-- RISKY - Edit, Write (prompt for confirmation)
-- DANGEROUS - Bash (always prompt with preview)
-- CRITICAL - Parent/outside dirs, system paths
 
 #### ToolPermissionManager
-**Capabilities:**
-- Tool risk classification
-- Path-based risk assessment
-- Parent directory detection
-- System path detection
-- Permissions file storage (~/.opencli/tool_permissions.json)
-- Auto-accept mode
-- Session-based permissions
+- ✅ Risk level classification (SAFE, RISKY, DANGEROUS, CRITICAL)
+- ✅ Tool risk mapping:
+  - SAFE: Read, Glob, Grep, GitHub
+  - RISKY: Edit, Write, ConfigureHeaders
+  - DANGEROUS: Bash
+- ✅ Path-based risk assessment:
+  - System directory detection (/etc, /bin, /usr, /System, etc.)
+  - Parent directory detection
+  - Outside working directory detection
+  - `.ssh`, `.aws`, `.config` protection
+- ✅ Permission file management (tool_permissions.json)
+- ✅ Allowed tools list
+- ✅ Auto-accept mode (global and session)
+- ✅ `should_prompt()` decision logic
+- ✅ Tool operation preview formatting
+- ✅ Console-based permission prompting
+- ✅ Session state management
 
-**Key Methods:**
-- `is_tool_allowed(tool_name)` - Check if tool in allowed list
-- `assess_path_risk(file_path, current_dir)` - Evaluate path risk
-- `should_prompt(tool_name, args, current_dir)` - Determine if prompt needed
-- `allow_tool_always(tool_name)` - Remember permission
-- `enable_auto_accept()` - Enable auto-accept mode
-- `disable_auto_accept()` - Disable auto-accept mode
-
-**Used By:**
-- `modules/async_permissions.py` (AsyncPermissionHandler)
-- `modules/async_interactive/permissions.py`
-
-**Modular Equivalent:** ❌ MISSING - No tool-specific permission logic in modules/permissions/
+**Modular equivalent:** ❓ Risk assessment might be in validation.py?
+**Still used?** ❓ Need to check imports
+**Migration needed?** ✅ YES - Risk assessment and tool classification logic
 
 ---
 
-## 4. modules/permission_workflow.py (Multi-Step Workflows)
-
-**Lines:** 171 total
-**Status:** ❌ NOT USED (0 imports found)
+## 4. modules/permission_workflow.py (171 lines)
 
 ### Features:
 
-#### WorkflowStepStatus Enum
-- PENDING
-- WAITING_PERMISSION
-- APPROVED
-- IN_PROGRESS
-- COMPLETED
-- FAILED
-- SKIPPED
+#### PermissionWorkflow System
+- ✅ Multi-step workflow with permission gates
+- ✅ WorkflowStep dataclass with:
+  - ID, title, description
+  - Permission requirement flag
+  - Execute function
+  - Status tracking
+- ✅ WorkflowStepStatus enum (PENDING, WAITING_PERMISSION, APPROVED, IN_PROGRESS, COMPLETED, FAILED, SKIPPED)
+- ✅ Status summary generation
+- ✅ Permission prompt generation for steps
+- ✅ Step approval mechanism
+- ✅ Step execution with error handling
+- ✅ Workflow cancellation
+- ✅ WorkflowManager for managing multiple active workflows
 
-#### WorkflowStep Dataclass
-**Fields:**
-- id, title, description
-- requires_permission (bool)
-- permission_prompt (dict)
-- execute_func (async callable)
-- status, result, error
-
-#### PermissionWorkflow
-**Capabilities:**
-- Multi-step workflow management
-- Permission gates between steps
-- Status tracking
-- Progress summary
-- Step-by-step execution
-- Cancellation support
-
-**Key Methods:**
-- `get_current_step()` - Get active step
-- `get_status_summary()` - Progress report
-- `get_permission_prompt_for_current_step()` - Get prompt data
-- `approve_current_step()` - Mark step approved
-- `execute_current_step()` - Run step function
-- `next_step()` - Advance workflow
-- `cancel()` - Cancel workflow
-
-#### WorkflowManager
-**Capabilities:**
-- Workflow registry
-- Multiple concurrent workflows
-- Workflow lifecycle management
-
-**Used By:** ❌ NONE (0 imports)
-
-**Modular Equivalent:** ❌ MISSING - No workflow support in modules/permissions/
-
-**Decision:** ⏸️ Can delete (unused) OR migrate if needed for future features
+**Modular equivalent:** ❌ Not found in modular system
+**Still used?** ❓ Need to check imports
+**Migration needed?** ✅ YES - Entire workflow system needs migration
 
 ---
 
-## 5. modules/dual_buffer_system.py (Dual Buffer Display)
-
-**Lines:** 246 total
-**Status:** ❌ NOT USED (0 imports found)
+## 5. modules/dual_buffer_system.py (247 lines)
 
 ### Features:
 
-#### ToolBuffer
-**Capabilities:**
-- Streaming tool output display
-- Character-by-character streaming
-- Collapsible sections
-- Visual indicators (⏺ running, ✓ complete)
-- Rich text formatting
-- Status line updates
+#### Dual Buffer Architecture
+- ✅ ToolBuffer class:
+  - Streaming character-by-character output
+  - Collapsible sections
+  - Visual indicators (⏺ running, ✓ complete, ✗ failed)
+  - Tool name and args display
+  - Output accumulation
+  - Status line updates
+- ✅ CommandBuffer class:
+  - Immediate writes (no delay)
+  - Markdown rendering support
+  - Direct style application
+  - System message handling
+- ✅ DualBufferCoordinator:
+  - Write lock for coordination
+  - Active tool buffer tracking
+  - Command buffer access
+  - Tool buffer lifecycle management
 
-**Key Methods:**
-- `start()` - Begin tool execution display
-- `write_chunk(text)` - Stream output chunk
-- `finish(success)` - Mark complete
-- `toggle_collapse()` - Collapse/expand output
-
-#### CommandBuffer
-**Capabilities:**
-- Immediate writes for system messages
-- Chat message display
-- Debug output
-- Prevents interleaving with ToolBuffer
-
-**Used By:** ❌ NONE (0 imports)
-
-**Modular Equivalent:** ⚠️ UNCLEAR - Streaming display exists in modules/streaming_display/
-
-**Decision:** ⏸️ Can delete (unused) OR check if streaming_display/ replaced this
+**Modular equivalent:** ❌ Not found in modular system
+**Still used?** ❓ Need to check imports
+**Migration needed?** ✅ YES - Streaming display architecture
 
 ---
 
-## 6. modules/permission_buffer_manager.py (Compatibility Stub)
-
-**Lines:** 70 total (2KB)
-**Status:** ✅ USED by many files (imports routed to unified)
+## 6. modules/permission_buffer_manager.py (70 lines)
 
 ### Features:
+- ✅ Compatibility stub/re-export layer
+- ✅ Re-exports from `modules.permissions`
+- ✅ Fallback import logic
+- ✅ Deprecation warning
+- ✅ Legacy API compatibility
 
-**Compatibility Wrapper:**
-```python
-def get_permission_buffer_manager():
-    """Get permission buffer manager (legacy compatibility)"""
-    unified_manager = get_unified_permission_manager()
-    return unified_manager.get_buffer_manager()
-```
-
-**Purpose:**
-- Routes legacy imports to unified system
-- Maintains backward compatibility
-- Shows deprecation warning
-
-**Re-exports:**
-- PermissionBufferManager
-- get_permission_buffer_manager
-- PromptPriority
-- PromptState
-- _PromptTask
-
-**Used By:** Files that haven't been updated to use modules/permissions/ directly
-
-**Decision:** ✅ KEEP - Needed for compatibility until all imports updated
+**Purpose:** Backward compatibility during migration
+**Still used?** ✅ YES - compatibility layer
+**Migration needed?** ❌ Keep for compatibility, remove after all imports updated
 
 ---
 
-## 7. modules/permission_prompt.py (Re-export Stub)
-
-**Lines:** 54 total (1.5KB)
-**Status:** ✅ USED for PermissionResponse enum
+## 7. modules/permission_prompt.py (57 lines)
 
 ### Features:
+- ✅ Compatibility stub/re-export layer
+- ✅ Re-exports PermissionResponse, PermissionTemplates, PermissionPrompt
+- ✅ Fallback import logic
+- ✅ Deprecation warning
 
-**Re-exports:**
-- PermissionResponse (enum)
-- PermissionTemplates (if available)
-
-**Purpose:**
-- Backward compatibility for PermissionResponse imports
-- Central export point for permission enums
-
-**Used By:** Command files (dev_commands.py, model_commands.py, etc.)
-
-**Decision:** ✅ KEEP - Still used for PermissionResponse enum
+**Purpose:** Backward compatibility during migration
+**Still used?** ✅ YES - compatibility layer
+**Migration needed?** ❌ Keep for compatibility, remove after all imports updated
 
 ---
 
-## Summary: Legacy Features Status
+## Summary
 
-### ✅ MUST KEEP (Used, no replacement):
-1. **tool_permissions.py** - Tool-specific permission logic, risk assessment, path detection
-2. **permission_buffer_manager.py** - Compatibility wrapper (until imports updated)
-3. **permission_prompt.py** - PermissionResponse enum re-export
+### Files to KEEP (Compatibility):
+- ✅ `modules/permission_buffer_manager.py` - Compatibility stub (until all imports updated)
+- ✅ `modules/permission_prompt.py` - Compatibility stub (until all imports updated)
 
-### ⚠️ USED BUT HAS MODULAR EQUIVALENT:
-1. **permission_buffer/manager.py** - Replaced by permissions/manager.py (enhanced)
-2. **permission_buffer/enums.py** - Replaced by permissions/enums.py
-3. **permission_buffer/task.py** - Replaced by permissions/task.py
-4. **async_permissions.py** - Partially replaced by permissions/integration.py
+### Files to MIGRATE:
+- ✅ `modules/async_permissions.py` - Tool-specific async permission handling
+- ✅ `modules/tool_permissions.py` - Risk assessment and tool classification
+- ✅ `modules/permission_workflow.py` - Multi-step workflow system
+- ✅ `modules/dual_buffer_system.py` - Streaming display architecture
 
-### ❌ UNUSED (Safe to delete):
-1. **permission_workflow.py** - 0 imports found
-2. **dual_buffer_system.py** - 0 imports found
-3. **permission_buffer_manager.py.backup** - Backup file
-4. **permission_prompt.py.backup** - Backup file
+### Files to DELETE (After Migration):
+- ❌ `modules/permission_buffer/` - Already superseded by modular system
 
----
-
-## Migration Priorities
-
-### Priority 1: MUST MIGRATE (Used, no modular equivalent)
-1. **tool_permissions.py** → modules/permissions/tool_permissions.py
-   - Tool risk classification
-   - Path risk assessment
-   - Parent directory detection
-   - System path detection
-
-2. **async_permissions.py** (tool-specific features) → modules/permissions/
-   - Tool prompt generation
-   - 5-minute timeout defaults
-
-### Priority 2: CAN MIGRATE (Used, modular has partial support)
-1. **permission_workflow.py** → modules/permissions/workflow.py
-   - IF needed for future multi-step commands
-   - Currently unused (0 imports)
-
-### Priority 3: KEEP AS COMPATIBILITY (Needed until imports updated)
-1. **permission_buffer_manager.py** - Keep until all imports updated
-2. **permission_prompt.py** - Keep for PermissionResponse enum
-
-### Priority 4: DELETE IMMEDIATELY (Unused)
-1. **.backup files** - Old backups
-2. **dual_buffer_system.py** - Replaced by streaming_display/
+### Features Needing Migration:
+1. **Tool-specific prompt generation** (from async_permissions.py)
+2. **Risk level assessment** (from tool_permissions.py)
+3. **Path safety validation** (from tool_permissions.py)
+4. **Allowed tools management** (from tool_permissions.py)
+5. **Multi-step workflow system** (from permission_workflow.py)
+6. **Dual buffer streaming** (from dual_buffer_system.py)
 
 ---
 
-**Next:** Phase 2 - Inventory modular features in modules/permissions/
+**Next Step:** Create MODULAR_FEATURES_INVENTORY.md to see what modular system already has

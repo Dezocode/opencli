@@ -1,6 +1,6 @@
 """
 Async Permission System for TUI
-Integrates ToolPermissionManager with buffered UI prompts
+Integrates RiskAssessmentManager with buffered UI prompts
 """
 
 import asyncio
@@ -8,20 +8,20 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 try:
-    from .tool_permissions import ToolPermissionManager, RiskLevel
+    from .permissions.risk_assessment import RiskAssessmentManager, RiskLevel
     from .permission_prompt import PermissionTemplates, PermissionResponse
 except (ImportError, ValueError):
-    from tool_permissions import ToolPermissionManager, RiskLevel
+    from permissions.risk_assessment import RiskAssessmentManager, RiskLevel
     from permission_prompt import PermissionTemplates, PermissionResponse
 
 
 class AsyncPermissionHandler:
     """
     Handles async permission prompts in the TUI
-    Coordinates between ToolPermissionManager and UI prompts
+    Coordinates between RiskAssessmentManager and UI prompts
     """
 
-    def __init__(self, permission_manager: ToolPermissionManager, app=None):
+    def __init__(self, permission_manager: RiskAssessmentManager, app=None):
         self.permission_manager = permission_manager
         self.app = app
         self._pending_response = None

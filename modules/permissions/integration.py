@@ -1,6 +1,6 @@
 """
 Permission System Integration - Unified permission management
-Connects permission buffer manager with UI widgets and external systems
+Connects permission buffer manager with UI widgets, risk assessment, and external systems
 """
 
 from typing import Dict, Any, Optional, Callable
@@ -9,20 +9,35 @@ from .manager import PermissionBufferManager
 from .widget import PermissionPrompt
 from .enums import PermissionResponse
 from .templates import PermissionTemplates
+from .risk_assessment import RiskAssessmentManager, RiskLevel
 
 
 class UnifiedPermissionManager:
     """
-    Unified permission manager that integrates buffer management with UI widgets
+    Unified permission manager that integrates buffer management with UI widgets and risk assessment
     Provides a single interface for all permission-related operations
     """
     
     def __init__(self):
+        # Instance tracking for verification (Phase 10)
+        import sys
+        sys.stderr.write(f"[INSTANCE] UnifiedPermissionManager created: {id(self)}\n")
+        sys.stderr.flush()
+        
         self._buffer_manager = PermissionBufferManager()
+        self._risk_manager = RiskAssessmentManager()
         self._current_widget: Optional[PermissionPrompt] = None
         self._ui_callback: Optional[Callable] = None
         self._response_handlers: Dict[str, Callable] = {}
         self._lock = threading.Lock()
+    
+    def get_buffer_manager(self) -> PermissionBufferManager:
+        """Get the buffer manager instance"""
+        return self._buffer_manager
+    
+    def get_risk_manager(self) -> RiskAssessmentManager:
+        """Get the risk assessment manager instance"""
+        return self._risk_manager
         
     def set_ui_callback(self, callback: Callable) -> None:
         """Set callback function for UI integration (e.g., TUI's _show_permission_prompt)"""
@@ -82,6 +97,14 @@ class UnifiedPermissionManager:
         """Request permission with async waiting for response"""
         import asyncio
         import sys
+        import inspect
+
+        # Execution path tracing (Phase 11)
+        caller_frame = inspect.stack()[1]
+        caller_function = caller_frame.function
+        caller_file = caller_frame.filename.split('/')[-1] if '/' in caller_frame.filename else caller_frame.filename
+        sys.stderr.write(f"[PATH] request_permission called from: {caller_function} in {caller_file}\n")
+        sys.stderr.flush()
 
         sys.stderr.write(f"[UnifiedPermissionManager.request_permission] ENTERED\n")
         sys.stderr.flush()
@@ -215,6 +238,59 @@ class UnifiedPermissionManager:
             if self._current_widget:
                 self._current_widget.hide()
                 self._current_widget = None
+    
+    # Risk assessment delegation methods
+    
+    def assess_operation_risk(
+        self, 
+        tool_name: str, 
+        args: Optional[Dict[str, Any]] = None, 
+        current_dir: Optional[str] = None
+    ) -> tuple[RiskLevel, str]:
+        """Assess risk level for an operation"""
+        return self._risk_manager.assess_operation_risk(tool_name, args, current_dir)
+    
+    def assess_path_risk(self, file_path: str, current_dir: Optional[str] = None) -> tuple[RiskLevel, str]:
+        """Assess risk level for a file path"""
+        return self._risk_manager.assess_path_risk(file_path, current_dir)
+    
+    def should_prompt_for_operation(
+        self, 
+        tool_name: str, 
+        args: Optional[Dict[str, Any]] = None, 
+        current_dir: Optional[str] = None
+    ) -> tuple[bool, str, RiskLevel]:
+        """Determine if operation requires permission prompt"""
+        return self._risk_manager.should_prompt(tool_name, args, current_dir)
+    
+    def is_tool_allowed(self, tool_name: str) -> bool:
+        """Check if tool is in allowed list"""
+        return self._risk_manager.is_tool_allowed(tool_name)
+    
+    def add_allowed_tool(self, tool_name: str) -> bool:
+        """Add tool to allowed list"""
+        return self._risk_manager.add_allowed_tool(tool_name)
+    
+    def remove_allowed_tool(self, tool_name: str) -> bool:
+        """Remove tool from allowed list"""
+        return self._risk_manager.remove_allowed_tool(tool_name)
+    
+    def set_auto_accept(self, enabled: bool) -> None:
+        """Enable/disable global auto-accept mode"""
+        self._risk_manager.set_auto_accept(enabled)
+    
+    def format_operation_preview(
+        self, 
+        tool_name: str, 
+        args: Dict[str, Any], 
+        current_dir: Optional[str] = None
+    ) -> str:
+        """Format operation preview for display"""
+        return self._risk_manager.format_operation_preview(tool_name, args, current_dir)
+    
+    def get_risk_summary(self) -> Dict[str, Any]:
+        """Get risk assessment configuration summary"""
+        return self._risk_manager.get_risk_summary()
     
     def _show_console_prompt(self, prompt_data: Dict[str, Any]) -> bool:
         """Fallback console-based permission prompt"""

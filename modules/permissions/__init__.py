@@ -1,6 +1,6 @@
 """
 Permission system for OpenCLI
-Modular permission management with caching, analytics, and i18n support
+Modular permission management with caching, analytics, i18n, and risk assessment
 """
 
 # Export main components
@@ -14,6 +14,7 @@ from .audit import AuditManager
 from .cache import CacheManager
 from .widget import PermissionPrompt
 from .templates import PermissionTemplates
+from .risk_assessment import RiskAssessmentManager, RiskLevel, get_risk_assessment_manager
 from .integration import (
     UnifiedPermissionManager, 
     get_unified_permission_manager,
@@ -42,6 +43,9 @@ __all__ = [
     'CacheManager',
     'PermissionPrompt',
     'PermissionTemplates',
+    'RiskAssessmentManager',
+    'RiskLevel',
+    'get_risk_assessment_manager',
     'UnifiedPermissionManager',
     'get_unified_permission_manager',
     'show_file_permission_prompt',

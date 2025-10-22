@@ -226,3 +226,201 @@ class PermissionTemplates:
         }
         
         return prompt_data
+    
+    # Tool-specific prompts (migrated from async_permissions.py)
+    
+    @staticmethod
+    def file_edit(file_path: str, old_str: str, new_str: str) -> Dict[str, Any]:
+        """Create permission prompt for Edit tool"""
+        return {
+            'title': 'File Edit Permission',
+            'message': f'Claude wants to edit a file.\n\n**File:** `{file_path}`\n\nDo you want to allow this?',
+            'details': {
+                'file_path': file_path,
+                'old_string': old_str[:100] + ('...' if len(old_str) > 100 else ''),
+                'new_string': new_str[:100] + ('...' if len(new_str) > 100 else ''),
+            },
+            'options': [
+                {
+                    'text': 'Yes, allow this edit',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': "Yes, and don't ask again for Edit operations",
+                    'response': PermissionResponse.ALLOW_ALWAYS,
+                    'data': {'tool': 'Edit'}
+                },
+                {
+                    'text': 'No, skip this operation (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
+    
+    @staticmethod
+    def file_write(file_path: str, content: str) -> Dict[str, Any]:
+        """Create permission prompt for Write tool"""
+        content_preview = content[:100] + ('...' if len(content) > 100 else '')
+        return {
+            'title': 'File Write Permission',
+            'message': f'Claude wants to write to a file.\n\n**File:** `{file_path}`\n**Content:** ({len(content)} characters)\n\nDo you want to allow this?',
+            'details': {
+                'file_path': file_path,
+                'content_length': len(content),
+                'content_preview': content_preview,
+            },
+            'options': [
+                {
+                    'text': 'Yes, allow this write',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': "Yes, and don't ask again for Write operations",
+                    'response': PermissionResponse.ALLOW_ALWAYS,
+                    'data': {'tool': 'Write'}
+                },
+                {
+                    'text': 'No, skip this operation (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
+    
+    @staticmethod
+    def bash_command(command: str, description: Optional[str] = None) -> Dict[str, Any]:
+        """Create permission prompt for Bash command"""
+        message_parts = [f'Claude wants to execute a bash command.\n\n**Command:** `{command}`']
+        if description:
+            message_parts.append(f'**Description:** {description}')
+        message_parts.append('\nDo you want to allow this?')
+        
+        return {
+            'title': 'Bash Command Permission',
+            'message': '\n'.join(message_parts),
+            'details': {
+                'command': command,
+                'description': description or 'No description provided',
+            },
+            'options': [
+                {
+                    'text': 'Yes, allow this command',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': "Yes, and don't ask again for Bash",
+                    'response': PermissionResponse.ALLOW_ALWAYS,
+                    'data': {'tool': 'Bash'}
+                },
+                {
+                    'text': 'No, skip this operation (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
+    
+    @staticmethod
+    def webfetch(url: str) -> Dict[str, Any]:
+        """Create permission prompt for WebFetch tool"""
+        return {
+            'title': 'Web Fetch Permission',
+            'message': f'Claude wants to fetch content from a URL.\n\n**URL:** `{url}`\n\nDo you want to allow this?',
+            'details': {
+                'url': url,
+            },
+            'options': [
+                {
+                    'text': 'Yes, allow this fetch',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': 'Yes, allow for this domain',
+                    'response': PermissionResponse.ALLOW_DOMAIN,
+                    'data': {'url': url}
+                },
+                {
+                    'text': "Yes, and don't ask again for WebFetch",
+                    'response': PermissionResponse.ALLOW_ALWAYS,
+                    'data': {'tool': 'WebFetch'}
+                },
+                {
+                    'text': 'No, skip this operation (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
+    
+    @staticmethod
+    def configure_headers(
+        provider: str,
+        model: Optional[str] = None,
+        issue: Optional[str] = None,
+        current_headers: Optional[Dict[str, Any]] = None,
+        proposed_headers: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create permission prompt for ConfigureHeaders tool"""
+        message_parts = [f'Claude wants to configure API headers.\n\n**Provider:** {provider}']
+        if model:
+            message_parts.append(f'**Model:** {model}')
+        if issue:
+            message_parts.append(f'**Issue:** {issue}')
+        message_parts.append('\nDo you want to allow this?')
+        
+        details = {
+            'provider': provider,
+        }
+        if model:
+            details['model'] = model
+        if issue:
+            details['issue'] = issue
+        if current_headers:
+            details['current_headers'] = current_headers
+        if proposed_headers:
+            details['proposed_headers'] = proposed_headers
+        
+        return {
+            'title': 'Configure Headers Permission',
+            'message': '\n'.join(message_parts),
+            'details': details,
+            'options': [
+                {
+                    'text': 'Yes, allow this configuration',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': "Yes, and don't ask again for ConfigureHeaders",
+                    'response': PermissionResponse.ALLOW_ALWAYS,
+                    'data': {'tool': 'ConfigureHeaders'}
+                },
+                {
+                    'text': 'No, skip this operation (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
+    
+    @staticmethod
+    def code_refactoring(plan: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+        """Create permission prompt for Refactoring tool"""
+        return {
+            'title': 'Code Refactoring Permission',
+            'message': 'Claude wants to perform code refactoring.\n\nDo you want to allow this?',
+            'details': {
+                'plan': plan,
+                'result': result,
+            },
+            'options': [
+                {
+                    'text': 'Yes, allow this refactoring',
+                    'response': PermissionResponse.ALLOW_ONCE
+                },
+                {
+                    'text': 'Yes, allow for this session',
+                    'response': PermissionResponse.ALLOW_SESSION,
+                    'data': {'tool': 'Refactoring'}
+                },
+                {
+                    'text': 'No, skip this operation (esc)',
+                    'response': PermissionResponse.DENY
+                }
+            ]
+        }
