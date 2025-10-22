@@ -396,10 +396,16 @@ class PermissionHandlers:
                 return
 
             prompt_data['selected'] = 0
-            sys.stderr.write(f"[TUI._show_permission_prompt] Setting permission_prompt_data: {prompt_data}\n")
+            widget_id = id(prompt_input)
+            sys.stderr.write(f"[TUI._show_permission_prompt Widget={widget_id}] Setting permission_prompt_data: {prompt_data}\n")
             sys.stderr.flush()
+
+            # CRITICAL FIX: Clear first to force watcher to fire!
+            # If we set dict → dict, Textual might skip watcher if "equal"
+            # By doing dict → None → new_dict, we guarantee watcher fires twice
+            prompt_input.permission_prompt_data = None
             prompt_input.permission_prompt_data = prompt_data
-            sys.stderr.write(f"[TUI._show_permission_prompt] permission_prompt_data set, has_focus: {prompt_input.has_focus}\n")
+            sys.stderr.write(f"[TUI._show_permission_prompt Widget={widget_id}] permission_prompt_data set, has_focus: {prompt_input.has_focus}\n")
             sys.stderr.flush()
 
             # CRITICAL: Force focus to the input widget for permission navigation

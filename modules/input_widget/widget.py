@@ -31,8 +31,17 @@ class MultiLineInput(Widget):
     cursor_position = reactive(0)
     is_spinning = reactive(False)
     spinner_frame = reactive(0)
+
     permission_prompt_data = reactive(None)  # When set, takes FULL control
     permission_selected_option = reactive(0)
+
+    def validate_permission_prompt_data(self, value):
+        """Validate method - called when reactive property is set"""
+        import sys
+        widget_id = id(self)
+        sys.stderr.write(f"\n🔥🔥🔥 [MultiLineInput.validate_permission_prompt_data Widget={widget_id}] SETTER CALLED! value={value is not None}\n")
+        sys.stderr.flush()
+        return value
 
     # Spinner frames
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -100,6 +109,12 @@ class MultiLineInput(Widget):
         self.can_focus = True
         self._spin_task = None
         self.suggestions_active = False
+
+        # Debug: Log widget creation
+        import sys
+        widget_id = id(self)
+        sys.stderr.write(f"\n🆕 [MultiLineInput.__init__] Widget created! id={widget_id}, placeholder={placeholder}\n")
+        sys.stderr.flush()
 
     def watch_has_focus(self, has_focus: bool) -> None:
         """
