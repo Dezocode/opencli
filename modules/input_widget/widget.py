@@ -10,9 +10,9 @@ from rich.text import Text
 import asyncio
 
 # Import modular components
-from .messages import Submitted, ShowCommandSuggestions, HideCommandSuggestions
 from .permission_renderer import render_permission_prompt
 from .event_handler import handle_key_event, handle_paste_event
+from textual.message import Message
 
 
 class MultiLineInput(Widget):
@@ -36,8 +36,59 @@ class MultiLineInput(Widget):
     # Spinner frames
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-    # Export message classes for convenience
-    Submitted = Submitted
+    # ═══════════════════════════════════════════════════════════
+    # NESTED MESSAGE CLASSES (CRITICAL for Textual handler routing!)
+    # ═══════════════════════════════════════════════════════════
+
+    class Submitted(Message):
+        """Posted when user submits the input"""
+        bubble = True  # CRITICAL: Must reach parent TUI for message sending!
+
+        def __init__(self, value: str) -> None:
+            self.value = value
+            super().__init__()
+
+    class PermissionResponse(Message):
+        """Posted when user selects a permission option"""
+        bubble = True  # CRITICAL: Must reach parent TUI for permission handling!
+
+        def __init__(self, option: dict) -> None:
+            self.option = option
+            super().__init__()
+
+    class PermissionCancelled(Message):
+        """Posted when user cancels permission prompt"""
+        bubble = True  # CRITICAL: Must reach parent TUI for permission handling!
+
+    class ShowCommandSuggestions(Message):
+        """Posted when slash command typed - triggers suggestion buffer"""
+        bubble = True  # CRITICAL: Must reach parent TUI for autosuggest!
+
+        def __init__(self, query: str) -> None:
+            self.query = query
+            super().__init__()
+
+    class HideCommandSuggestions(Message):
+        """Posted when suggestions should be hidden"""
+        bubble = True  # CRITICAL: Must reach parent TUI!
+
+    class CommandSuggestionNavigate(Message):
+        """Posted when user navigates in suggestions with arrow keys"""
+        bubble = True  # CRITICAL: Must reach parent TUI!
+
+        def __init__(self, direction: str) -> None:
+            self.direction = direction  # "up" or "down"
+            super().__init__()
+
+    class CommandSuggestionSelect(Message):
+        """Posted when user presses Enter with suggestions active"""
+        bubble = True  # CRITICAL: Must reach parent TUI!
+
+    class NavigationEvent(Message):
+        """Posted when user navigates away (focus lost) - triggers auto-dismiss"""
+        def __init__(self, event_type: str) -> None:
+            self.event_type = event_type  # "focus_lost", "window_change", etc.
+            super().__init__()
 
     def __init__(self, placeholder: str = "", **kwargs):
         super().__init__(**kwargs)
@@ -180,8 +231,7 @@ class MultiLineInput(Widget):
                 selected_option = options[self.permission_selected_option]
                 sys.stderr.write(f"[ACTION_SUBMIT] Selecting permission option: {selected_option.get('text')}\n")
                 sys.stderr.flush()
-                from .messages import PermissionResponse
-                self.post_message(PermissionResponse(selected_option))
+                self.post_message(self.PermissionResponse(selected_option))
                 self.permission_prompt_data = None  # Clear prompt after selection
                 return
 
@@ -189,15 +239,14 @@ class MultiLineInput(Widget):
         if self.suggestions_active:
             sys.stderr.write(f"[ACTION_SUBMIT] Posting CommandSuggestionSelect\n")
             sys.stderr.flush()
-            from .messages import CommandSuggestionSelect
-            self.post_message(CommandSuggestionSelect())
+            self.post_message(self.CommandSuggestionSelect())
             return
 
         # Normal submission
         if self.value.strip():
             sys.stderr.write(f"[ACTION_SUBMIT] Posting Submitted('{self.value}')\n")
             sys.stderr.flush()
-            self.post_message(Submitted(self.value))
+            self.post_message(self.Submitted(self.value))
         else:
             sys.stderr.write(f"[ACTION_SUBMIT] Value empty after strip, not posting\n")
             sys.stderr.flush()
@@ -213,8 +262,7 @@ class MultiLineInput(Widget):
         if self.permission_prompt_data:
             sys.stderr.write(f"[ACTION_CANCEL] Cancelling permission prompt\n")
             sys.stderr.flush()
-            from .messages import PermissionCancelled
-            self.post_message(PermissionCancelled())
+            self.post_message(self.PermissionCancelled())
             self.permission_prompt_data = None  # Clear prompt after cancel
             return
 
@@ -247,7 +295,7 @@ class MultiLineInput(Widget):
         if new_value.startswith('/'):
             # Show/update command suggestions
             self.suggestions_active = True
-            self.post_message(ShowCommandSuggestions(new_value))
+            self.post_message(self.ShowCommandSuggestions(new_value))
 
             # DEBUG
             if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):
@@ -260,7 +308,7 @@ class MultiLineInput(Widget):
             # Hide suggestions if not a slash command
             if self.suggestions_active:
                 self.suggestions_active = False
-                self.post_message(HideCommandSuggestions())
+                self.post_message(self.HideCommandSuggestions())
 
                 # DEBUG
                 if os.getenv('OPENCLI_DEBUG_AUTOCOMPLETE'):

@@ -4,11 +4,6 @@ Processes keyboard and paste events with permission priority
 """
 
 from textual.events import Paste
-from .messages import (
-    PermissionResponse, PermissionCancelled,
-    CommandSuggestionNavigate, HideCommandSuggestions,
-    CommandSuggestionSelect
-)
 
 
 def handle_key_event(widget, event) -> bool:
@@ -40,7 +35,7 @@ def handle_key_event(widget, event) -> bool:
         # If no options (informational prompt), only allow Escape
         if not options:
             if key == "escape":
-                widget.post_message(PermissionCancelled())
+                widget.post_message(widget.PermissionCancelled())
                 event.prevent_default()
                 return True
             return True  # Block ALL other keys for informational prompts
@@ -61,12 +56,12 @@ def handle_key_event(widget, event) -> bool:
         elif key == "enter":
             # Confirm selection
             selected = options[widget.permission_selected_option]
-            widget.post_message(PermissionResponse(selected))
+            widget.post_message(widget.PermissionResponse(selected))
             event.prevent_default()
             return True
         elif key == "escape":
             # Cancel
-            widget.post_message(PermissionCancelled())
+            widget.post_message(widget.PermissionCancelled())
             event.prevent_default()
             return True
 
@@ -79,19 +74,19 @@ def handle_key_event(widget, event) -> bool:
     # ═══════════════════════════════════════════════════════════
     if widget.suggestions_active:
         if key == "up":
-            widget.post_message(CommandSuggestionNavigate("up"))
+            widget.post_message(widget.CommandSuggestionNavigate("up"))
             event.prevent_default()
             return True
         elif key == "down":
-            widget.post_message(CommandSuggestionNavigate("down"))
+            widget.post_message(widget.CommandSuggestionNavigate("down"))
             event.prevent_default()
             return True
         elif key == "enter":
-            widget.post_message(CommandSuggestionSelect())
+            widget.post_message(widget.CommandSuggestionSelect())
             event.prevent_default()
             return True
         elif key == "escape":
-            widget.post_message(HideCommandSuggestions())
+            widget.post_message(widget.HideCommandSuggestions())
             widget.suggestions_active = False
             event.prevent_default()
             return True
