@@ -112,26 +112,18 @@ class MultiLineInput(Widget):
         self.refresh()
 
     def on_blur(self) -> None:
-        """Track when widget loses focus - trigger navigation event for permission auto-dismiss"""
+        """Track when widget loses focus - DO NOT auto-dismiss permission prompts"""
         import sys
         sys.stderr.write(f"\n[MultiLineInput.on_blur] LOST FOCUS - prompt={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
-        
-        # Constitution Principle V: Auto-dismiss permission prompts on navigation
-        if self.permission_prompt_data:
-            sys.stderr.write(f"[MultiLineInput.on_blur] NAVIGATION EVENT - auto-dismissing permission prompt\n")
-            sys.stderr.flush()
-            
-            # Post navigation event first (for any listeners)
-            self.post_message(self.NavigationEvent("focus_lost"))
-            
-            # Then post cancellation event to handle current prompt
-            self.post_message(self.PermissionCancelled())
-            
-            # Clear prompt data immediately (responsive UI)
-            self.permission_prompt_data = None
-            self.permission_selected_option = 0
-        
+
+        # CRITICAL FIX: Do NOT auto-dismiss permission prompts on blur
+        # The widget may temporarily lose focus during setup or layout changes
+        # Permission prompts should only be dismissed by:
+        # 1. User pressing Enter (selection)
+        # 2. User pressing Escape (cancellation)
+        # NOT by focus loss!
+
         self.refresh()
 
     def render(self) -> Text:
