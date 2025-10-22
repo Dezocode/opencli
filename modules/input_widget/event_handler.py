@@ -6,102 +6,147 @@ Processes keyboard and paste events with permission priority
 from textual.events import Paste
 
 
-def handle_key_event(widget, event) -> bool:
-    """
-    Handle key press with PERMISSION PRIORITY
+# ═══════════════════════════════════════════════════════════
+# CONTEXT-SPECIFIC KEY HANDLERS
+# ═══════════════════════════════════════════════════════════
 
-    Returns:
-        True if event was handled (prevents default)
-        False if event should propagate
+def handle_permission_keys(widget, event) -> bool:
+    """
+    Handle keys during PERMISSION PROMPT context
+
+    BLOCKS all keys except:
+    - UP/DOWN: Navigate options
+    - ENTER: Confirm selection
+    - ESCAPE: Cancel prompt
+
+    Returns True to block all other keys
     """
     import sys
     key = event.key
 
-    # DEBUG logging
-    sys.stderr.write(f"\n🔥🔥🔥 [handle_key_event] KEY={key} 🔥🔥🔥\n")
-    sys.stderr.write(f"[handle_key_event] prompt={bool(widget.permission_prompt_data)}, focused={widget.has_focus}\n")
-    sys.stderr.write(f"[handle_key_event] value='{widget.value}', cursor={widget.cursor_position}\n")
+    sys.stderr.write(f"[handle_permission_keys] KEY={key}\n")
     sys.stderr.flush()
 
-    # ═══════════════════════════════════════════════════════════
-    # PRIORITY 1: PERMISSION PROMPT (blocks ALL other input)
-    # ═══════════════════════════════════════════════════════════
-    if widget.permission_prompt_data:
-        sys.stderr.write(f"[handle_key_event] PERMISSION MODE ACTIVE\n")
-        sys.stderr.flush()
+    options = widget.permission_prompt_data.get('options', [])
 
-        options = widget.permission_prompt_data.get('options', [])
-
-        # If no options (informational prompt), only allow Escape
-        if not options:
-            if key == "escape":
-                widget.post_message(widget.PermissionCancelled())
-                event.prevent_default()
-                return True
-            return True  # Block ALL other keys for informational prompts
-
-        # Handle navigation for prompts with options
-        if key == "up":
-            if widget.permission_selected_option > 0:
-                widget.permission_selected_option -= 1
-                widget.refresh()
-            event.prevent_default()
-            return True
-        elif key == "down":
-            if widget.permission_selected_option < len(options) - 1:
-                widget.permission_selected_option += 1
-                widget.refresh()
-            event.prevent_default()
-            return True
-        elif key == "enter":
-            # Confirm selection
-            selected = options[widget.permission_selected_option]
-            widget.post_message(widget.PermissionResponse(selected))
-            event.prevent_default()
-            return True
-        elif key == "escape":
-            # Cancel
+    # If no options (informational prompt), only allow Escape
+    if not options:
+        if key == "escape":
             widget.post_message(widget.PermissionCancelled())
             event.prevent_default()
             return True
-
-        # Block ALL other keys during permission prompt
+        # Block ALL other keys for informational prompts
         event.prevent_default()
         return True
 
-    # ═══════════════════════════════════════════════════════════
-    # PRIORITY 2: COMMAND SUGGESTIONS (if active)
-    # ═══════════════════════════════════════════════════════════
-    if widget.suggestions_active:
-        if key == "up":
-            widget.post_message(widget.CommandSuggestionNavigate("up"))
-            event.prevent_default()
-            return True
-        elif key == "down":
-            widget.post_message(widget.CommandSuggestionNavigate("down"))
-            event.prevent_default()
-            return True
-        elif key == "enter":
-            widget.post_message(widget.CommandSuggestionSelect())
-            event.prevent_default()
-            return True
-        elif key == "escape":
-            widget.post_message(widget.HideCommandSuggestions())
-            widget.suggestions_active = False
-            event.prevent_default()
-            return True
-        # For other keys, continue to normal handling (update query)
+    # Handle navigation for prompts with options
+    if key == "up":
+        if widget.permission_selected_option > 0:
+            widget.permission_selected_option -= 1
+            sys.stderr.write(f"[handle_permission_keys] UP: selected={widget.permission_selected_option}\n")
+            sys.stderr.flush()
+            widget.refresh()
+        event.prevent_default()
+        return True
 
-    # ═══════════════════════════════════════════════════════════
-    # PRIORITY 3: NORMAL INPUT (only if no permission/suggestions)
-    # ═══════════════════════════════════════════════════════════
+    elif key == "down":
+        if widget.permission_selected_option < len(options) - 1:
+            widget.permission_selected_option += 1
+            sys.stderr.write(f"[handle_permission_keys] DOWN: selected={widget.permission_selected_option}\n")
+            sys.stderr.flush()
+            widget.refresh()
+        event.prevent_default()
+        return True
 
-    # Don't handle up/down for history (only if no suggestions)
-    if key in ("up", "down") and not widget.suggestions_active:
+    elif key == "enter":
+        # Confirm selection
+        selected = options[widget.permission_selected_option]
+        sys.stderr.write(f"[handle_permission_keys] ENTER: confirming option={selected.get('text')}\n")
+        sys.stderr.flush()
+        widget.post_message(widget.PermissionResponse(selected))
+        event.prevent_default()
+        return True
+
+    elif key == "escape":
+        # Cancel
+        sys.stderr.write(f"[handle_permission_keys] ESCAPE: cancelling\n")
+        sys.stderr.flush()
+        widget.post_message(widget.PermissionCancelled())
+        event.prevent_default()
+        return True
+
+    # Block ALL other keys during permission prompt
+    event.prevent_default()
+    return True
+
+
+def handle_suggestion_keys(widget, event) -> bool:
+    """
+    Handle keys during COMMAND SUGGESTION context
+
+    Handles:
+    - UP/DOWN: Navigate suggestions
+    - ENTER: Select suggestion
+    - ESCAPE: Hide suggestions
+    - Other keys: Continue to normal handling (update query)
+
+    Returns True if key was handled, False to continue to normal handling
+    """
+    import sys
+    key = event.key
+
+    sys.stderr.write(f"[handle_suggestion_keys] KEY={key}\n")
+    sys.stderr.flush()
+
+    if key == "up":
+        widget.post_message(widget.CommandSuggestionNavigate("up"))
+        event.prevent_default()
+        return True
+
+    elif key == "down":
+        widget.post_message(widget.CommandSuggestionNavigate("down"))
+        event.prevent_default()
+        return True
+
+    elif key == "enter":
+        widget.post_message(widget.CommandSuggestionSelect())
+        event.prevent_default()
+        return True
+
+    elif key == "escape":
+        widget.post_message(widget.HideCommandSuggestions())
+        widget.suggestions_active = False
+        event.prevent_default()
+        return True
+
+    # For other keys (letters, backspace, etc), continue to normal handling
+    return False
+
+
+def handle_normal_keys(widget, event) -> bool:
+    """
+    Handle keys during NORMAL INPUT context
+
+    Handles all text editing keys:
+    - Character input
+    - Backspace, Delete
+    - Arrow keys (left/right for cursor movement)
+    - Home, End
+    - Enter (submit)
+
+    Returns True if key was handled
+    """
+    import sys
+    key = event.key
+
+    # Don't handle up/down for history (let parent handle if needed)
+    if key in ("up", "down"):
         return False  # Let parent handle history
 
     # Submit on enter
     if key == "enter":
+        sys.stderr.write(f"[handle_normal_keys] ENTER: calling action_submit()\n")
+        sys.stderr.flush()
         widget.action_submit()
         event.prevent_default()
         return True
@@ -155,6 +200,14 @@ def handle_key_event(widget, event) -> bool:
         event.prevent_default()
         return True
 
+    # Ctrl+C - Cancel
+    if key == "ctrl+c":
+        sys.stderr.write(f"[handle_normal_keys] CTRL+C: calling action_cancel()\n")
+        sys.stderr.flush()
+        widget.action_cancel()
+        event.prevent_default()
+        return True
+
     # Character input
     if event.character and event.character.isprintable():
         old_value = widget.value
@@ -167,13 +220,72 @@ def handle_key_event(widget, event) -> bool:
 
         # Debug log
         with open('/tmp/opencli_keys.log', 'a') as f:
-            f.write(f"[handle_key_event] char='{event.character}' old='{old_value}' new='{widget.value}'\n")
+            f.write(f"[handle_normal_keys] char='{event.character}' old='{old_value}' new='{widget.value}'\n")
 
         event.prevent_default()
         return True
 
     return False
 
+
+# ═══════════════════════════════════════════════════════════
+# MAIN KEY EVENT DISPATCHER
+# ═══════════════════════════════════════════════════════════
+
+def handle_key_event(widget, event) -> bool:
+    """
+    Main key event dispatcher with CONTEXTUAL PRIORITY
+
+    Priority order:
+    1. PERMISSION PROMPT - Blocks ALL other input
+    2. COMMAND SUGGESTIONS - Handles navigation, falls through for text
+    3. NORMAL INPUT - Standard text editing
+
+    Returns:
+        True if event was handled (prevents default)
+        False if event should propagate
+    """
+    import sys
+    key = event.key
+
+    # DEBUG logging
+    sys.stderr.write(f"\n🔥🔥🔥 [handle_key_event] KEY={key} 🔥🔥🔥\n")
+    sys.stderr.write(f"[handle_key_event] prompt={bool(widget.permission_prompt_data)}, focused={widget.has_focus}\n")
+    sys.stderr.write(f"[handle_key_event] suggestions={widget.suggestions_active}, value='{widget.value}'\n")
+    sys.stderr.flush()
+
+    # ═══════════════════════════════════════════════════════════
+    # PRIORITY 1: PERMISSION PROMPT (blocks ALL other input)
+    # ═══════════════════════════════════════════════════════════
+    if widget.permission_prompt_data:
+        sys.stderr.write(f"[handle_key_event] → Routing to handle_permission_keys()\n")
+        sys.stderr.flush()
+        return handle_permission_keys(widget, event)
+
+    # ═══════════════════════════════════════════════════════════
+    # PRIORITY 2: COMMAND SUGGESTIONS (if active)
+    # ═══════════════════════════════════════════════════════════
+    if widget.suggestions_active:
+        sys.stderr.write(f"[handle_key_event] → Routing to handle_suggestion_keys()\n")
+        sys.stderr.flush()
+        handled = handle_suggestion_keys(widget, event)
+        if handled:
+            return True
+        # Fall through to normal handling for text editing
+        sys.stderr.write(f"[handle_key_event] → Falling through to handle_normal_keys()\n")
+        sys.stderr.flush()
+
+    # ═══════════════════════════════════════════════════════════
+    # PRIORITY 3: NORMAL INPUT
+    # ═══════════════════════════════════════════════════════════
+    sys.stderr.write(f"[handle_key_event] → Routing to handle_normal_keys()\n")
+    sys.stderr.flush()
+    return handle_normal_keys(widget, event)
+
+
+# ═══════════════════════════════════════════════════════════
+# PASTE EVENT HANDLER
+# ═══════════════════════════════════════════════════════════
 
 def handle_paste_event(widget, event: Paste) -> None:
     """

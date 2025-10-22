@@ -108,18 +108,40 @@ class MultiLineInput(Widget):
         self.refresh()
 
     def on_blur(self) -> None:
-        """Track when widget loses focus - DO NOT auto-dismiss permission prompts"""
+        """Track when widget loses focus - LOCK FOCUS during permission prompts"""
         import sys
-        sys.stderr.write(f"\n[MultiLineInput.on_blur] LOST FOCUS - prompt={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"\n[MultiLineInput.on_blur] ATTEMPT TO LOSE FOCUS - prompt={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
 
-        # CRITICAL FIX: Do NOT auto-dismiss permission prompts on blur
-        # The widget may temporarily lose focus during setup or layout changes
-        # Permission prompts should only be dismissed by:
-        # 1. User pressing Enter (selection)
-        # 2. User pressing Escape (cancellation)
-        # NOT by focus loss!
+        # ═══════════════════════════════════════════════════════════
+        # CRITICAL: FOCUS LOCK during permission prompts
+        # ═══════════════════════════════════════════════════════════
+        if self.permission_prompt_data:
+            sys.stderr.write(f"[MultiLineInput.on_blur] 🔒 FOCUS LOCK ACTIVE - REFUSING TO LOSE FOCUS!\n")
+            sys.stderr.flush()
 
+            # IMMEDIATELY re-grab focus - DO NOT allow permission buffer to lose focus
+            try:
+                # Try app.set_focus first (most direct)
+                if hasattr(self, 'app') and self.app:
+                    self.app.set_focus(self)
+                    sys.stderr.write(f"[MultiLineInput.on_blur] ✓ Re-grabbed focus via app.set_focus()\n")
+                else:
+                    # Fallback to widget.focus()
+                    self.focus()
+                    sys.stderr.write(f"[MultiLineInput.on_blur] ✓ Re-grabbed focus via self.focus()\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"[MultiLineInput.on_blur] ⚠️  Focus re-grab failed: {e}\n")
+                sys.stderr.flush()
+
+            # DO NOT allow on_blur to complete normally - we've re-grabbed focus
+            self.refresh()
+            return
+
+        # Normal blur (no permission prompt active) - allow focus loss
+        sys.stderr.write(f"[MultiLineInput.on_blur] Normal blur (no permission prompt)\n")
+        sys.stderr.flush()
         self.refresh()
 
     def render(self) -> Text:
