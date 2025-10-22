@@ -339,33 +339,33 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
             sys.stderr.flush()
 
         # ═══════════════════════════════════════════════════════════
-        # PARENT PROCESS MONITOR: Exit when parent shell dies
+        # TERMINAL DISCONNECT MONITOR: Exit when terminal closes
         # ═══════════════════════════════════════════════════════════
-        # Signal handlers don't work because Textual masks SIGHUP
-        # Instead, monitor parent process and exit if it dies
+        # When terminal closes, stdin/stdout/stderr get revoked
+        # Parent shell stays alive but detached, so we check stdin instead
 
-        parent_pid = os.getppid()
-        sys.stderr.write(f"[TUI.on_mount] 👀 Parent PID: {parent_pid}\n")
-        sys.stderr.flush()
-
-        async def monitor_parent_process():
-            """Background task: exit if parent process dies"""
-            import time
+        async def monitor_terminal_connection():
+            """Background task: exit if stderr becomes invalid (terminal closed)"""
+            import fcntl
             while True:
                 try:
-                    # Check if parent process exists
-                    os.kill(parent_pid, 0)  # Signal 0 = check if process exists
+                    # Try to get file descriptor flags for stderr (fd 2)
+                    # If terminal closed, fd is revoked and this raises OSError
+                    fcntl.fcntl(2, fcntl.F_GETFL)
                     await asyncio.sleep(1)  # Check every second
-                except OSError:
-                    # Parent died - exit immediately
-                    sys.stderr.write(f"\n[TUI] Parent process {parent_pid} died - exiting\n")
-                    sys.stderr.flush()
+                except OSError as e:
+                    # stderr fd is revoked - terminal closed - exit immediately
+                    # Can't write to stderr since it's revoked, just exit
+                    self.exit()
+                    break
+                except Exception as e:
+                    # Any other error also means we should exit
                     self.exit()
                     break
 
         # Start background monitor
-        self._parent_monitor = self.set_interval(1.0, monitor_parent_process)  # Check every 1 second
-        sys.stderr.write("[TUI.on_mount] ✅ Parent process monitor started\n")
+        self._terminal_monitor = self.set_interval(1.0, monitor_terminal_connection)
+        sys.stderr.write("[TUI.on_mount] ✅ Terminal disconnect monitor started\n")
         sys.stderr.flush()
 
         try:
