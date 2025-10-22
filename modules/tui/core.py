@@ -310,6 +310,19 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
     def on_mount(self) -> None:
         """Initialize the TUI when mounted"""
         import sys
+
+        # ═══════════════════════════════════════════════════════════
+        # CLEAR FOCUS LOG - Fresh start on each opencli TUI launch
+        # ═══════════════════════════════════════════════════════════
+        try:
+            from ..focus_logger import clear_focus_log
+            clear_focus_log()
+            sys.stderr.write("[TUI.on_mount] ✅ Focus log cleared: /tmp/opencli_focus.log\n")
+            sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"[TUI.on_mount] ⚠️ Failed to clear focus log: {e}\n")
+            sys.stderr.flush()
+
         try:
             with open('/tmp/tui-trace.log', 'a') as f:
                 f.write("[TUI.on_mount] ========== ON_MOUNT CALLED ==========\n")
@@ -395,10 +408,41 @@ v{version} | Session: {self.session.session_id[:8]} | Ready
 
         # Focus the input
         try:
+            from ..focus_logger import log_focus_attempt
             prompt_input = self.query_one("#prompt-input")
+
+            # Log focus attempt
+            widget_type = type(prompt_input).__name__
+            log_focus_attempt(
+                source_file="tui/core.py",
+                source_function="on_mount",
+                method="widget.focus()",
+                widget_type=widget_type,
+                success=None,
+                extra_info="Initial focus on TUI mount"
+            )
+
             prompt_input.focus()
-        except:
-            pass
+
+            # Log success
+            log_focus_attempt(
+                source_file="tui/core.py",
+                source_function="on_mount",
+                method="widget.focus()",
+                widget_type=widget_type,
+                success=True,
+                extra_info=f"has_focus={prompt_input.has_focus}"
+            )
+        except Exception as e:
+            from ..focus_logger import log_focus_attempt
+            log_focus_attempt(
+                source_file="tui/core.py",
+                source_function="on_mount",
+                method="widget.focus()",
+                widget_type="unknown",
+                success=False,
+                error=str(e)
+            )
 
     def write(self, text: str, end: str = "\n") -> None:
         """Queue a write operation to prevent blocking"""

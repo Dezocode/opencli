@@ -103,15 +103,47 @@ class MultiLineInput(Widget):
     def on_focus(self) -> None:
         """Track when widget receives focus"""
         import sys
+        from ..focus_logger import log_focus_event, log_focus_state
+
         sys.stderr.write(f"\n[MultiLineInput.on_focus] GAINED FOCUS - prompt={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
+
+        # Log focus event
+        log_focus_event(
+            source_file="input_widget/widget.py",
+            source_function="on_focus",
+            event_type="GAINED_FOCUS",
+            widget_type="MultiLineInput",
+            extra_info=f"permission_active={bool(self.permission_prompt_data)}"
+        )
+
+        # Log current focus state
+        log_focus_state(
+            source_file="input_widget/widget.py",
+            widget_type="MultiLineInput",
+            has_focus=True,
+            can_focus=self.can_focus,
+            extra_info=f"permission={bool(self.permission_prompt_data)}"
+        )
+
         self.refresh()
 
     def on_blur(self) -> None:
         """Track when widget loses focus - LOCK FOCUS during permission prompts"""
         import sys
+        from ..focus_logger import log_focus_event, log_focus_attempt
+
         sys.stderr.write(f"\n[MultiLineInput.on_blur] ATTEMPT TO LOSE FOCUS - prompt={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
+
+        # Log blur attempt
+        log_focus_event(
+            source_file="input_widget/widget.py",
+            source_function="on_blur",
+            event_type="LOST_FOCUS",
+            widget_type="MultiLineInput",
+            extra_info=f"permission_active={bool(self.permission_prompt_data)}"
+        )
 
         # ═══════════════════════════════════════════════════════════
         # CRITICAL: FOCUS LOCK during permission prompts
@@ -120,20 +152,75 @@ class MultiLineInput(Widget):
             sys.stderr.write(f"[MultiLineInput.on_blur] 🔒 FOCUS LOCK ACTIVE - REFUSING TO LOSE FOCUS!\n")
             sys.stderr.flush()
 
+            # Log focus lock event
+            log_focus_event(
+                source_file="input_widget/widget.py",
+                source_function="on_blur",
+                event_type="FOCUS_LOCK",
+                widget_type="MultiLineInput",
+                extra_info="Permission active - re-grabbing focus immediately"
+            )
+
             # IMMEDIATELY re-grab focus - DO NOT allow permission buffer to lose focus
             try:
                 # Try app.set_focus first (most direct)
                 if hasattr(self, 'app') and self.app:
+                    log_focus_attempt(
+                        source_file="input_widget/widget.py",
+                        source_function="on_blur",
+                        method="app.set_focus()",
+                        widget_type="MultiLineInput",
+                        success=None,
+                        extra_info="FOCUS LOCK - re-grabbing focus"
+                    )
+
                     self.app.set_focus(self)
                     sys.stderr.write(f"[MultiLineInput.on_blur] ✓ Re-grabbed focus via app.set_focus()\n")
+
+                    log_focus_attempt(
+                        source_file="input_widget/widget.py",
+                        source_function="on_blur",
+                        method="app.set_focus()",
+                        widget_type="MultiLineInput",
+                        success=True,
+                        extra_info=f"FOCUS LOCK successful, has_focus={self.has_focus}"
+                    )
                 else:
                     # Fallback to widget.focus()
+                    log_focus_attempt(
+                        source_file="input_widget/widget.py",
+                        source_function="on_blur",
+                        method="widget.focus()",
+                        widget_type="MultiLineInput",
+                        success=None,
+                        extra_info="FOCUS LOCK - fallback to self.focus()"
+                    )
+
                     self.focus()
                     sys.stderr.write(f"[MultiLineInput.on_blur] ✓ Re-grabbed focus via self.focus()\n")
+
+                    log_focus_attempt(
+                        source_file="input_widget/widget.py",
+                        source_function="on_blur",
+                        method="widget.focus()",
+                        widget_type="MultiLineInput",
+                        success=True,
+                        extra_info=f"FOCUS LOCK successful (fallback)"
+                    )
                 sys.stderr.flush()
             except Exception as e:
                 sys.stderr.write(f"[MultiLineInput.on_blur] ⚠️  Focus re-grab failed: {e}\n")
                 sys.stderr.flush()
+
+                log_focus_attempt(
+                    source_file="input_widget/widget.py",
+                    source_function="on_blur",
+                    method="app.set_focus() or widget.focus()",
+                    widget_type="MultiLineInput",
+                    success=False,
+                    error=str(e),
+                    extra_info="FOCUS LOCK failed!"
+                )
 
             # DO NOT allow on_blur to complete normally - we've re-grabbed focus
             self.refresh()
@@ -142,6 +229,15 @@ class MultiLineInput(Widget):
         # Normal blur (no permission prompt active) - allow focus loss
         sys.stderr.write(f"[MultiLineInput.on_blur] Normal blur (no permission prompt)\n")
         sys.stderr.flush()
+
+        log_focus_event(
+            source_file="input_widget/widget.py",
+            source_function="on_blur",
+            event_type="FOCUS_UNLOCK",
+            widget_type="MultiLineInput",
+            extra_info="Normal blur - no permission active"
+        )
+
         self.refresh()
 
     def render(self) -> Text:
@@ -401,6 +497,16 @@ class MultiLineInput(Widget):
                 sys.stderr.write(f"[MultiLineInput] PERMISSION ACTIVE - selected_option={self.permission_selected_option}\n")
                 sys.stderr.flush()
 
+                # Log permission activation
+                from ..focus_logger import log_focus_event, log_focus_attempt, log_focus_state
+                log_focus_event(
+                    source_file="input_widget/widget.py",
+                    source_function="watch_permission_prompt_data",
+                    event_type="PERMISSION_ACTIVE",
+                    widget_type="MultiLineInput",
+                    extra_info=f"title='{new_value.get('title', 'N/A')}', options={len(new_value.get('options', []))}"
+                )
+
                 # ═══════════════════════════════════════════════════════════
                 # CRITICAL: AGGRESSIVELY GRAB FOCUS - DO NOT CHECK has_focus!
                 # ═══════════════════════════════════════════════════════════
@@ -410,6 +516,15 @@ class MultiLineInput(Widget):
                 sys.stderr.write(f"[MultiLineInput] Set can_focus=True\n")
                 sys.stderr.flush()
 
+                # Log state before focus attempt
+                log_focus_state(
+                    source_file="input_widget/widget.py",
+                    widget_type="MultiLineInput",
+                    has_focus=self.has_focus,
+                    can_focus=True,
+                    extra_info="BEFORE aggressive focus grab"
+                )
+
                 # SECOND: Force focus IMMEDIATELY (no conditional checks)
                 sys.stderr.write(f"[MultiLineInput] 🎯 FORCING FOCUS IMMEDIATELY (current focus={self.has_focus})\n")
                 sys.stderr.flush()
@@ -417,26 +532,108 @@ class MultiLineInput(Widget):
                 try:
                     # Try app.set_focus FIRST (most direct, synchronous)
                     if hasattr(self, 'app') and self.app:
+                        log_focus_attempt(
+                            source_file="input_widget/widget.py",
+                            source_function="watch_permission_prompt_data",
+                            method="app.set_focus()",
+                            widget_type="MultiLineInput",
+                            success=None,
+                            extra_info="AGGRESSIVE GRAB - Initial attempt"
+                        )
+
                         self.app.set_focus(self)
                         sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via app.set_focus()\n")
 
+                        log_focus_attempt(
+                            source_file="input_widget/widget.py",
+                            source_function="watch_permission_prompt_data",
+                            method="app.set_focus()",
+                            widget_type="MultiLineInput",
+                            success=True,
+                            extra_info=f"AGGRESSIVE GRAB successful, has_focus={self.has_focus}"
+                        )
+
                         # ALSO schedule focus after next refresh to ensure it sticks
+                        log_focus_attempt(
+                            source_file="input_widget/widget.py",
+                            source_function="watch_permission_prompt_data",
+                            method="app.call_after_refresh(set_focus)",
+                            widget_type="MultiLineInput",
+                            success=None,
+                            extra_info="STICKY FOCUS - Scheduling post-refresh grab"
+                        )
+
                         self.app.call_after_refresh(lambda: self.app.set_focus(self))
                         sys.stderr.write(f"[MultiLineInput] ✓ Scheduled post-refresh focus\n")
+
+                        log_focus_attempt(
+                            source_file="input_widget/widget.py",
+                            source_function="watch_permission_prompt_data",
+                            method="app.call_after_refresh(set_focus)",
+                            widget_type="MultiLineInput",
+                            success=True,
+                            extra_info="STICKY FOCUS scheduled successfully"
+                        )
                     else:
+                        log_focus_attempt(
+                            source_file="input_widget/widget.py",
+                            source_function="watch_permission_prompt_data",
+                            method="widget.focus()",
+                            widget_type="MultiLineInput",
+                            success=None,
+                            extra_info="AGGRESSIVE GRAB - Fallback (no app)"
+                        )
+
                         self.focus()
                         sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via self.focus()\n")
+
+                        log_focus_attempt(
+                            source_file="input_widget/widget.py",
+                            source_function="watch_permission_prompt_data",
+                            method="widget.focus()",
+                            widget_type="MultiLineInput",
+                            success=True,
+                            extra_info="AGGRESSIVE GRAB successful (fallback)"
+                        )
                     sys.stderr.flush()
 
                     # Double-check after forcing
                     sys.stderr.write(f"[MultiLineInput] Focus check AFTER force: has_focus={self.has_focus}\n")
                     sys.stderr.flush()
+
+                    log_focus_state(
+                        source_file="input_widget/widget.py",
+                        widget_type="MultiLineInput",
+                        has_focus=self.has_focus,
+                        can_focus=self.can_focus,
+                        extra_info="AFTER aggressive focus grab"
+                    )
                 except Exception as e:
                     sys.stderr.write(f"[MultiLineInput] ⚠️ FOCUS FORCING FAILED: {e}\n")
                     sys.stderr.flush()
+
+                    log_focus_attempt(
+                        source_file="input_widget/widget.py",
+                        source_function="watch_permission_prompt_data",
+                        method="app.set_focus() or widget.focus()",
+                        widget_type="MultiLineInput",
+                        success=False,
+                        error=str(e),
+                        extra_info="AGGRESSIVE GRAB FAILED!"
+                    )
             else:
                 sys.stderr.write(f"[MultiLineInput] PERMISSION CLEARED\n")
                 sys.stderr.flush()
+
+                # Log permission cleared event
+                from ..focus_logger import log_focus_event
+                log_focus_event(
+                    source_file="input_widget/widget.py",
+                    source_function="watch_permission_prompt_data",
+                    event_type="PERMISSION_CLEARED",
+                    widget_type="MultiLineInput",
+                    extra_info="Permission buffer dismissed"
+                )
 
             # CRITICAL: Refresh MUST happen synchronously for widget to render!
             # But keep it light - no layout=True to avoid blocking
