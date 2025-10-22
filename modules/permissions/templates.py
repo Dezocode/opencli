@@ -1,6 +1,6 @@
 """Permission prompt templates and builders"""
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pathlib import Path
 from .enums import PermissionResponse
 
