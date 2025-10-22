@@ -8,7 +8,7 @@ from typing import Any
 
 # CRITICAL: Import actual MultiLineInput, not stub!
 from ..command_suggestions import CommandSuggestionBuffer, CommandMatch, check_command_health
-from ..multiline_input import (
+from ..input_widget import (
     MultiLineInput,
     ShowCommandSuggestions as MLIShowCommandSuggestions,
     HideCommandSuggestions as MLIHideCommandSuggestions,

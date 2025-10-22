@@ -455,7 +455,7 @@ class PermissionBufferManager:
                 sys.stderr.flush()
 
                 # Get prompt input widget
-                from ..multiline_input import MultiLineInput
+                from ..input_widget import MultiLineInput
                 prompt_input = app.query_one("#prompt-input", MultiLineInput)
                 sys.stderr.write(f"[PermissionBufferManager] Got prompt_input widget: {prompt_input}\n")
                 sys.stderr.flush()

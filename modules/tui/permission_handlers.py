@@ -7,29 +7,40 @@ from typing import Any, Dict
 
 try:
     from ..permissions import get_unified_permission_manager, PermissionResponse
-    from ..multiline_input import MultiLineInput
+    from ..input_widget import (
+        MultiLineInput,
+        PermissionResponse as MLIPermissionResponse,
+        PermissionCancelled as MLIPermissionCancelled,
+        NavigationEvent as MLINavigationEvent
+    )
 except (ImportError, ValueError):
     try:
         # Package-relative fallbacks
         from ..permissions import get_unified_permission_manager, PermissionResponse
-        from ..multiline_input import MultiLineInput
+        from ..input_widget import (
+            MultiLineInput,
+            PermissionResponse as MLIPermissionResponse,
+            PermissionCancelled as MLIPermissionCancelled,
+            NavigationEvent as MLINavigationEvent
+        )
     except ImportError:
         # Final fallbacks for non-package execution
         def get_unified_permission_manager():
             return None
         class PermissionResponse:
             CANCEL = "cancel"
-        from multiline_input import MultiLineInput
+        from input_widget import MultiLineInput
 
 
 class PermissionHandlers:
     """Mixin class containing permission-related event handlers"""
     
-    def on_multi_line_input_permission_response(self, event: MultiLineInput.PermissionResponse) -> None:
+    def on_multi_line_input_permission_response(self, event: MLIPermissionResponse) -> None:
         """Handle permission response from MultiLineInput"""
         import sys
-        sys.stderr.write(f"\n[PermissionHandlers.on_multi_line_input_permission_response] ENTERED\n")
+        sys.stderr.write(f"\n[PermissionHandlers.on_multi_line_input_permission_response] 🔥 ENTERED 🔥\n")
         sys.stderr.write(f"[PermissionHandlers] Response: {event.option.get('response')}\n")
+        sys.stderr.write(f"[PermissionHandlers] Option data: {event.option}\n")
         sys.stderr.flush()
 
         # Check if this is provider model selection
@@ -78,7 +89,7 @@ class PermissionHandlers:
         sys.stderr.flush()
         self._handle_async_permission_response(event)
 
-    def on_multi_line_input_permission_cancelled(self, event: MultiLineInput.PermissionCancelled) -> None:
+    def on_multi_line_input_permission_cancelled(self, event: MLIPermissionCancelled) -> None:
         """Handle permission cancellation from MultiLineInput"""
         import sys
         sys.stderr.write(f"\n[PermissionHandlers.on_multi_line_input_permission_cancelled] ENTERED\n")
@@ -102,7 +113,7 @@ class PermissionHandlers:
         sys.stderr.flush()
         self._handle_async_permission_cancellation(event)
 
-    def on_multi_line_input_navigation_event(self, event: MultiLineInput.NavigationEvent) -> None:
+    def on_multi_line_input_navigation_event(self, event: MLINavigationEvent) -> None:
         """Handle navigation events that should trigger permission auto-dismiss"""
         import sys
         sys.stderr.write(f"[SimpleTUI] Navigation event received: {event.event_type}\n")
@@ -375,17 +386,74 @@ class PermissionHandlers:
             sys.stderr.flush()
 
             prompt_input = self.query_one("#prompt-input", MultiLineInput)
+
+            if prompt_data is None:
+                # Clear permission prompt
+                sys.stderr.write(f"[TUI._show_permission_prompt] Clearing permission prompt\n")
+                sys.stderr.flush()
+                prompt_input.permission_prompt_data = None
+                prompt_input.refresh()
+                return
+
             prompt_data['selected'] = 0
+            sys.stderr.write(f"[TUI._show_permission_prompt] Setting permission_prompt_data: {prompt_data}\n")
+            sys.stderr.flush()
             prompt_input.permission_prompt_data = prompt_data
+            sys.stderr.write(f"[TUI._show_permission_prompt] permission_prompt_data set, has_focus: {prompt_input.has_focus}\n")
+            sys.stderr.flush()
 
             # CRITICAL: Force focus to the input widget for permission navigation
             sys.stderr.write(f"[TUI._show_permission_prompt] Forcing focus to prompt_input\n")
             sys.stderr.flush()
-            prompt_input.focus()
+
+            # Try multiple approaches to ensure focus
+            try:
+                # Method 1: Direct focus
+                prompt_input.focus()
+                sys.stderr.write(f"[TUI._show_permission_prompt] prompt_input.focus() called\n")
+            except Exception as e:
+                sys.stderr.write(f"[TUI._show_permission_prompt] Direct focus failed: {e}\n")
+
+            try:
+                # Method 2: App-level focus (self IS the app instance)
+                old_focus = getattr(self, 'focus', None)
+                self.set_focus(prompt_input)
+                new_focus = getattr(self, 'focus', None)
+                sys.stderr.write(f"[TUI._show_permission_prompt] self.set_focus() called\n")
+                sys.stderr.write(f"[TUI._show_permission_prompt] old_focus: {old_focus}, new_focus: {new_focus}\n")
+                sys.stderr.write(f"[TUI._show_permission_prompt] prompt_input.has_focus after set_focus: {prompt_input.has_focus}\n")
+
+                # Method 3: Delayed focus setting to ensure widget is ready
+                import asyncio
+                async def delayed_focus():
+                    await asyncio.sleep(0.2)  # Wait for render
+                    try:
+                        self.set_focus(prompt_input)
+                        await asyncio.sleep(0.1)  # Wait for focus to settle
+                        final_focus = getattr(self, 'focus', None)
+                        final_widget_focus = prompt_input.has_focus
+                        sys.stderr.write(f"[TUI._show_permission_prompt] DELAYED FOCUS: app_focus={final_focus}, widget_focus={final_widget_focus}\n")
+                        sys.stderr.flush()
+                    except Exception as e:
+                        sys.stderr.write(f"[TUI._show_permission_prompt] Delayed focus failed: {e}\n")
+                        sys.stderr.flush()
+
+                asyncio.create_task(delayed_focus())
+
+            except Exception as e:
+                sys.stderr.write(f"[TUI._show_permission_prompt] App focus failed: {e}\n")
 
             # Force refresh to show the permission buffer immediately
             prompt_input.refresh()
             self.refresh()
+
+            # Simple focus check
+            try:
+                current_focus = getattr(self, 'focus', None)
+                sys.stderr.write(f"[TUI._show_permission_prompt] Final focus state: app={current_focus}, widget={prompt_input.has_focus}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"[TUI._show_permission_prompt] Focus check failed: {e}\n")
 
             sys.stderr.write(f"[TUI._show_permission_prompt] ✅ Permission prompt displayed and focused\n")
             sys.stderr.flush()
@@ -393,7 +461,16 @@ class PermissionHandlers:
             # Debug: Show what the permission buffer looks like
             rendered = prompt_input.render()
             preview = str(rendered).replace('\n', '\\n')[:200]
-            sys.stderr.write(f"[TUI._show_permission_prompt] Rendered buffer preview: {preview}...\n")
+            sys.stderr.write(f"[TUI._show_permission_prompt] 🔥 RENDERED BUFFER PREVIEW: {preview}...\n")
+            sys.stderr.flush()
+
+            # Check if the widget has the permission data
+            sys.stderr.write(f"[TUI._show_permission_prompt] permission_prompt_data set: {bool(prompt_input.permission_prompt_data)}\n")
+            if prompt_input.permission_prompt_data:
+                options = prompt_input.permission_prompt_data.get('options', [])
+                sys.stderr.write(f"[TUI._show_permission_prompt] Options count: {len(options)}\n")
+                for i, opt in enumerate(options):
+                    sys.stderr.write(f"[TUI._show_permission_prompt]   {i}: {opt.get('text', 'N/A')}\n")
             sys.stderr.flush()
 
         except Exception as e:
@@ -411,3 +488,18 @@ class PermissionHandlers:
             prompt_input.refresh()
         except Exception:
             pass
+
+    def _check_and_clear_stuck_permission_prompt(self) -> None:
+        """Check for stuck permission prompts and clear them"""
+        try:
+            prompt_input = self.query_one("#prompt-input")
+            if prompt_input.permission_prompt_data:
+                import sys
+                sys.stderr.write(f"[TUI] ⚠️  Clearing stuck permission prompt\n")
+                sys.stderr.flush()
+                prompt_input.permission_prompt_data = None
+                prompt_input.refresh()
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"[TUI] Error clearing stuck prompt: {e}\n")
+            sys.stderr.flush()
