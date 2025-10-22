@@ -47,14 +47,14 @@ Test 5: File Deletion Summary ✅
 Phase 2 deleted (77KB):
 - modules/permission_workflow.py
 - modules/dual_buffer_system.py
-- modules/permission_buffer_manager.py.backup
-- modules/permission_prompt.py.backup
+- modules/permission_buffer_manager.py.backup (committed backup from incomplete migration)
+- modules/permission_prompt.py.backup (committed backup from incomplete migration)
 
 Phase 3 deleted (10KB):
 - modules/permission_buffer/ directory
   - __init__.py
   - enums.py
-  - manager.py (competing singleton - CRITICAL)
+  - manager.py (competing singleton causing deadlock - CRITICAL)
   - task.py
 
 Phase 5 deleted (2KB):
