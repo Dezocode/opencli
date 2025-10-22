@@ -339,22 +339,34 @@ class OpenCLITUI(App, PermissionHandlers, CommandHandlers, ModelHandlers, Messag
             sys.stderr.flush()
 
         # ═══════════════════════════════════════════════════════════
-        # SIGNAL HANDLERS: Exit gracefully when terminal closes
+        # PARENT PROCESS MONITOR: Exit when parent shell dies
         # ═══════════════════════════════════════════════════════════
-        def signal_handler(sig, frame):
-            """Handle SIGHUP, SIGTERM - exit gracefully"""
-            sys.stderr.write(f"\n[TUI] Received signal {sig} - exiting gracefully\n")
-            sys.stderr.flush()
-            self.exit()
+        # Signal handlers don't work because Textual masks SIGHUP
+        # Instead, monitor parent process and exit if it dies
 
-        try:
-            signal.signal(signal.SIGHUP, signal_handler)  # Terminal hangup
-            signal.signal(signal.SIGTERM, signal_handler)  # Terminate signal
-            sys.stderr.write("[TUI.on_mount] ✅ Signal handlers installed (SIGHUP, SIGTERM)\n")
-            sys.stderr.flush()
-        except Exception as e:
-            sys.stderr.write(f"[TUI.on_mount] ⚠️ Signal handler setup failed: {e}\n")
-            sys.stderr.flush()
+        parent_pid = os.getppid()
+        sys.stderr.write(f"[TUI.on_mount] 👀 Parent PID: {parent_pid}\n")
+        sys.stderr.flush()
+
+        async def monitor_parent_process():
+            """Background task: exit if parent process dies"""
+            import time
+            while True:
+                try:
+                    # Check if parent process exists
+                    os.kill(parent_pid, 0)  # Signal 0 = check if process exists
+                    await asyncio.sleep(1)  # Check every second
+                except OSError:
+                    # Parent died - exit immediately
+                    sys.stderr.write(f"\n[TUI] Parent process {parent_pid} died - exiting\n")
+                    sys.stderr.flush()
+                    self.exit()
+                    break
+
+        # Start background monitor
+        self._parent_monitor = self.set_interval(1.0, monitor_parent_process)  # Check every 1 second
+        sys.stderr.write("[TUI.on_mount] ✅ Parent process monitor started\n")
+        sys.stderr.flush()
 
         try:
             with open('/tmp/tui-trace.log', 'a') as f:

@@ -27,6 +27,10 @@ def handle_permission_keys(widget, event) -> bool:
     sys.stderr.write(f"[handle_permission_keys] KEY={key}\n")
     sys.stderr.flush()
 
+    # LOG TO KEYS FILE
+    with open('/tmp/opencli_keys.log', 'a') as f:
+        f.write(f"[handle_permission_keys] KEY={key}\n")
+
     options = widget.permission_prompt_data.get('options', [])
 
     # If no options (informational prompt), only allow Escape
