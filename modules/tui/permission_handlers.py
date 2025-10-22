@@ -406,56 +406,31 @@ class PermissionHandlers:
             sys.stderr.write(f"[TUI._show_permission_prompt] Forcing focus to prompt_input\n")
             sys.stderr.flush()
 
-            # Try multiple approaches to ensure focus
-            try:
-                # Method 1: Direct focus
-                prompt_input.focus()
-                sys.stderr.write(f"[TUI._show_permission_prompt] prompt_input.focus() called\n")
-            except Exception as e:
-                sys.stderr.write(f"[TUI._show_permission_prompt] Direct focus failed: {e}\n")
-
-            try:
-                # Method 2: App-level focus (self IS the app instance)
-                old_focus = getattr(self, 'focus', None)
-                self.set_focus(prompt_input)
-                new_focus = getattr(self, 'focus', None)
-                sys.stderr.write(f"[TUI._show_permission_prompt] self.set_focus() called\n")
-                sys.stderr.write(f"[TUI._show_permission_prompt] old_focus: {old_focus}, new_focus: {new_focus}\n")
-                sys.stderr.write(f"[TUI._show_permission_prompt] prompt_input.has_focus after set_focus: {prompt_input.has_focus}\n")
-
-                # Method 3: Delayed focus setting to ensure widget is ready
-                import asyncio
-                async def delayed_focus():
-                    await asyncio.sleep(0.2)  # Wait for render
-                    try:
-                        self.set_focus(prompt_input)
-                        await asyncio.sleep(0.1)  # Wait for focus to settle
-                        final_focus = getattr(self, 'focus', None)
-                        final_widget_focus = prompt_input.has_focus
-                        sys.stderr.write(f"[TUI._show_permission_prompt] DELAYED FOCUS: app_focus={final_focus}, widget_focus={final_widget_focus}\n")
-                        sys.stderr.flush()
-                    except Exception as e:
-                        sys.stderr.write(f"[TUI._show_permission_prompt] Delayed focus failed: {e}\n")
-                        sys.stderr.flush()
-
-                asyncio.create_task(delayed_focus())
-
-            except Exception as e:
-                sys.stderr.write(f"[TUI._show_permission_prompt] App focus failed: {e}\n")
-
             # Force refresh to show the permission buffer immediately
             prompt_input.refresh()
             self.refresh()
 
-            # Simple focus check
-            try:
-                current_focus = getattr(self, 'focus', None)
-                sys.stderr.write(f"[TUI._show_permission_prompt] Final focus state: app={current_focus}, widget={prompt_input.has_focus}\n")
-                sys.stderr.flush()
-            except Exception as e:
-                sys.stderr.write(f"[TUI._show_permission_prompt] Focus check failed: {e}\n")
+            # CRITICAL FIX: Use call_after_refresh to ensure focus is set AFTER both widgets are ready
+            # This ensures proper timing in the Textual event loop
+            def set_focus_after_render():
+                """Set focus after refresh completes and widget is ready"""
+                try:
+                    self.set_focus(prompt_input)
+                    sys.stderr.write(f"[TUI._show_permission_prompt] ✓ Focus set via call_after_refresh\n")
+                    sys.stderr.write(f"[TUI._show_permission_prompt] prompt_input.has_focus: {prompt_input.has_focus}\n")
+                    
+                    # Check final focus state after setting
+                    current_focus = getattr(self, 'focus', None)
+                    sys.stderr.write(f"[TUI._show_permission_prompt] Final focus state: app={current_focus}, widget={prompt_input.has_focus}\n")
+                    sys.stderr.flush()
+                except Exception as e:
+                    sys.stderr.write(f"[TUI._show_permission_prompt] ⚠️  Focus failed: {e}\n")
+                    sys.stderr.flush()
 
-            sys.stderr.write(f"[TUI._show_permission_prompt] ✅ Permission prompt displayed and focused\n")
+            # Schedule focus to happen after refresh completes
+            self.call_after_refresh(set_focus_after_render)
+
+            sys.stderr.write(f"[TUI._show_permission_prompt] ✅ Permission prompt displayed (focus will be set after refresh)\n")
             sys.stderr.flush()
 
             # Debug: Show what the permission buffer looks like

@@ -400,15 +400,6 @@ class MultiLineInput(Widget):
                 self.permission_selected_option = new_value.get('selected', 0)
                 sys.stderr.write(f"[MultiLineInput] PERMISSION ACTIVE - selected_option={self.permission_selected_option}\n")
                 sys.stderr.flush()
-                # Ensure we have focus when permission prompt is active (only if app is available)
-                if not self.has_focus:
-                    try:
-                        sys.stderr.write(f"[MultiLineInput] Calling self.focus()\n")
-                        sys.stderr.flush()
-                        self.focus()
-                    except Exception as e:
-                        sys.stderr.write(f"[MultiLineInput] Focus failed (no app context): {e}\n")
-                        sys.stderr.flush()
             else:
                 sys.stderr.write(f"[MultiLineInput] PERMISSION CLEARED\n")
                 sys.stderr.flush()
@@ -420,16 +411,27 @@ class MultiLineInput(Widget):
             if new_value is not None:
                 print(f"[MultiLineInput] PERMISSION ACTIVE: {new_value.get('title', 'N/A')}")
 
-                # Focus IMMEDIATELY (synchronously) so keys work right away
-                try:
-                    self.app.set_focus(self)
-                    print(f"[MultiLineInput]   ✓ FORCED FOCUS IMMEDIATELY")
-                except Exception as e:
-                    print(f"[MultiLineInput]   Focus error: {e}, trying fallback")
+                # CRITICAL FIX: Use call_after_refresh to ensure focus is set AFTER widget is ready
+                # This ensures the widget is fully rendered and mounted before we try to set focus
+                def set_focus_after_render():
+                    """Set focus after the widget has been refreshed and is ready"""
                     try:
-                        self.focus()
-                    except Exception as e2:
-                        print(f"[MultiLineInput]   Fallback focus also failed: {e2}")
+                        if hasattr(self, 'app') and self.app:
+                            self.app.set_focus(self)
+                            sys.stderr.write(f"[MultiLineInput] ✓ FORCED FOCUS via call_after_refresh\n")
+                            sys.stderr.flush()
+                            print(f"[MultiLineInput]   ✓ FORCED FOCUS IMMEDIATELY")
+                        else:
+                            self.focus()
+                            sys.stderr.write(f"[MultiLineInput] ✓ Fallback focus via self.focus()\n")
+                            sys.stderr.flush()
+                    except Exception as e:
+                        sys.stderr.write(f"[MultiLineInput] ⚠️  Focus error: {e}\n")
+                        sys.stderr.flush()
+                        print(f"[MultiLineInput]   Focus error: {e}")
+
+                # Schedule focus to happen after refresh completes
+                self.call_after_refresh(set_focus_after_render)
             else:
                 print(f"[MultiLineInput] Permission cleared")
 
