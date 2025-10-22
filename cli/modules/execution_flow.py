@@ -119,142 +119,36 @@ class ExecutionFlowManager:
         self.client = client
 
     async def handle_user_prompt(self, user_input: str, prompt_widget=None):
-        """Handle user prompt submission (dev6 pattern restored)
-
-        Args:
-            user_input: Raw user input string
-            prompt_widget: Optional MultiLineInput widget for spinner control
-
-        This method:
-        1. Checks for commands (/) and routes through command system
-        2. Processes attachments via prompt processor
-        3. Adds user message to session
-        4. Prepares messages with context (constitution, AGENTS.md, etc.)
-        5. Streams AI response through BufferManager
-        6. Executes tool calls
-        7. Updates session with assistant/tool responses
-        """
+        """Delegate conversation turn to modular ConversationManager."""
         import sys
-        sys.stderr.write(f"\n[EXEC] handle_user_prompt called: '{user_input}'\n")
+        sys.stderr.write(f"\n[EXEC] handle_user_prompt called (delegated): '{user_input}'\n")
         sys.stderr.flush()
 
-        # 1. CHECK FOR COMMANDS FIRST - Route through command system
+        # Commands handled elsewhere (router) — keep as-is
         if user_input.strip().startswith('/'):
-            sys.stderr.write(f"[EXEC] Detected command: '{user_input}'\n")
-            sys.stderr.flush()
-
-            # Get app reference
             app = prompt_widget.app if prompt_widget and hasattr(prompt_widget, 'app') else None
-
             if app:
-                # Import command routing
                 try:
                     from modules.command_router import route_command_unified
                 except ImportError:
                     from cli.modules.command_router import route_command_unified
-
-                # Parse command
                 parts = user_input.strip().split(maxsplit=1)
-                command_name = parts[0]  # e.g., "/help"
+                command_name = parts[0]
                 command_args = parts[1] if len(parts) > 1 else None
-
-                sys.stderr.write(f"[EXEC] Routing command: '{command_name}' with args: {command_args}\n")
-                sys.stderr.flush()
-
-                # Route through unified command system (which handles permissions)
-                try:
-                    handled = await route_command_unified(app, self.session, command_name, command_args)
-                    sys.stderr.write(f"[EXEC] Command routing result: {handled}\n")
-                    sys.stderr.flush()
-
-                    if handled:
-                        return  # Command was handled, don't process as regular message
-                    else:
-                        # Command not recognized
-                        if app:
-                            app.write(f"[red]Unknown command: {command_name}[/red]\n")
-                            app.write(f"[dim]Type /help to see available commands[/dim]\n")
-                        return
-
-                except Exception as e:
-                    sys.stderr.write(f"[EXEC] Command routing error: {e}\n")
-                    import traceback
-                    traceback.print_exc(file=sys.stderr)
-                    sys.stderr.flush()
-
-                    if app:
-                        app.write(f"[red]Command error: {e}[/red]\n")
+                handled = await route_command_unified(app, self.session, command_name, command_args)
+                if handled:
                     return
-            else:
-                sys.stderr.write(f"[EXEC] No app reference available for command routing\n")
-                sys.stderr.flush()
 
-        # 2. Process attachments
-        prompt_processor = self.initialized_systems.get('prompt_processor')
-        if prompt_processor:
-            processed_input, metadata = prompt_processor.process_input(user_input)
-            # Get original text with attachments preserved
-            actual_input = prompt_processor.get_original_text(processed_input, metadata) if hasattr(prompt_processor, 'get_original_text') else processed_input
-        else:
-            actual_input = user_input
-            metadata = {}
-
-        # 2. Display user message with GitHub username (Frontier colors)
+        # Use the new modular conversation manager for normal turns
         try:
-            # Get GitHub username if logged in
-            import subprocess
-            username = None
-            try:
-                result = subprocess.run(['gh', 'api', 'user', '--jq', '.login'],
-                                      capture_output=True, text=True, timeout=2)
-                if result.returncode == 0:
-                    username = result.stdout.strip()
-            except:
-                pass
-
-            # Get app for writing
-            app = prompt_widget.app if prompt_widget and hasattr(prompt_widget, 'app') else None
-            if app:
-                from rich.text import Text
-                from rich.style import Style
-
-                # Import frontier colors
-                try:
-                    from modules.frontier_colors import FRONTIER_COLORS
-                except ImportError:
-                    from cli.modules.frontier_colors import FRONTIER_COLORS
-
-                # Create user message with Frontier color scheme
-                user_msg = Text()
-                if username:
-                    user_msg.append(f"{username} ", style=Style(color=FRONTIER_COLORS["user_name"], bold=True))
-                user_msg.append("> ", style=Style(color=FRONTIER_COLORS["prompt_symbol"], bold=True))
-                user_msg.append(actual_input, style=Style(color=FRONTIER_COLORS["text_primary"]))
-                user_msg.append("\n")
-
-                app.write(user_msg)
-        except:
-            pass
-
-        # 3. Add to session
-        self.session.add('user', actual_input)
-
-        # 4. Prepare messages with context (dev6 pattern)
-        try:
-            prepared_messages = await self._prepare_messages(self.session.messages)
+            from modules.conversation_manager import ConversationManager
+            manager = ConversationManager(self.config, self.session)
+            await manager.handle_user_prompt(user_input, prompt_widget)
         except Exception as e:
-            sys.stderr.write(f"[EXEC] Error preparing messages: {e}\n")
-            sys.stderr.flush()
-            prepared_messages = self.session.messages
-
-        # 5. Stream AI response
-        try:
-            await self._stream_ai_response(prepared_messages, prompt_widget)
-        except Exception as e:
-            sys.stderr.write(f"[EXEC] Error streaming response: {e}\n")
-            sys.stderr.flush()
+            # Fallback to original minimal behavior if import fails
+            self.session.add('user', user_input)
             if prompt_widget and hasattr(prompt_widget, 'app'):
-                prompt_widget.app.write(f"[red]Error: {e}[/red]\n")
+                prompt_widget.app.write(f"[red]Conversation error: {e}[/red]\n")
 
     async def _prepare_messages(self, messages):
         """Prepare messages with context (port from dev6)

@@ -186,7 +186,8 @@ def main():
         print(r.choices[0].message.content)
     else:
         # Determine execution mode
-        use_fallback = (hasattr(parsed_args, 'fallback') and parsed_args.fallback) or not component_init.is_feature_available('ASYNC_TUI')
+        # Prefer async TUI by default; legacy fallback only if explicitly requested
+        use_fallback = bool(getattr(parsed_args, 'fallback', False))
         
         try:
             if use_fallback:
