@@ -59,13 +59,14 @@ class UnifiedPermissionManager:
                     if handler_name:
                         self._current_widget.handler_name = handler_name
 
-                    # CRITICAL FIX: Activate the widget so it can receive key events
+                    # Activate the widget so it can render when mounted by UI
+                    # NOTE: We do NOT focus the standalone widget here.
+                    # Focus is owned by the MultiLineInput overlay (#prompt-input)
+                    # which handles permission navigation keys codebase-wide.
                     self._current_widget.show()
 
-                    # CRITICAL FIX: Give widget focus so on_key() receives arrow key events
-                    self._current_widget.focus()
-
-                # Call UI to show the prompt
+                # Call UI to show the prompt (it will set permission_prompt_data on #prompt-input
+                # and force focus to that input, ensuring keys reach the overlay handler)
                 self._ui_callback(prompt_data)
                 return True
             else:
