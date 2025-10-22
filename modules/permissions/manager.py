@@ -404,7 +404,7 @@ class PermissionBufferManager:
         app,
         session,
         prompt_data: Dict[str, Any],
-        timeout: float = 30.0
+        timeout: float = None
     ) -> Dict[str, Any]:
         """
         Request permission and show prompt in TUI
@@ -415,7 +415,7 @@ class PermissionBufferManager:
             app: TUI application instance
             session: Session object
             prompt_data: Prompt data dict with title, message, options
-            timeout: Timeout in seconds (default 30.0)
+            timeout: Timeout in seconds (default None = no timeout for interactive prompts)
 
         Returns:
             Dict with user's response and any selected data
@@ -496,16 +496,24 @@ class PermissionBufferManager:
         sys.stderr.write(f"[PermissionBufferManager] Yielded to event loop for UI render\n")
         sys.stderr.flush()
 
-        # Wait for resolution with timeout
+        # Wait for resolution (with optional timeout)
         try:
-            sys.stderr.write(f"[PermissionBufferManager] Now waiting for user response (timeout={timeout}s)\n")
-            sys.stderr.flush()
-            result = await asyncio.wait_for(task.future, timeout=timeout)
+            if timeout is None:
+                # NO TIMEOUT - Wait indefinitely for user response (interactive prompts)
+                sys.stderr.write(f"[PermissionBufferManager] Waiting for user response (NO TIMEOUT - will wait indefinitely)\n")
+                sys.stderr.flush()
+                result = await task.future
+            else:
+                # WITH TIMEOUT - Auto-dismiss after timeout (informational prompts only)
+                sys.stderr.write(f"[PermissionBufferManager] Waiting for user response (timeout={timeout}s)\n")
+                sys.stderr.flush()
+                result = await asyncio.wait_for(task.future, timeout=timeout)
+
             self._analytics.update_analytics('prompt_resolved', task, {'result': result})
             self._audit.log_event('RESOLVED', task.task_id, {'result': result})
             return result
         except asyncio.TimeoutError:
-            # Auto-dismiss on timeout
+            # Auto-dismiss on timeout (only happens if timeout was specified)
             self._analytics.update_analytics('prompt_timeout', task)
             self._audit.log_event('TIMEOUT', task.task_id, {'timeout': timeout})
             return {'response': 'timeout', 'reason': 'timeout_expired'}
