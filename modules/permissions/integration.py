@@ -6,7 +6,6 @@ Connects permission buffer manager with UI widgets, risk assessment, and externa
 from typing import Dict, Any, Optional, Callable
 import threading
 from .manager import PermissionBufferManager
-from .widget import PermissionPrompt
 from .enums import PermissionResponse
 from .templates import PermissionTemplates
 from .risk_assessment import RiskAssessmentManager, RiskLevel
@@ -26,7 +25,6 @@ class UnifiedPermissionManager:
         
         self._buffer_manager = PermissionBufferManager()
         self._risk_manager = RiskAssessmentManager()
-        self._current_widget: Optional[PermissionPrompt] = None
         self._ui_callback: Optional[Callable] = None
         self._response_handlers: Dict[str, Callable] = {}
         self._current_handler_name: Optional[str] = None  # Track current active handler
@@ -229,12 +227,9 @@ class UnifiedPermissionManager:
             return False
     
     def _clear_current_prompt(self) -> None:
-        """Internal method to clear current widget state"""
+        """Internal method to clear current handler state"""
         with self._lock:
             self._current_handler_name = None
-            if self._current_widget:
-                self._current_widget.hide()
-                self._current_widget = None
     
     # Risk assessment delegation methods
     
@@ -444,9 +439,6 @@ class UnifiedPermissionManager:
             sys.stderr.flush()
             return False
 
-    def get_current_widget(self) -> Optional[PermissionPrompt]:
-        """Get current permission widget (for UI integration)"""
-        return self._current_widget
     
     def shutdown(self) -> None:
         """Shutdown the unified permission manager"""

@@ -12,7 +12,6 @@ from .validation import ValidationManager
 from .analytics import AnalyticsManager
 from .audit import AuditManager
 from .cache import CacheManager
-from .widget import PermissionPrompt
 from .templates import PermissionTemplates
 from .risk_assessment import RiskAssessmentManager, RiskLevel, get_risk_assessment_manager
 from .integration import (
@@ -41,7 +40,6 @@ __all__ = [
     'AnalyticsManager',
     'AuditManager',
     'CacheManager',
-    'PermissionPrompt',
     'PermissionTemplates',
     'RiskAssessmentManager',
     'RiskLevel',
