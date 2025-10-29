@@ -275,7 +275,7 @@ def get_permission_manager_for_command(app) -> 'PermissionManager':
     Returns:
         PermissionManager instance
     """
-    from ..execution.permission_manager import get_permission_manager
+    from modules.execution.permission_manager import get_permission_manager
     # Assuming session is available through app
     session = getattr(app, 'session', None)
     return get_permission_manager(app, session)

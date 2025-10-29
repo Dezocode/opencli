@@ -14,8 +14,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict
 
-from ..github_tool import execute_github_tool
-from ..header_autoconfig import auto_configure_headers
+from modules.github_tool import execute_github_tool
+from modules.header_autoconfig import auto_configure_headers
 
 
 def _write_result(app, header: str, body: str) -> None:

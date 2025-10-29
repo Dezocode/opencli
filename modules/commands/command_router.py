@@ -9,8 +9,8 @@ Simple router that:
 
 import asyncio
 from typing import Optional
-from ..execution.registry import ExecutionType
-from ..execution.executor import get_executor
+from modules.execution.registry import ExecutionType
+from modules.execution.executor import get_executor
 
 
 class CommandRouter:
@@ -44,7 +44,7 @@ class CommandRouter:
             return  # Already initialized
 
         from .registry import register_all
-        from ..sdk import get_enforcement
+        from modules.sdk import get_enforcement
 
         # Store app reference for live updates
         self.executor.app = self.app

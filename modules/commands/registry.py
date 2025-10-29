@@ -19,9 +19,9 @@ STREAMLINED FLOW:
 register_all(executor) → SDK Enforcement → ExecutionRegistry → PermissionManager → Buffer
 """
 
-from ..execution.registry import ExecutionType, ExecutionCategory, RiskLevel
-from ..sdk.enforcement import enforce_handler, EnforcementAction
-from ..sdk.validation import validate_full_coverage
+from modules.execution.registry import ExecutionType, ExecutionCategory, RiskLevel
+from modules.sdk.enforcement import enforce_handler, EnforcementAction
+from modules.sdk.validation import validate_full_coverage
 
 
 def _update_sdk_buffer(app, current_step: str = None, current_file: str = None, cmd_count: int = None, tool_count: int = None):

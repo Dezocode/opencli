@@ -10,10 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from ..agent_manager import AgentManager
+from modules.agent_manager import AgentManager
 
 # SDK-compliant imports only
-from ..permission_prompt import PermissionResponse
+from modules.permissions import PermissionResponse
 
 
 def _load_agent_manager(session) -> Optional[AgentManager]:

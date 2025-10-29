@@ -5,7 +5,7 @@ User interaction happens in buffer, handlers execute based on selections.
 """
 
 # SDK-compliant imports only
-from ..permission_prompt import PermissionResponse
+from modules.permissions import PermissionResponse
 # Legacy import removed - using unified_permission_manager via SDK executor
 
 
@@ -377,7 +377,7 @@ async def api_server_control(app, session, **context):
 
 def rollback_opencli_prompt(app, session, registration, context):
     """Interactive prompt for /rollback command"""
-    from ..rollback_manager import RollbackManager
+    from modules.rollback_manager import RollbackManager
 
     manager = RollbackManager()
     backups = manager.list_backups()
@@ -402,7 +402,7 @@ def rollback_opencli_prompt(app, session, registration, context):
 
 async def rollback_opencli(app, session, **context):
     """List available backups and guide through rollback - SDK COMPLIANT"""
-    from ..rollback_manager import RollbackManager
+    from modules.rollback_manager import RollbackManager
 
     # Get user selection
     prompt_data = context.get('_custom_prompt_data', {})
