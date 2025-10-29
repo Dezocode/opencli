@@ -78,6 +78,13 @@ async def _safe_register(
     # Use final handler (may be converted/wrapped)
     final_handler = result.final_handler
 
+    # Extract custom_prompt_func from kwargs and put it in metadata
+    custom_prompt_func = kwargs.pop('custom_prompt_func', None)
+    metadata = kwargs.get('metadata', {})
+    if custom_prompt_func:
+        metadata['custom_prompt_func'] = custom_prompt_func
+        kwargs['metadata'] = metadata
+
     # Register with executor (ACTUAL registration, not recursive!)
     executor.registry.register(
         exec_type,
