@@ -5,8 +5,8 @@ Re-exports components from modular TUI system for backward compatibility
 
 # Re-export StatusLine components from modular system
 try:
-    from ..tui.status_lines import StatusLine, PerformanceStatusLine, RefactoringStatusLine
-    from ..tui.core import OpenCLITUI
+    from modules.tui.status_lines import StatusLine, PerformanceStatusLine, RefactoringStatusLine
+    from modules.tui.core import OpenCLITUI
 except (ImportError, ValueError):
     from tui.status_lines import StatusLine, PerformanceStatusLine, RefactoringStatusLine
     from tui.core import OpenCLITUI
