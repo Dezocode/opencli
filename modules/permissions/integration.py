@@ -41,8 +41,11 @@ class UnifiedPermissionManager:
         
     def set_ui_callback(self, callback: Callable) -> None:
         """Set callback function for UI integration (e.g., TUI's _show_permission_prompt)"""
+        import sys
         with self._lock:
             self._ui_callback = callback
+            sys.stderr.write(f"[UPM.set_ui_callback] ✓ Callback SET on instance {id(self)}: {callback.__name__ if hasattr(callback, '__name__') else callback}\n")
+            sys.stderr.flush()
     
     def register_response_handler(self, handler_name: str, handler: Callable) -> None:
         """Register a response handler for specific permission types"""
@@ -60,28 +63,21 @@ class UnifiedPermissionManager:
                 sys.stderr.flush()
                 return False
 
-            # Create widget if UI callback available
+            # Call UI callback if available
             if self._ui_callback:
-                with self._lock:
-                    self._current_widget = PermissionPrompt(
-                        title=prompt_data.get('title', 'Permission Required'),
-                        message=prompt_data.get('message', 'Allow this operation?'),
-                        options=prompt_data.get('options', []),
-                        details=prompt_data.get('details', {})
-                    )
+                import sys
+                sys.stderr.write(f"[UnifiedPermissionManager.show_permission_prompt] Calling _ui_callback with prompt_data\n")
+                sys.stderr.flush()
 
-                    # Store handler name for response routing
-                    if handler_name:
-                        self._current_widget.handler_name = handler_name
+                # Store handler name in prompt_data for response routing
+                if handler_name:
+                    prompt_data['_handler_name'] = handler_name
 
-                    # CRITICAL FIX: Activate the widget so it can receive key events
-                    self._current_widget.show()
-
-                    # CRITICAL FIX: Give widget focus so on_key() receives arrow key events
-                    self._current_widget.focus()
-
-                # Call UI to show the prompt
+                # Call UI callback - it will set permission_prompt_data on MultiLineInput
                 self._ui_callback(prompt_data)
+
+                sys.stderr.write(f"[UnifiedPermissionManager.show_permission_prompt] _ui_callback returned\n")
+                sys.stderr.flush()
                 return True
             else:
                 # Fallback to console-based prompt
@@ -451,11 +447,20 @@ _manager_lock = threading.Lock()
 
 def get_unified_permission_manager() -> UnifiedPermissionManager:
     """Get singleton unified permission manager instance"""
+    import sys
     global _unified_manager
     if _unified_manager is None:
         with _manager_lock:
             if _unified_manager is None:
                 _unified_manager = UnifiedPermissionManager()
+                sys.stderr.write(f"[GET_UPM] Created NEW instance: {id(_unified_manager)}\n")
+                sys.stderr.flush()
+
+    # CRITICAL: Log callback status EVERY time
+    callback_status = "SET" if _unified_manager._ui_callback else "NONE"
+    sys.stderr.write(f"[GET_UPM] Returning instance {id(_unified_manager)}, callback={callback_status}\n")
+    sys.stderr.flush()
+
     return _unified_manager
 
 
