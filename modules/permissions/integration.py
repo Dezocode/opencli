@@ -29,6 +29,7 @@ class UnifiedPermissionManager:
         self._current_widget: Optional[PermissionPrompt] = None
         self._ui_callback: Optional[Callable] = None
         self._response_handlers: Dict[str, Callable] = {}
+        self._current_handler_name: Optional[str] = None  # Track current active handler
         self._lock = threading.Lock()
     
     def get_buffer_manager(self) -> PermissionBufferManager:
@@ -60,27 +61,13 @@ class UnifiedPermissionManager:
                 sys.stderr.flush()
                 return False
 
+            # Store the handler name so we can route responses correctly
+            with self._lock:
+                self._current_handler_name = handler_name
+
             # Create widget if UI callback available
             if self._ui_callback:
-                with self._lock:
-                    self._current_widget = PermissionPrompt(
-                        title=prompt_data.get('title', 'Permission Required'),
-                        message=prompt_data.get('message', 'Allow this operation?'),
-                        options=prompt_data.get('options', []),
-                        details=prompt_data.get('details', {})
-                    )
-
-                    # Store handler name for response routing
-                    if handler_name:
-                        self._current_widget.handler_name = handler_name
-
-                    # CRITICAL FIX: Activate the widget so it can receive key events
-                    self._current_widget.show()
-
-                    # CRITICAL FIX: Give widget focus so on_key() receives arrow key events
-                    self._current_widget.focus()
-
-                # Call UI to show the prompt
+                # Call UI to show the prompt (sets permission_prompt_data on MultiLineInput)
                 self._ui_callback(prompt_data)
                 return True
             else:
@@ -189,7 +176,7 @@ class UnifiedPermissionManager:
             sys.stderr.flush()
 
             # Route to specific handler if available
-            handler_name = getattr(self._current_widget, 'handler_name', None)
+            handler_name = self._current_handler_name
             if handler_name and handler_name in self._response_handlers:
                 sys.stderr.write(f"[UnifiedPermissionManager] Routing to specific handler: {handler_name}\n")
                 sys.stderr.flush()
@@ -235,6 +222,7 @@ class UnifiedPermissionManager:
     def _clear_current_prompt(self) -> None:
         """Internal method to clear current widget state"""
         with self._lock:
+            self._current_handler_name = None
             if self._current_widget:
                 self._current_widget.hide()
                 self._current_widget = None
