@@ -37,6 +37,10 @@ class MultiLineInput(Widget):
     permission_prompt_data = reactive(None, layout=True)  # When set, takes FULL control
     permission_selected_option = reactive(0, layout=True)
 
+    # CRITICAL: Permission state to prevent race condition where data is cleared before keys pressed
+    # States: None (no permission), "LISTENING" (waiting for user input), "RESPONDING" (processing response)
+    permission_state = reactive(None, layout=True)
+
     def validate_permission_prompt_data(self, value) -> dict | None:
         """Validate method - called when reactive property is set"""
         import sys
@@ -124,15 +128,15 @@ class MultiLineInput(Widget):
         This is called when has_focus changes, so we can immediately re-grab it
         """
         import sys
-        from ..focus_logger import log_focus_event
+        from modules.focus_logger import log_focus_event
 
-        sys.stderr.write(f"\n[MultiLineInput.watch_has_focus] Focus changed to: {has_focus}, permission={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"\n[MultiLineInput.watch_has_focus] Focus changed to: {has_focus}, permission_state={self.permission_state}\n")
         sys.stderr.flush()
 
         # ═══════════════════════════════════════════════════════════
         # CRITICAL: IMMEDIATELY re-grab focus if lost during permission prompt
         # ═══════════════════════════════════════════════════════════
-        if not has_focus and self.permission_prompt_data:
+        if not has_focus and self.permission_state == "LISTENING":
             sys.stderr.write(f"[MultiLineInput.watch_has_focus] 🔒 FOCUS LOST DURING PERMISSION - RE-GRABBING!\n")
             sys.stderr.flush()
 
@@ -154,10 +158,10 @@ class MultiLineInput(Widget):
     def focus(self, scroll_visible: bool = True) -> None:
         """Override focus() to maintain focus lock during permission prompts"""
         import sys
-        from ..focus_logger import log_focus_event
+        from modules.focus_logger import log_focus_event
 
         # If THIS widget has permission active, ALLOW focus
-        if self.permission_prompt_data:
+        if self.permission_state == "LISTENING":
             sys.stderr.write(f"[MultiLineInput.focus] PERMISSION ACTIVE - Allowing focus\n")
             sys.stderr.flush()
             log_focus_event(
@@ -176,9 +180,9 @@ class MultiLineInput(Widget):
     def on_focus(self) -> None:
         """Track when widget receives focus"""
         import sys
-        from ..focus_logger import log_focus_event, log_focus_state
+        from modules.focus_logger import log_focus_event, log_focus_state
 
-        sys.stderr.write(f"\n[MultiLineInput.on_focus] GAINED FOCUS - prompt={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"\n[MultiLineInput.on_focus] GAINED FOCUS - permission_state={self.permission_state}\n")
         sys.stderr.flush()
 
         # Log focus event
@@ -187,7 +191,7 @@ class MultiLineInput(Widget):
             source_function="on_focus",
             event_type="GAINED_FOCUS",
             widget_type="MultiLineInput",
-            extra_info=f"permission_active={bool(self.permission_prompt_data)}"
+            extra_info=f"permission_state={self.permission_state}"
         )
 
         # Log current focus state
@@ -196,7 +200,7 @@ class MultiLineInput(Widget):
             widget_type="MultiLineInput",
             has_focus=True,
             can_focus=self.can_focus,
-            extra_info=f"permission={bool(self.permission_prompt_data)}"
+            extra_info=f"permission_state={self.permission_state}"
         )
 
         self.refresh()
@@ -204,9 +208,9 @@ class MultiLineInput(Widget):
     def on_blur(self) -> None:
         """Track when widget loses focus - LOCK FOCUS during permission prompts"""
         import sys
-        from ..focus_logger import log_focus_event, log_focus_attempt
+        from modules.focus_logger import log_focus_event, log_focus_attempt
 
-        sys.stderr.write(f"\n[MultiLineInput.on_blur] ATTEMPT TO LOSE FOCUS - prompt={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"\n[MultiLineInput.on_blur] ATTEMPT TO LOSE FOCUS - permission_state={self.permission_state}\n")
         sys.stderr.flush()
 
         # Log blur attempt
@@ -215,13 +219,13 @@ class MultiLineInput(Widget):
             source_function="on_blur",
             event_type="LOST_FOCUS",
             widget_type="MultiLineInput",
-            extra_info=f"permission_active={bool(self.permission_prompt_data)}"
+            extra_info=f"permission_state={self.permission_state}"
         )
 
         # ═══════════════════════════════════════════════════════════
         # CRITICAL: FOCUS LOCK during permission prompts
         # ═══════════════════════════════════════════════════════════
-        if self.permission_prompt_data:
+        if self.permission_state == "LISTENING":
             sys.stderr.write(f"[MultiLineInput.on_blur] 🔒 FOCUS LOCK ACTIVE - REFUSING TO LOSE FOCUS!\n")
             sys.stderr.flush()
 
@@ -319,7 +323,7 @@ class MultiLineInput(Widget):
         # ═══════════════════════════════════════════════════════════
         # PRIORITY: Show permission prompt if active (overrides everything)
         # ═══════════════════════════════════════════════════════════
-        if self.permission_prompt_data:
+        if self.permission_state == "LISTENING" and self.permission_prompt_data:
             return render_permission_prompt(
                 self.permission_prompt_data,
                 self.permission_selected_option
@@ -414,11 +418,11 @@ class MultiLineInput(Widget):
         event.stop()
 
         # LOG EVERY KEY INCLUDING ARROWS
-        sys.stderr.write(f"\n[widget.on_key] KEY={event.key}, permission={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"\n[widget.on_key] KEY={event.key}, permission_state={self.permission_state}, permission_data={bool(self.permission_prompt_data)}\n")
         sys.stderr.flush()
 
         with open('/tmp/opencli_keys.log', 'a') as f:
-            f.write(f"[widget.on_key] KEY={event.key}, permission={bool(self.permission_prompt_data)}\n")
+            f.write(f"[widget.on_key] KEY={event.key}, permission_state={self.permission_state}, permission_data={bool(self.permission_prompt_data)}\n")
 
         # Handle the key event
         handle_key_event(self, event)
@@ -433,14 +437,16 @@ class MultiLineInput(Widget):
         sys.stderr.flush()
 
         # If permission prompt is active, select the current option
-        if self.permission_prompt_data:
+        if self.permission_state == "LISTENING":
             options = self.permission_prompt_data.get('options', [])
             if options and 0 <= self.permission_selected_option < len(options):
                 selected_option = options[self.permission_selected_option]
                 sys.stderr.write(f"[ACTION_SUBMIT] Selecting permission option: {selected_option.get('text')}\n")
                 sys.stderr.flush()
+                self.permission_state = "RESPONDING"  # Mark as responding to prevent further input
                 self.post_message(self.PermissionResponse(selected_option))
                 self.permission_prompt_data = None  # Clear prompt after selection
+                self.permission_state = None  # Clear state after response sent
                 return
 
         # If suggestions are active, handle as command selection instead
@@ -463,15 +469,17 @@ class MultiLineInput(Widget):
         """Cancel input (clear the field) or cancel permission prompt"""
         import sys
         sys.stderr.write(f"\n[ACTION_CANCEL] CALLED\n")
-        sys.stderr.write(f"[ACTION_CANCEL] permission_prompt_data={bool(self.permission_prompt_data)}\n")
+        sys.stderr.write(f"[ACTION_CANCEL] permission_state={self.permission_state}\n")
         sys.stderr.flush()
 
         # If permission prompt is active, cancel it
-        if self.permission_prompt_data:
+        if self.permission_state == "LISTENING":
             sys.stderr.write(f"[ACTION_CANCEL] Cancelling permission prompt\n")
             sys.stderr.flush()
+            self.permission_state = "RESPONDING"  # Mark as responding
             self.post_message(self.PermissionCancelled())
             self.permission_prompt_data = None  # Clear prompt after cancel
+            self.permission_state = None  # Clear state
             return
 
         # Normal cancel - clear the field
@@ -610,7 +618,7 @@ class MultiLineInput(Widget):
                 sys.stderr.flush()
 
                 # Log permission cleared event
-                from ..focus_logger import log_focus_event
+                from modules.focus_logger import log_focus_event
                 log_focus_event(
                     source_file="input_widget/widget.py",
                     source_function="watch_permission_prompt_data",
@@ -633,3 +641,20 @@ class MultiLineInput(Widget):
             self.refresh()
             sys.stderr.write(f"[widget] REFRESH triggered by selection change\n")
             sys.stderr.flush()
+
+    def watch_permission_state(self, old_value: str | None, new_value: str | None) -> None:
+        """Watch for permission state changes - CRITICAL for LISTENING state"""
+        import sys
+        sys.stderr.write(f"[widget.watch_permission_state] 🔥 STATE CHANGE: {old_value} -> {new_value} 🔥\n")
+        sys.stderr.flush()
+
+        # Log state transitions
+        if new_value == "LISTENING":
+            sys.stderr.write(f"[widget] ✓ Entered LISTENING state - ready for arrow keys\n")
+        elif new_value == "RESPONDING":
+            sys.stderr.write(f"[widget] ✓ Entered RESPONDING state - processing selection\n")
+        elif new_value is None:
+            sys.stderr.write(f"[widget] ✓ Cleared permission state\n")
+
+        sys.stderr.flush()
+        self.refresh()

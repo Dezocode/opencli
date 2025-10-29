@@ -1,9 +1,17 @@
 #!/bin/bash
 
 echo "=========================================="
-echo "SYNCING TO RUNTIME (single source of truth)"
+echo "⚠️  SYNC SCRIPT DISABLED"
 echo "=========================================="
 echo ""
+echo "This sync script has been DISABLED because it was reverting code."
+echo ""
+echo "Work directly in ~/.opencli (runtime) - DO NOT use this script!"
+echo "All changes should be made in ~/.opencli/modules/ directly."
+echo ""
+echo "To re-enable, remove this exit statement."
+echo ""
+exit 0
 
 DEV_DIR="/Users/dezmondhollins/opencli"
 RUNTIME_DIR="$HOME/.opencli"

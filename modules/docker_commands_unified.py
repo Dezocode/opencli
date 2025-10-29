@@ -8,7 +8,7 @@ User interaction happens in buffer, handlers execute based on selections.
 import asyncio
 
 # SDK-compliant imports only
-from .permission_prompt import PermissionResponse
+from .permissions import PermissionResponse
 
 
 # ============================================================================

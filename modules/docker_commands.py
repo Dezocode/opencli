@@ -10,7 +10,7 @@ from .execution.executor import ExecutionStep
 from .execution.registry import RiskLevel
 
 # SDK-compliant imports only
-from .permission_prompt import PermissionResponse
+from .permissions import PermissionResponse
 
 
 # ============================================================================ 

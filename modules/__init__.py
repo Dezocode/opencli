@@ -7,7 +7,7 @@ Core functionality modules for OpenCLI
 from . import async_interactive
 from . import simple_tui
 from . import command_router
-from . import permission_buffer_manager
+
 
 __all__ = [
     'async_interactive',

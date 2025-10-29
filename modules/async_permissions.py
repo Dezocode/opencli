@@ -9,10 +9,10 @@ from typing import Optional, Tuple
 
 try:
     from .permissions.risk_assessment import RiskAssessmentManager, RiskLevel
-    from .permission_prompt import PermissionTemplates, PermissionResponse
+    from .permissions import PermissionTemplates, PermissionResponse
 except (ImportError, ValueError):
     from permissions.risk_assessment import RiskAssessmentManager, RiskLevel
-    from permission_prompt import PermissionTemplates, PermissionResponse
+    from permissions import PermissionTemplates, PermissionResponse
 
 
 class AsyncPermissionHandler:

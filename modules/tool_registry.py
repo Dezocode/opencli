@@ -254,7 +254,7 @@ class ToolRegistry:
     async def _show_tool_permission_prompt(self, permission: ToolPermission) -> bool:
         """Show permission prompt for tool execution"""
 
-        from modules.permission_prompt import PermissionResponse
+        from modules.permissions import PermissionResponse
 
         prompt_data = {
             'title': f'{permission.category.value.title()} Tool',
@@ -279,7 +279,7 @@ class ToolRegistry:
         # Show in permission buffer
         prompt_input = self.app.query_one("#prompt-input")
         # Use permission buffer manager (non-blocking)
-        from permission_buffer_manager import get_permission_buffer_manager
+        from permissions import get_permission_buffer_manager
 
         manager = get_permission_buffer_manager()
         self.session._current_tool_execution = permission.tool_name

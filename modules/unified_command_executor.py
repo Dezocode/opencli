@@ -350,7 +350,7 @@ class CommandExecution:
 
     async def show_initial_permission_prompt(self):
         """Show initial permission prompt for command"""
-        from modules.permission_prompt import PermissionResponse
+        from modules.permissions import PermissionResponse
 
         # Build permission prompt
         prompt_data = {

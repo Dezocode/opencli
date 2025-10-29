@@ -7,9 +7,13 @@ from rich.text import Text
 from rich.style import Style
 
 try:
-    from ..frontier_colors import FRONTIER_COLORS
-except (ImportError, ValueError):
-    from frontier_colors import FRONTIER_COLORS
+    from modules.frontier_colors import FRONTIER_COLORS
+except ImportError:
+    try:
+        from frontier_colors import FRONTIER_COLORS
+    except ImportError:
+        # Fallback if not available
+        FRONTIER_COLORS = {}
 
 
 def render_permission_prompt(prompt_data: dict, selected_option: int) -> Text:

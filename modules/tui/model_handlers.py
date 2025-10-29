@@ -7,11 +7,11 @@ import asyncio
 from typing import Dict, List, Any
 
 try:
-    from ..permission_prompt import PermissionResponse
+    from modules.permissions import PermissionResponse
 except ImportError:
     try:
         import importlib
-        perm_prompt = importlib.import_module('permission_prompt')
+        perm_prompt = importlib.import_module('modules.permissions')
         PermissionResponse = perm_prompt.PermissionResponse
     except:
         PermissionResponse = None

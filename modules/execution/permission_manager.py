@@ -295,7 +295,7 @@ class PermissionManager:
         Returns:
             True if approved, False if denied
         """
-        from ..permission_prompt import PermissionResponse
+        from modules.permissions import PermissionResponse
 
         import sys
         sys.stderr.write(f"\n[PermissionManager._show_permission_prompt] ENTERED\n")
@@ -354,7 +354,7 @@ class PermissionManager:
             sys.stderr.flush()
 
             print(f"[PermissionManager] Showing permission prompt for {registration.name}")
-            from ..permissions import get_unified_permission_manager
+            from modules.permissions import get_unified_permission_manager
 
             sys.stderr.write(f"[PermissionManager._show_permission_prompt] Getting buffer manager\n")
             sys.stderr.flush()
@@ -479,7 +479,7 @@ class PermissionManager:
         Displays the prompt data and waits for user input via stdin.
         """
         import sys
-        from ..permissions import PermissionResponse
+        from modules.permissions import PermissionResponse
 
         print(f"\n{'='*60}")
         print(f"🔐 {prompt_data.get('title', 'Permission Required')}")

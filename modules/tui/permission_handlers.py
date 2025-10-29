@@ -6,8 +6,8 @@ Extracted from simple_tui.py to handle permission prompts and responses
 from typing import Any, Dict
 
 try:
-    from ..permissions import get_unified_permission_manager, PermissionResponse
-    from ..input_widget import (
+    from modules.permissions import get_unified_permission_manager, PermissionResponse
+    from modules.input_widget import (
         MultiLineInput,
         PermissionResponse as MLIPermissionResponse,
         PermissionCancelled as MLIPermissionCancelled,
@@ -16,8 +16,8 @@ try:
 except (ImportError, ValueError):
     try:
         # Package-relative fallbacks
-        from ..permissions import get_unified_permission_manager, PermissionResponse
-        from ..input_widget import (
+        from modules.permissions import get_unified_permission_manager, PermissionResponse
+        from modules.input_widget import (
             MultiLineInput,
             PermissionResponse as MLIPermissionResponse,
             PermissionCancelled as MLIPermissionCancelled,
@@ -141,8 +141,8 @@ class PermissionHandlers:
     def _handle_provider_model_selection(self, event) -> None:
         """Handle provider model selection response"""
         try:
-            from ..permissions import PermissionResponse
-            from ..model_manager import ModelManager
+            from modules.permissions import PermissionResponse
+            from modules.model_manager import ModelManager
         except ImportError:
             try:
                 import importlib
@@ -188,7 +188,7 @@ class PermissionHandlers:
     def _handle_local_model_selection(self, event) -> None:
         """Handle local model selection response"""
         try:
-            from ..permissions import PermissionResponse
+            from modules.permissions import PermissionResponse
         except ImportError:
             try:
                 import importlib
@@ -219,7 +219,7 @@ class PermissionHandlers:
     def _handle_model_browser_selection(self, event) -> None:
         """Handle model browser selection response"""
         try:
-            from ..permissions import PermissionResponse
+            from modules.permissions import PermissionResponse
         except ImportError:
             try:
                 import importlib
@@ -257,7 +257,7 @@ class PermissionHandlers:
     def _handle_async_permission_response(self, event) -> None:
         """Handle async permission response"""
         try:
-            from ..async_permissions import get_global_handler
+            from modules.async_permissions import get_global_handler
         except ImportError:
             try:
                 import importlib
@@ -281,8 +281,8 @@ class PermissionHandlers:
     def _handle_async_permission_cancellation(self, event) -> None:
         """Handle async permission cancellation"""
         try:
-            from ..async_permissions import get_global_handler
-            from ..permissions import PermissionResponse
+            from modules.async_permissions import get_global_handler
+            from modules.permissions import PermissionResponse
         except ImportError:
             try:
                 import importlib
@@ -392,6 +392,7 @@ class PermissionHandlers:
                 sys.stderr.write(f"[TUI._show_permission_prompt] Clearing permission prompt\n")
                 sys.stderr.flush()
                 prompt_input.permission_prompt_data = None
+                prompt_input.permission_state = None  # Clear LISTENING state
                 prompt_input.refresh()
                 return
 
@@ -404,8 +405,13 @@ class PermissionHandlers:
             # If we set dict → dict, Textual might skip watcher if "equal"
             # By doing dict → None → new_dict, we guarantee watcher fires twice
             prompt_input.permission_prompt_data = None
+            prompt_input.permission_state = None
+
+            # Now set the data AND state - LISTENING prevents race condition
             prompt_input.permission_prompt_data = prompt_data
-            sys.stderr.write(f"[TUI._show_permission_prompt Widget={widget_id}] permission_prompt_data set, has_focus: {prompt_input.has_focus}\n")
+            prompt_input.permission_state = "LISTENING"  # CRITICAL: Keep state active while awaiting user input
+
+            sys.stderr.write(f"[TUI._show_permission_prompt Widget={widget_id}] permission_prompt_data set, state=LISTENING, has_focus: {prompt_input.has_focus}\n")
             sys.stderr.flush()
 
             # CRITICAL: Force focus to the input widget for permission navigation
@@ -491,6 +497,7 @@ class PermissionHandlers:
         try:
             prompt_input = self.query_one("#prompt-input")
             prompt_input.permission_prompt_data = None
+            prompt_input.permission_state = None  # Clear LISTENING state
             prompt_input.refresh()
         except Exception:
             pass

@@ -6,7 +6,7 @@ Connects permission buffer manager with UI widgets, risk assessment, and externa
 from typing import Dict, Any, Optional, Callable
 import threading
 from .manager import PermissionBufferManager
-from .widget import PermissionPrompt
+# REMOVED: from .widget import PermissionPrompt (unused widget deleted)
 from .enums import PermissionResponse
 from .templates import PermissionTemplates
 from .risk_assessment import RiskAssessmentManager, RiskLevel
@@ -26,7 +26,6 @@ class UnifiedPermissionManager:
         
         self._buffer_manager = PermissionBufferManager()
         self._risk_manager = RiskAssessmentManager()
-        self._current_widget: Optional[PermissionPrompt] = None
         self._ui_callback: Optional[Callable] = None
         self._response_handlers: Dict[str, Callable] = {}
         self._lock = threading.Lock()
@@ -185,7 +184,6 @@ class UnifiedPermissionManager:
             sys.stderr.flush()
 
             # Route to specific handler if available
-            handler_name = getattr(self._current_widget, 'handler_name', None)
             if handler_name and handler_name in self._response_handlers:
                 sys.stderr.write(f"[UnifiedPermissionManager] Routing to specific handler: {handler_name}\n")
                 sys.stderr.flush()
@@ -231,10 +229,9 @@ class UnifiedPermissionManager:
     def _clear_current_prompt(self) -> None:
         """Internal method to clear current widget state"""
         with self._lock:
-            if self._current_widget:
-                self._current_widget.hide()
-                self._current_widget = None
-    
+            # Widget cleared via UI callback now - MultiLineInput handles clearing
+            pass
+
     # Risk assessment delegation methods
     
     def assess_operation_risk(
@@ -430,10 +427,6 @@ class UnifiedPermissionManager:
             sys.stderr.flush()
             return False
 
-    def get_current_widget(self) -> Optional[PermissionPrompt]:
-        """Get current permission widget (for UI integration)"""
-        return self._current_widget
-    
     def shutdown(self) -> None:
         """Shutdown the unified permission manager"""
         self._buffer_manager.shutdown()

@@ -319,7 +319,7 @@ class CommandExecution:
 
     async def show_initial_permission_prompt(self):
         """Show initial permission prompt for command"""
-        from modules.permission_prompt import PermissionResponse
+        from modules.permissions import PermissionResponse
 
         # Build permission prompt
         prompt_data = {
@@ -343,7 +343,7 @@ class CommandExecution:
         }
 
         # Use permission buffer manager (non-blocking)
-        from permission_buffer_manager import get_permission_buffer_manager
+        from permissions import get_permission_buffer_manager
 
         manager = get_permission_buffer_manager()
 
@@ -367,7 +367,7 @@ class CommandExecution:
 
     async def execute_with_live_progress(self):
         """Execute command with live progress updates using permission buffer manager"""
-        from permission_buffer_manager import get_permission_buffer_manager
+        from permissions import get_permission_buffer_manager
 
         manager = get_permission_buffer_manager()
         self.status = "running"

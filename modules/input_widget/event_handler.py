@@ -254,6 +254,7 @@ def handle_key_event(widget, event) -> bool:
 
     # DEBUG logging
     sys.stderr.write(f"\n🔥🔥🔥 [handle_key_event] KEY={key} 🔥🔥🔥\n")
+    sys.stderr.write(f"[handle_key_event] permission_state={widget.permission_state}\n")
     sys.stderr.write(f"[handle_key_event] prompt={bool(widget.permission_prompt_data)}, focused={widget.has_focus}\n")
     sys.stderr.write(f"[handle_key_event] suggestions={widget.suggestions_active}, value='{widget.value}'\n")
     sys.stderr.flush()
@@ -261,8 +262,10 @@ def handle_key_event(widget, event) -> bool:
     # ═══════════════════════════════════════════════════════════
     # PRIORITY 1: PERMISSION PROMPT (blocks ALL other input)
     # ═══════════════════════════════════════════════════════════
-    if widget.permission_prompt_data:
-        sys.stderr.write(f"[handle_key_event] → Routing to handle_permission_keys()\n")
+    # CRITICAL: Check permission_state instead of just permission_prompt_data
+    # This prevents race condition where data is cleared before keys are pressed
+    if widget.permission_state == "LISTENING":
+        sys.stderr.write(f"[handle_key_event] → Permission LISTENING - Routing to handle_permission_keys()\n")
         sys.stderr.flush()
         return handle_permission_keys(widget, event)
 
@@ -297,7 +300,8 @@ def handle_paste_event(widget, event: Paste) -> None:
     Blocked during permission prompts
     """
     # Don't allow paste during permission prompts
-    if widget.permission_prompt_data:
+    # CRITICAL: Check permission_state to prevent race condition
+    if widget.permission_state == "LISTENING":
         event.prevent_default()
         return
 
