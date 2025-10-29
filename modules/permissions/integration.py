@@ -53,6 +53,15 @@ class UnifiedPermissionManager:
     def show_permission_prompt(self, prompt_data: Dict[str, Any], handler_name: str = None) -> bool:
         """Show a permission prompt using the UI system"""
         try:
+            # DIAGNOSTIC: Write to file to confirm this function is called
+            with open('/tmp/opencli_show_prompt_trace.log', 'a') as f:
+                f.write(f"\n{'='*60}\n")
+                f.write(f"show_permission_prompt CALLED\n")
+                f.write(f"Has UI callback: {self._ui_callback is not None}\n")
+                f.write(f"Handler name: {handler_name}\n")
+                f.write(f"Prompt title: {prompt_data.get('title', 'N/A')}\n")
+                f.write(f"{'='*60}\n")
+            
             # Validate prompt data
             is_valid, error = self._buffer_manager.validate_prompt_data(prompt_data)
             if not is_valid:
@@ -353,6 +362,19 @@ class UnifiedPermissionManager:
             True if approved, False if denied
         """
         import sys
+        
+        # DIAGNOSTIC: Write to file to confirm this function is called
+        with open('/tmp/opencli_permission_trace.log', 'a') as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"check_permission CALLED\n")
+            f.write(f"Command: {registration.name}\n")
+            f.write(f"Requires approval: {registration.requires_approval}\n")
+            f.write(f"Has metadata: {registration.metadata is not None}\n")
+            if registration.metadata:
+                f.write(f"Metadata keys: {list(registration.metadata.keys())}\n")
+                f.write(f"Has custom_prompt_func: {'custom_prompt_func' in registration.metadata}\n")
+            f.write(f"{'='*60}\n")
+        
         sys.stderr.write(f"\n[UnifiedPermissionManager.check_permission] 🔥 ENTERED for {registration.name} 🔥\n")
         sys.stderr.flush()
         print(f"[UNIFIED_PERMISSION] 🔥 check_permission called for {registration.name}")

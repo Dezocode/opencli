@@ -320,6 +320,15 @@ async def route_command_unified(app, session, command: str, args: Optional[str] 
     FULLY ASYNC - Non-blocking initialization and registration
     """
     import sys
+    
+    # DIAGNOSTIC: Write to file to confirm this function is called
+    with open('/tmp/opencli_route_trace.log', 'a') as f:
+        f.write(f"\n{'='*60}\n")
+        f.write(f"route_command_unified CALLED\n")
+        f.write(f"Command: {command}\n")
+        f.write(f"Args: {args}\n")
+        f.write(f"{'='*60}\n")
+    
     print(f"[DEBUG] 🔥 route_command_unified CALLED with '{command}' 🔥")
     sys.stderr.write(f"\n[route_command_unified] ========== START ==========\n")
     sys.stderr.write(f"[route_command_unified] Command: '{command}'\n")
