@@ -69,8 +69,8 @@ async def interactive_async(config, session=None, initial_prompt=None):
     sys.stderr.flush()
 
     try:
-        from cli.modules.execution_flow import create_execution_flow_manager
-        from cli.modules.initialization import initialize_opencli_system
+        from cli.cli.modules.execution_flow import create_execution_flow_manager
+        from modules.initialization import initialize_opencli_system
 
         # Initialize system components
         from pathlib import Path
@@ -88,7 +88,13 @@ async def interactive_async(config, session=None, initial_prompt=None):
         sys.stderr.flush()
 
     except Exception as e:
-        sys.stderr.write(f"[TUI] WARNING: Could not wire execution manager: {e}\n")
+        import traceback
+        sys.stderr.write(f"\n{'='*80}\n")
+        sys.stderr.write(f"[TUI] ❌ CRITICAL: Execution manager failed to initialize!\n")
+        sys.stderr.write(f"[TUI] Error: {e}\n")
+        sys.stderr.write(f"[TUI] Traceback:\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.write(f"{'='*80}\n\n")
         sys.stderr.flush()
         # Fallback: Create a simple handler
         async def simple_handler(user_input, prompt_widget):
