@@ -4,7 +4,7 @@ Imports and registers all slash commands with SDK enforcement.
 Called by main registry.py during initialization.
 """
 
-from ..execution.registry import ExecutionType, ExecutionCategory, RiskLevel
+from modules.execution.registry import ExecutionType, ExecutionCategory, RiskLevel
 
 
 async def register_all_commands(executor, _safe_register, _update_sdk_buffer):
@@ -168,7 +168,7 @@ async def register_all_commands(executor, _safe_register, _update_sdk_buffer):
     # DOCKER COMMANDS
     # ========================================================================
     _update_sdk_buffer(executor.app, current_step="Registering docker commands", current_file="docker_commands.py", cmd_count=len(executor.registry.commands))
-    from ..docker_commands import (
+    from modules.docker_commands import (
         docker_main, docker_main_prompt,
         docker_ollama_setup, docker_ollama_setup_prompt,
         docker_ollama_start, docker_ollama_start_prompt,

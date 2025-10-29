@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Iterable
 
 # SDK-compliant imports only
-from ..permission_prompt import PermissionResponse
+from modules.permissions import PermissionResponse
 # Legacy import removed - using unified_permission_manager via SDK executor
 
 
@@ -449,7 +449,7 @@ def show_permissions_prompt(app, session, registration, context):
     """Interactive prompt for /permissions"""
 
     # Get permission data from SDK PermissionManager
-    from ..execution.permission_manager import get_permission_manager
+    from modules.execution.permission_manager import get_permission_manager
     permission_manager = get_permission_manager(app, session)
 
     allowed_count = len(permission_manager.allowed_items)
@@ -499,7 +499,7 @@ async def show_permissions(app, session, **context):
         return
 
     # Get permission data from SDK PermissionManager
-    from ..execution.permission_manager import get_permission_manager
+    from modules.execution.permission_manager import get_permission_manager
     permission_manager = get_permission_manager(app, session)
 
     allowed_items = list(permission_manager.allowed_items.keys())

@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 # SDK-compliant imports only
-from ..permission_prompt import PermissionResponse
+from modules.permissions import PermissionResponse
 # Legacy import removed - using unified_permission_manager via SDK executor
 
 

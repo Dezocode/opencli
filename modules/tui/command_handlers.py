@@ -7,8 +7,8 @@ import os
 from typing import Any
 
 # CRITICAL: Import actual MultiLineInput, not stub!
-from ..command_suggestions import CommandSuggestionBuffer, CommandMatch, check_command_health
-from ..input_widget import (
+from modules.command_suggestions import CommandSuggestionBuffer, CommandMatch, check_command_health
+from modules.input_widget import (
     MultiLineInput,
     ShowCommandSuggestions as MLIShowCommandSuggestions,
     HideCommandSuggestions as MLIHideCommandSuggestions,
@@ -16,7 +16,7 @@ from ..input_widget import (
     CommandSuggestionSelect as MLICommandSuggestionSelect,
     Submitted as MLISubmitted
 )
-from ..execution.registry import ExecutionType
+from modules.execution.registry import ExecutionType
 
 
 class CommandHandlers:

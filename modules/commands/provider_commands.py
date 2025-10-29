@@ -7,7 +7,7 @@ User interaction happens in buffer, handlers execute based on selections.
 from typing import Optional
 
 # SDK-compliant imports only
-from ..permission_prompt import PermissionResponse
+from modules.permissions import PermissionResponse
 # Legacy import removed - using unified_permission_manager via SDK executor
 
 

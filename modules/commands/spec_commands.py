@@ -7,10 +7,10 @@ User interaction happens in buffer, handlers execute based on selections.
 
 from __future__ import annotations
 
-from ..specify_wrapper import SpecifyWrapper
+from modules.specify_wrapper import SpecifyWrapper
 
 # SDK-compliant imports only
-from ..permission_prompt import PermissionResponse
+from modules.permissions import PermissionResponse
 # Legacy import removed - using unified_permission_manager via SDK executor
 
 

@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..tui.core import OpenCLITUI
+from modules.tui.core import OpenCLITUI
 from .session import create_session
 from .client import create_async_client
 from .permissions import setup_permissions

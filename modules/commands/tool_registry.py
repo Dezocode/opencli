@@ -4,7 +4,7 @@ Imports and registers all API tools with SDK enforcement.
 Called by main registry.py during initialization.
 """
 
-from ..execution.registry import ExecutionType, ExecutionCategory, RiskLevel
+from modules.execution.registry import ExecutionType, ExecutionCategory, RiskLevel
 
 
 async def register_all_tools(executor, _safe_register, _update_sdk_buffer):
@@ -17,7 +17,7 @@ async def register_all_tools(executor, _safe_register, _update_sdk_buffer):
     """
 
     _update_sdk_buffer(executor.app, current_step="Registering core tools", current_file="core_tools.py", cmd_count=len(executor.registry.commands))
-    from ..tools.core_tools import (
+    from modules.tools.core_tools import (
         tool_read,
         tool_write,
         tool_edit,
