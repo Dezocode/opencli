@@ -1,6 +1,9 @@
 """
 Async Interactive Mode for OpenCLI - Main Module
 Refactored modular architecture with focused components
+
+⚠️  DEPRECATED: Direct permission imports removed in Phase 3
+   Use: from modules.authz import check_authorization
 """
 
 # Import from modular components
@@ -21,7 +24,7 @@ from .async_interactive.message_handling import (
     extract_openrouter_policy_error
 )
 from .async_interactive.api_requests import perform_anthropic_request, perform_google_request
-from .async_interactive.permissions import setup_permissions
+# PHASE 3: Removed direct permission import - use authz facade instead
 
 # Re-export main functions for backward compatibility
 __all__ = [

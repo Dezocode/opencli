@@ -361,7 +361,9 @@ class UnifiedPermissionManager:
         session=None
     ) -> bool:
         """
-        Check if execution should be permitted - SINGLE CONSOLIDATED METHOD
+        Check if execution should be permitted
+        
+        PHASE 2: Now routes through canonical authz facade
 
         Args:
             registration: ExecutionRegistration - What's being executed
@@ -372,74 +374,89 @@ class UnifiedPermissionManager:
         Returns:
             True if approved, False if denied
         """
-        import sys
-        sys.stderr.write(f"\n[UnifiedPermissionManager.check_permission] 🔥 ENTERED for {registration.name} 🔥\n")
-        sys.stderr.flush()
-        print(f"[UNIFIED_PERMISSION] 🔥 check_permission called for {registration.name}")
-        print(f"[DEBUG] UPM.check_permission called for {registration.name}")
-
+        # PHASE 2: Route through canonical authz boundary
+        try:
+            from ..authz import check_authorization, AuthzSubject
+            
+            # Create subject
+            subject = AuthzSubject(
+                id=getattr(session, 'id', 'unknown') if session else 'unknown',
+                type='user'
+            )
+            
+            # Map to action
+            action_map = {
+                'command': 'command:execute',
+                'tool': 'tool:execute',
+                'api': 'api:call'
+            }
+            action = action_map.get(
+                registration.type.value if hasattr(registration, 'type') else 'unknown',
+                f"execute:{registration.name}"
+            )
+            
+            # Extract resource
+            resource = (
+                context.get('file_path') or 
+                context.get('resource') or 
+                context.get('command') or 
+                registration.name
+            )
+            
+            # Call canonical authz
+            decision = await check_authorization(
+                subject=subject,
+                action=action,
+                resource=resource,
+                context=context,
+                app=app,
+                session=session
+            )
+            
+            return decision.allowed
+            
+        except ImportError:
+            # Fallback to legacy if authz not available
+            return await self._legacy_check_permission(registration, context, app, session)
+    
+    async def _legacy_check_permission(
+        self,
+        registration,
+        context: Dict[str, Any],
+        app=None,
+        session=None
+    ) -> bool:
+        """Legacy implementation (fallback only)"""
         # Skip if doesn't require approval
         if not registration.requires_approval:
-            sys.stderr.write(f"[UnifiedPermissionManager.check_permission] ✓ No approval required\n")
-            sys.stderr.flush()
             return True
 
-        # Check for custom prompt function in registration metadata
+        # Check for custom prompt function
         custom_prompt_func = registration.metadata.get('custom_prompt_func') if registration.metadata else None
 
         if custom_prompt_func:
-            sys.stderr.write(f"[UnifiedPermissionManager] Found custom_prompt_func for {registration.name}\n")
-            sys.stderr.flush()
-
             try:
-                # Call custom prompt function (synchronous)
                 prompt_data = custom_prompt_func(app, session, registration, context)
-                sys.stderr.write(f"[UPM] custom_prompt_func returned prompt_data\n")
-                sys.stderr.flush()
-            except Exception as e:
-                sys.stderr.write(f"[UPM] ❌ EXCEPTION in custom_prompt_func: {e}\n")
-                sys.stderr.flush()
+            except Exception:
                 return False
 
             if not prompt_data:
-                sys.stderr.write(f"[UnifiedPermissionManager] No prompt_data returned, denying\n")
-                sys.stderr.flush()
                 return False
         else:
-            # Build default prompt data for basic approval
             prompt_data = {
                 'title': f'System: {registration.name}',
                 'message': registration.description or f'Execute {registration.name}?',
                 'options': [
-                    {
-                        'text': 'Yes, allow this once',
-                        'response': 'allow_once',
-                        'data': {}
-                    },
-                    {
-                        'text': 'No, cancel',
-                        'response': 'cancel',
-                        'data': {}
-                    }
+                    {'text': 'Yes, allow this once', 'response': 'allow_once', 'data': {}},
+                    {'text': 'No, cancel', 'response': 'cancel', 'data': {}}
                 ]
             }
 
-        # Use the existing async request_permission method
-        sys.stderr.write(f"[UnifiedPermissionManager.check_permission] Calling request_permission\n")
-        sys.stderr.flush()
-
         try:
             response_data = await self.request_permission(app, session, prompt_data, timeout=None)
-
-            sys.stderr.write(f"[UnifiedPermissionManager.check_permission] request_permission returned: {response_data}\n")
-            sys.stderr.flush()
-
             response = response_data.get('response', 'cancel')
             return response in ['allow_once', 'allow_session', 'allow_always']
-
-        except Exception as e:
-            sys.stderr.write(f"[UnifiedPermissionManager.check_permission] ❌ Exception: {e}\n")
-            sys.stderr.flush()
+        except Exception:
             return False
 
     def shutdown(self) -> None:

@@ -84,6 +84,8 @@ class PermissionManager:
     ) -> bool:
         """
         Check if execution should be permitted
+        
+        PHASE 2: Now routes through canonical authz facade
 
         Args:
             registration: What's being executed
@@ -94,45 +96,79 @@ class PermissionManager:
         Returns:
             True if approved, False if denied
         """
-
-        # DEBUG LOGGING
-        import sys
-        sys.stderr.write(f"\n{'='*80}\n")
-        sys.stderr.write(f"[PermissionManager.check_permission] ENTERED\n")
-        sys.stderr.write(f"{'='*80}\n")
-        sys.stderr.write(f"  registration.name: {registration.name}\n")
-        sys.stderr.write(f"  registration.type: {registration.type}\n")
-        sys.stderr.write(f"  registration.requires_approval: {registration.requires_approval}\n")
-        sys.stderr.write(f"  registration.risk_level: {registration.risk_level}\n")
-        sys.stderr.write(f"  app: {type(app) if app else None}\n")
-        sys.stderr.write(f"  session: {type(session) if session else None}\n")
-        sys.stderr.write(f"  context keys: {list(context.keys())}\n")
-        sys.stderr.flush()
-
+        
+        # PHASE 2: Route through canonical authz boundary
+        try:
+            from ..authz import check_authorization, AuthzSubject
+            from ..authz.facade import AuthzAction
+            
+            # Create subject from session
+            subject = AuthzSubject(
+                id=getattr(session, 'id', 'unknown') if session else 'unknown',
+                type='user',
+                attributes={'session': session} if session else {}
+            )
+            
+            # Map registration type to action
+            action_map = {
+                'command': 'command:execute',
+                'tool': 'tool:execute',
+                'api': 'api:call'
+            }
+            action = action_map.get(registration.type.value, f"{registration.type.value}:{registration.name}")
+            
+            # Extract resource
+            resource = (
+                context.get('file_path') or 
+                context.get('resource') or 
+                context.get('command') or 
+                registration.name
+            )
+            
+            # Call canonical authz boundary
+            decision = await check_authorization(
+                subject=subject,
+                action=action,
+                resource=resource,
+                context=context,
+                app=app,
+                session=session
+            )
+            
+            return decision.allowed
+            
+        except ImportError:
+            # Fallback to legacy implementation if authz not available
+            import sys
+            sys.stderr.write("[PermissionManager] Warning: authz module not available, using legacy\n")
+            sys.stderr.flush()
+            return await self._legacy_check_permission(registration, context, app, session)
+    
+    async def _legacy_check_permission(
+        self,
+        registration: ExecutionRegistration,
+        context: Dict[str, Any],
+        app=None,
+        session=None
+    ) -> bool:
+        """Legacy implementation (fallback only)"""
         # Skip if doesn't require approval
         if not registration.requires_approval:
-            sys.stderr.write(f"[PermissionManager] ❌ SKIPPING - requires_approval=False\n")
-            sys.stderr.write(f"[PermissionManager] → Returning True (auto-approved)\n")
-            sys.stderr.flush()
             return True
 
         # Check if permanently allowed
         key = f"{registration.type.value}:{registration.name}"
         if self.allowed_items.get(key, False):
-            # Still check for critical risks
             total_risk = self._assess_total_risk(registration, context)
             if total_risk == RiskLevel.CRITICAL:
-                # Always prompt for critical
                 pass
             else:
                 return True
 
         # Auto-accept modes
         if self.auto_accept_permanent or self.auto_accept_session:
-            # Still check for critical/high risks
             total_risk = self._assess_total_risk(registration, context)
             if total_risk in [RiskLevel.CRITICAL, RiskLevel.HIGH]:
-                # Prompt for high-risk operations
                 pass
             else:
                 return True
@@ -150,7 +186,6 @@ class PermissionManager:
                 context
             )
         else:
-            # No UI available - default to deny
             return False
 
     def _assess_total_risk(

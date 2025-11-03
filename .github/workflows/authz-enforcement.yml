@@ -1,0 +1,37 @@
+name: Authorization Boundary Enforcement
+
+on:
+  pull_request:
+    paths:
+      - 'modules/**/*.py'
+      - 'scripts/enforce_authz_boundary.py'
+  push:
+    branches:
+      - main
+    paths:
+      - 'modules/**/*.py'
+
+jobs:
+  enforce-authz-boundary:
+    name: Enforce Authorization Boundary
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run authorization boundary enforcement
+        run: |
+          python scripts/enforce_authz_boundary.py
+      
+      - name: Report results
+        if: failure()
+        run: |
+          echo "::error::Authorization boundary violations detected. See logs above."
+          echo "Please migrate to use: from modules.authz import check_authorization"
+          echo "See modules/authz/README.md for migration guide."

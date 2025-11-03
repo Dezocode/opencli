@@ -168,6 +168,7 @@ class AuthorizationManager:
         THE CANONICAL AUTHORIZATION CHECK
         
         This is the single entry point for ALL authorization decisions.
+        PHASE 3: Now includes performance monitoring
         
         Args:
             subject: Who is requesting access
@@ -180,6 +181,9 @@ class AuthorizationManager:
         Returns:
             AuthzDecision with full audit trail
         """
+        # PHASE 3: Start performance timer
+        start_time = time.time()
+        
         ctx = AuthzContext(
             subject=subject,
             action=action,
@@ -213,6 +217,21 @@ class AuthorizationManager:
         
         # Phase 4: Log the decision
         self._log_decision(decision)
+        
+        # PHASE 3: Record performance metrics
+        end_time = time.time()
+        latency_ms = (end_time - start_time) * 1000
+        
+        try:
+            from .performance import record_authorization_decision
+            record_authorization_decision(
+                latency_ms=latency_ms,
+                decision_result=decision_result.value,
+                risk_level=risk_level.value,
+                cache_hit=False  # TODO: Implement caching in future
+            )
+        except ImportError:
+            pass  # Performance monitoring not available
         
         return decision
     
