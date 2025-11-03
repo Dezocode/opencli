@@ -1,9 +1,15 @@
 """
 Async Permission System for TUI
 Integrates RiskAssessmentManager with buffered UI prompts
+
+⚠️  DEPRECATION NOTICE ⚠️
+This module is being phased out in favor of the canonical authorization boundary.
+New code should use: from modules.authz import check_authorization
+See: modules/authz/README.md for migration guide
 """
 
 import asyncio
+import warnings
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -13,6 +19,15 @@ try:
 except (ImportError, ValueError):
     from permissions.risk_assessment import RiskAssessmentManager, RiskLevel
     from permissions import PermissionTemplates, PermissionResponse
+
+# Issue deprecation warning when this module is imported
+warnings.warn(
+    "modules.async_permissions is deprecated. "
+    "Use modules.authz.check_authorization instead. "
+    "See modules/authz/README.md for migration guide.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class AsyncPermissionHandler:

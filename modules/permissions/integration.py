@@ -1,8 +1,14 @@
 """
 Permission System Integration - Unified permission management
 Connects permission buffer manager with UI widgets, risk assessment, and external systems
+
+⚠️  DEPRECATION NOTICE ⚠️
+This module is being phased out in favor of the canonical authorization boundary.
+Please migrate to: from modules.authz import check_authorization
+See: modules/authz/README.md for migration guide
 """
 
+import warnings
 from typing import Dict, Any, Optional, Callable
 import threading
 from .manager import PermissionBufferManager
@@ -10,6 +16,15 @@ from .manager import PermissionBufferManager
 from .enums import PermissionResponse
 from .templates import PermissionTemplates
 from .risk_assessment import RiskAssessmentManager, RiskLevel
+
+# Issue deprecation warning when this module is imported
+warnings.warn(
+    "modules.permissions.integration is deprecated. "
+    "Use modules.authz.check_authorization instead. "
+    "See modules/authz/README.md for migration guide.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class UnifiedPermissionManager:

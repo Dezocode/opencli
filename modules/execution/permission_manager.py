@@ -11,15 +11,33 @@ Features:
 - Session and persistent approval modes
 - Permission prompts in buffer
 - Path-based risk detection
+
+⚠️  DEPRECATION NOTICE ⚠️
+This module is being phased out in favor of the canonical authorization boundary.
+New code should use: from modules.authz import check_authorization
+See: modules/authz/README.md for migration guide
+
+This module will continue to work during the migration period by routing
+through the authz facade, but it will be removed in a future version.
 """
 
 import json
 import os
+import warnings
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from enum import Enum
 
 from .registry import ExecutionRegistration, ExecutionType, RiskLevel
+
+# Issue deprecation warning when this module is imported
+warnings.warn(
+    "modules.execution.permission_manager is deprecated. "
+    "Use modules.authz.check_authorization instead. "
+    "See modules/authz/README.md for migration guide.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class PermissionMode(Enum):
