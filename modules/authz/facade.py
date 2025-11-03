@@ -128,12 +128,21 @@ class AuthorizationManager:
     Central authorization manager - singleton instance
     
     This is the canonical source of truth for authorization decisions.
+    PHASE 3: Now includes policy versioning
     """
     
     def __init__(self):
         self._lock = threading.Lock()
         self._decision_log: List[AuthzDecision] = []
-        self._policy_version = "1.0.0"
+        
+        # PHASE 3: Policy versioning support
+        try:
+            from .policy_versioning import get_policy_manager
+            self._policy_manager = get_policy_manager()
+            self._policy_version = self._policy_manager.get_current_version()
+        except ImportError:
+            self._policy_manager = None
+            self._policy_version = "1.0.0"
         
         # Legacy compatibility: reference to existing permission managers
         self._legacy_permission_manager = None
@@ -141,7 +150,8 @@ class AuthorizationManager:
         
         logger.info("AuthorizationManager initialized", extra={
             "policy_version": self._policy_version,
-            "instance_id": id(self)
+            "instance_id": id(self),
+            "policy_versioning_enabled": self._policy_manager is not None
         })
     
     def set_legacy_managers(self, permission_manager, risk_manager):
@@ -204,6 +214,11 @@ class AuthorizationManager:
         # Phase 2: Check if we need to prompt user
         decision_result = await self._evaluate_policy(ctx, app, session)
         
+        # PHASE 3: Get policy version for this request (considers canary)
+        policy_version = self._policy_version
+        if self._policy_manager:
+            policy_version = self._policy_manager.get_policy_version_for_request()
+        
         # Phase 3: Create decision
         decision = AuthzDecision(
             allowed=(decision_result == DecisionResult.ALLOW),
@@ -211,7 +226,7 @@ class AuthorizationManager:
             reason=self._get_decision_reason(decision_result, risk_level),
             risk_level=risk_level,
             context=ctx,
-            policy_version=self._policy_version,
+            policy_version=policy_version,
             decision_path="authz.facade.check_authorization"
         )
         
